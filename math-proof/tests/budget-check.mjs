@@ -126,6 +126,9 @@ section('计量（session-traffic）')
   }
   const zpath = join(SESSIONS, 'multi-frame.jsonl.zstd')
   if (zstd !== null) writeFileSync(zpath, Buffer.concat(frames))
+  // 没有 zstd 时也要写一个「像 zstd 的文件」（magic + 垃圾），好让降级断言走**真分支**
+  // （否则 !existsSync 会先短路，测不到「有 magic 但解不了」这条路）
+  else writeFileSync(zpath, Buffer.concat([Buffer.from([0x28, 0xb5, 0x2f, 0xfd]), Buffer.alloc(64, 7)]))
   if (zstd === null) {
     skip('zstd 多帧 / 尾读 / 尾部撕裂 6 条断言', `本机 Node ${process.version} 的 node:zlib 没有 zstd（需要 ≥22.15）；模块已降级为「读不了压缩日志」而不是崩溃`)
     ok('缺 zstd 时 foldSession 仍返回 0 回合（不抛）', traffic.foldSession(zpath).turns.length === 0)
