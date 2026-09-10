@@ -57,14 +57,18 @@ graph LR
     H2["impl/ruleset.mjs<br/>（判定规则：断链豁免/评分权重/postulate 口径/编译分诊）"]
     H3["impl/dsh-inventory.mjs<br/>（共享事实层）"]
   end
-  subgraph COLD["❄️ 冷（需新会话；且必然改缓存前缀）"]
-    C1["plugins/*.mjs 的结构 / schema / 输出格式"]
+  subgraph COLD["❄️ 冷（**需重启 dsh 进程**；文本类改动另说）"]
+    C1["plugins/*.mjs、hooks/*.mjs 的**代码**（ESM 缓存：新会话不够）"]
     C2["agent.cordis.yml 行 / persona"]
     C3["技能描述（frontmatter）——正文改动只影响之后新加载的技能"]
   end
   HOT -->|不用新会话| OK1["改规则/纪律：下一次模型请求即生效"]
   COLD -->|要新会话| OK2["standing mount 只在 composition 的 mtime+size 变化时重挂"]
 ```
+
+> ⚠ **为什么是「重启进程」而不是「新会话」**：Cordis 加载器对本地行用**无 cache-busting 的 `import(url)`**，
+> Node 的 ESM 缓存按 URL 在进程内固化 → 同进程里重新挂载只会拿到缓存的旧模块（实测：改文件后再 import 仍是旧值）。
+> `scripts/reload.mjs` 会比对「代码文件 mtime vs dsh 进程启动时间」给出结论。
 
 **判断眼前这个会话跑的是哪版**：`proof_dag action:"doctor"` —— 报「插件本体 本实例 hash vs 磁盘 hash」
 与「规则集 rN/hash」，并把「本会话启动后规则已变更」显式标出来。**引用分数前先跑它。**

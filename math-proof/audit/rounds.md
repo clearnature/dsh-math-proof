@@ -2533,3 +2533,57 @@ inject=['tools','systemPrompt'] → ✅ 挂载成功（注册 proof_audit + 纪�
 ### 64.4 复验
 
 `check-all` → **CHECK_ALL_OK 19/19**；挂载校验 ✅。
+
+## 六十五、第六十轮：**修好了却仍报同一个错**——Node ESM 缓存（2026-09-10）
+
+用户反馈：同一报错仍在（`unknown prompt variable "{{key}}" in section "math-proof:discipline"`），
+而磁盘上的文件**已经修好了**（`prompt-vars-check` 证明注入文本里没有任何花括号）。
+
+### 65.1 根因：Cordis 加载器**不做 cache-busting**，同进程重挂载拿的是缓存旧模块
+
+```js
+// cordis-plugin-loader lib/index.js:275-281
+else if (name.startsWith(".")) return await import(new URL(name, this.ctx.baseUrl).href)
+//                                                        ↑ 没有 ?v= 之类的 query
+```
+
+实证（`/tmp/esmtest`）：
+
+```
+第一次 import: OLD
+改文件后再 import（同进程）: OLD   ❌ 仍是缓存的旧模块
+带 ?v= 重新 import: FIXED          ← 只有 query 能打破缓存
+```
+
+**推论（修正我们一直以来的错误认知）**：改 `plugins/**`、`hooks/**` 的**代码** →
+**必须重启 dsh 进程**；「开新会话 / 重新挂载」**不够**（模块 URL 相同 → 命中 ESM 缓存）。
+真热的只有「每次用时读文件」的内容：`impl/discipline.md`、`impl/ruleset.mjs`（`?v=` 热读）、`impl/local-paths.json` 的**值**。
+
+### 65.2 用户这次的具体时间线（精确到分钟）
+
+| 时刻 | 事件 |
+| --- | --- |
+| 12:18:05 | 我修 `plugins/proof-discipline.mjs`（`inject` 加 `systemPrompt`） |
+| **12:27:35** | **用户重启了 dsh 进程**（pid 254841）→ 这次重启**吃到了** inject 修复 |
+| **12:29:48** | 我才修 `impl/local-paths.mjs` 里的 `{{key}}`（**比进程晚 2 分钟**） |
+| 12:35+ | 用户再试 → 进程里仍是旧 `local-paths.mjs` → **同一个错** |
+
+结论：**不是没修好，是修复晚于进程启动**。再重启一次即生效。
+
+### 65.3 工具与文档更正（并加门禁 `reload-check`，第 20 个入口）
+
+1. `scripts/reload.mjs`：新增**进程启动时间 vs 代码 mtime** 比对 → 直接给出
+   「**必须重启 dsh 进程（ESM 缓存：新会话不够）**」的判定；输出里解释机制（引用加载器行号 + 实证结论）。
+   - 顺带修一处**误判**：`codeFiles()` 原先只查 `plugins/`，漏了 `impl/` 与 `hooks/` →
+     在用户这台机器上它曾错误报告「进程内已是当前代码」（实际 `impl/local-paths.mjs` 是新的）。现在覆盖
+     `plugins/** + hooks/** + impl/**.mjs + hooks.json`；
+   - 进程检测改用 `ps -eo pid,etimes`（不依赖本地化日期格式）。
+2. 文档更正（三处）：`README.md` §一.9 热重载表、`docs/maps/M5-lifecycle.md`、`agent.cordis.yml` 头部 ——
+   冷档一律改为「**必须重启进程**」，并注明实测日期与机制。
+3. 新门禁 `tests/reload-check.mjs`（**11/11**）：断言 reload 给出重启判定、冷档覆盖三目录 + `hooks.json`、
+   三处文档都写明「重启」、**README 不得再把插件代码改动说成「新会话即可」**（反面断言；顺带修掉它自己
+   对「校正括注」的误判）。
+
+### 65.4 复验
+
+`check-all` → **CHECK_ALL_OK 20/20**。

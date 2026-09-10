@@ -187,7 +187,9 @@
 #   node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs      # 一键跑全部 15 个门禁 → CHECK_ALL_OK
 # 🔥 热重载：纪律文本真身在 `impl/discipline.md`，注册时用**函数**（每次装配 prompt 重读），
 #   因此改纪律**不需要新会话**（代价：前缀缓存失效，但会话与进度保留）。
-#   其余（工具描述/schema、composition 行、persona）属冷档：需新会话，且同样会改缓存前缀。
+#   其余属冷档：**改 `plugins/**` / `hooks/**` 的代码必须重启 dsh 进程**——Cordis 用无 query 的
+#   `import(url)`，Node 的 ESM 缓存按 URL 固化，同进程重挂载拿到的仍是旧模块（2026-09-10 实测更正：
+#   「新会话」不够）。跑 `scripts/reload.mjs` 会比对「代码 mtime vs dsh 进程启动时间」给出结论。
 #   详见 `scripts/reload.mjs`。
 #
 # 再跑测试套件（零依赖，纯 node 内建模块；全部期望通过）：

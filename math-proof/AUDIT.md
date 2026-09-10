@@ -193,6 +193,7 @@ orbitStabilizer      : Orbit x ≃ A4/Stab x            -- :1068
 | 四十五 | 插件市场 | `scripts/market.mjs`：市场 272 / 已装 214 / 可装未装 58（同版本线 28）；版本线陷阱（latest 停在 0.0.1-rc.1）；相关 18 条均带前置条件 |
 | 四十六 | 升级后插件对账 | 三平面 provenance：宿主 117 启用/25 禁用、preset 37 行（接管 22 行）、双份 0、真缺口 0；改正「禁用=已挂」的分类错误；宿主平面本就无我们的改动，重置没丢东西 |
 | 六十一 | fable5 是流程而非纯知识 |
+| 六十五 | 修好了却仍报同一个错：**ESM 缓存** | Cordis 用无 query 的 `import(url)`，Node ESM 缓存按 URL 固化 → 改插件/钩子**代码必须重启进程**（新会话不够）；用户 12:27 重启、我的修复 12:29 才写 → 迟 2 分钟；reload.mjs 增加「代码 mtime vs 进程启动」判定并修掉漏查 impl/ 的误判；新增 `reload-check` 门禁（20 个入口） |
 | 六十四 | **本轮运行失败的第二个根因** | 「本机路径」小节里的示例文字 `{{key}}` 被 system-prompt 当成未注册变量 → 整轮装配失败；已改掉 + 新增 `prompt-vars-check` 门禁（19 个入口，10/10；放回 bug 立刻红） |
 | 六十三 | **数学模式不可用的真根因** | `proof-discipline.mjs` 用 `ctx.systemPrompt` 却未 `inject`（升级后 Cordis 检查变严）→ 该行挂不上 → 整个模式不可用；已修 + 新增 `inject-check` 门禁（静态 + 严格 ctx 真挂载模拟，20/20）；并加固「配置坏掉不连坐 preset」（内置兜底 + 防漂移断言） |
 | 六十二 | fable5 两条升级为机器挡 | 新增 `hooks/fable5-gate.mjs`（PreToolUse）：**计划绑定**（多步任务未落台账就动文件 → 拦一次）+ **防虚假完成**（完成宣称无证据 → 拦）；`MATH_PROOF_FLOW_GATE=off` 可关；hooks-check 35→48 |

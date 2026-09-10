@@ -49,7 +49,8 @@
 | 🔥 热 | `impl/discipline.md`（纪律文本） | **不需要**——每次装配 prompt 重读（按 mtime） |
 | 🔥 热 | `impl/ruleset.mjs`（判定规则：断链豁免/评分权重/postulate 口径/编译分诊） | **不需要**——工具每次调用带 `?v=<mtime>` 重新 import；输出带 `规则集 rN/hash` 戳 |
 | 🟡 可热 | 工具执行逻辑（若迁到 `impl/`） | 改造后不需要，且**缓存不失效**（描述未变） |
-| ❄️ 冷 | 工具描述/schema、`agent.cordis.yml`、persona | 需要新会话，且必然改缓存前缀 |
+| ❄️ 冷 | **`plugins/**`、`hooks/**` 的代码** | **必须重启 dsh 进程**——Cordis 用无 query 的 `import(url)`，Node 的 ESM 缓存按 URL 固化：同进程重挂载拿到的仍是**旧模块**（实测：改文件后再 import 仍是旧值，只有 `?v=` 能打破）。**「新会话」在这里不够**（2026-09-10 实测更正） |
+| ❄️ 冷 | 工具描述/schema、`agent.cordis.yml`、persona | 需要**重启进程**（顺带解决上面的 ESM 缓存），且必然改缓存前缀 |
 
 ```bash
 node scripts/reload.mjs   # 看当前状态与操作指引
@@ -57,6 +58,10 @@ node scripts/reload.mjs   # 看当前状态与操作指引
 
 **代价说清**：改纪律 = 改缓存前缀 → 下一轮前缀缓存失效（物理必然），但**会话、台账、见证、历史全保留**；
 改工具逻辑（不动描述）= **缓存完全不失效**。
+
+> ⚠ **改代码 ≠ 改文本**：只有「每次用时读文件」的文本/规则是真热（`impl/discipline.md`、`impl/ruleset.mjs`、
+> `impl/local-paths.json` 的值）。**改 `plugins/**` 或 `hooks/**` 的代码必须重启 dsh 进程**——
+> 跑 `node scripts/reload.mjs` 它会比对「代码文件 mtime vs dsh 进程启动时间」并直接告诉你是否必须重启。
 
 ## 一.10 DSH 插件：三平面 provenance（谁在提供，谁只是被禁用）
 
