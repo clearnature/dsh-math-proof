@@ -45,6 +45,8 @@ const turns = scanSessionTurns(files)
 const usable = turns.filter((t) => t.tok > 0)
 const closed = usable.filter((t) => t.open !== true && t.reason === 'completed')
 
+// ⚠ 按**生效预设**分组（`agent-preset/selected` 事件），不是 header 里的创建时预设——
+// 实测：某会话 header 写 standard，中途切到 math-proof，按 header 分组会归错档。
 const byPreset = {}
 for (const t of usable) byPreset[t.preset || '—'] = (byPreset[t.preset || '—'] ?? 0) + 1
 const byClass = new Map()
@@ -88,7 +90,8 @@ if (wantJson) {
   const fmt = (n) => fmtTok(n)
   console.log('# 数学证明模式 — 会话流量报表\n')
   console.log(`- 数据源: \`${process.env.MATH_PROOF_SESSIONS_ROOT ?? '~/.dsh/sessions'}\`｜日志 ${overall.files} 个｜回合 ${overall.turns} 个（有 usage ${overall.usable}）`)
-  console.log(`- 会话预设分布: ${Object.entries(byPreset).map(([k, v]) => `${k} ${v}`).join('｜')}`)
+  console.log(`- 回合的**生效预设**分布: ${Object.entries(byPreset).map(([k, v]) => `${k} ${v} 轮`).join('｜')}`)
+  console.log('  （口径：`agent-preset/selected` 事件；会话中途切换过的话，header 里的 `agentPreset` 是**创建时**的旧值）')
   console.log(`- 回合结束原因: ${Object.entries(overall.byReason).map(([k, v]) => `${k} ${v}`).join('｜')}`)
   console.log('\n## 单回合（口径：中位数，不用均值——一个失控回合足以把均值拉偏）')
   console.log(`- tok: 中位 **${fmt(overall.tok.median)}**｜p25 ${fmt(percentile(usable.map((t) => t.tok), 0.25))}｜p75 ${fmt(percentile(usable.map((t) => t.tok), 0.75))}｜p90 ${fmt(overall.tok.p90)}｜max ${fmt(overall.tok.max)}｜合计 ${fmt(overall.tok.sum)}`)

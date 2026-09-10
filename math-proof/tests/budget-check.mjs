@@ -494,11 +494,24 @@ section('会话 token 预算（SESSION / 总闸）')
       ok('输出行带「其中推理」（推理为 0 时不写）', block.includes('35,932 tok（其中推理 9,672 tok）') && !traffic.renderUsageBlock({ inTok: 1, cacheTok: 2, outTok: 3, reasoningTok: 0, tok: 6 }).includes('其中推理'))
       ok('提供方缺失时如实写「未记录」', traffic.renderUsageBlock({ inTok: 1, cacheTok: 0, outTok: 1, tok: 2 }).includes('未记录'))
       ok('turnUsageRow 与界面字段一一对应', (() => { const u = traffic.turnUsageRow(guiTurn); return u.total === 25178836 && u.uncachedInput === 26872 && u.cacheRead === 25116032 && u.output === 35932 && u.reasoning === 9672 && Math.abs(u.cacheHitRate - 0.99893) < 1e-4 })())
+      // 第二条真实向量：**数学证明模式那个会话**（界面同样给过，逐字段核对）
+      const guiTurn2 = { inTok: 22269, cacheTok: 11852288, outTok: 50396, reasoningTok: 33493, tok: 22269 + 11852288 + 50396, provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+      const block2 = traffic.renderUsageBlock(guiTurn2)
+      ok('第二条真实向量：本轮用量逐字符一致', block2.split('\n')[0] === '本轮用量 11,924,953 tok', block2.split('\n')[0])
+      ok('第二条真实向量：命中率 99.8% 与三个分项一致', block2.includes('\n    99.8%\n') && block2.includes('22,269 tok') && block2.includes('11,852,288 tok') && block2.includes('50,396 tok（其中推理 33,493 tok）'), block2.split('\n').filter((l) => l.includes('tok')).join(' | '))
+      ok('两条向量都满足恒等式', guiTurn.tok === guiTurn.inTok + guiTurn.cacheTok + guiTurn.outTok && guiTurn2.tok === guiTurn2.inTok + guiTurn2.cacheTok + guiTurn2.outTok)
+
       // 与日志折叠的一致性：fixture turn1 的渲染结果等于它自己的 tok（也是界面会显示的那个数）
       const fx1 = fxAll[0]
       const b1 = traffic.renderUsageBlock(fx1)
       ok('日志折叠出来的回合也能渲染（且总量等于该回合 tok）', b1.includes(`本轮用量 ${traffic.fmtInt(fx1.tok)} tok`) && fx1.tok === fx1.inTok + fx1.cacheTok + fx1.outTok, b1.split('\n')[0])
     }
+
+    // 生效预设的归属（header 只是创建时的值）
+    ok('回合按**生效预设**归属（切换前是 header 的，切换后是事件里的）', fxAll[0].preset === 'math-proof' && fxAll[1].preset === 'fixture-preset-b' && fxAll[3].preset === 'fixture-preset-b', fxAll.map((t) => `${t.turn}:${t.preset}`).join(' '))
+    ok('sessionTotals 同时给出「创建时」与「实际生效」两个预设', totals.presetAtCreation === 'math-proof' && totals.preset === 'fixture-preset-b', JSON.stringify({ created: totals.presetAtCreation, effective: totals.preset }))
+    ok('byPreset 按预设拆分（切换前后分开算）', totals.byPreset['math-proof']?.turns === 1 && totals.byPreset['fixture-preset-b']?.turns === 3, JSON.stringify(Object.fromEntries(Object.entries(totals.byPreset).map(([k, v]) => [k, v.turns]))))
+    ok('scanSessionTurns 用生效预设（不是 header 的旧值）', traffic.scanSessionTurns([FIXTURE])[0].preset === 'math-proof' && traffic.scanSessionTurns([FIXTURE])[3].preset === 'fixture-preset-b')
 
     // 结算样本带上分解与 provider（报表要按 provider 归类）
     const prof2 = traffic.blankProfile()

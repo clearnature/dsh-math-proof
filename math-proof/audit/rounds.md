@@ -3128,3 +3128,52 @@ compaction 管的是**上下文压力**（不是累计花费）；`tokenUsage` �
 
 `budget-check` 308→**328/328**（+20 条）；`CHECK_ALL_OK 22/22`（Node 24 + 22）。
 文档：M7 新增 §M7.7a′（界面/日志/内部三列对照表 + 恒等式 + 实测校验 + 用法），README 一段。
+
+## 七十六、第二条真实向量核对 + 预设归属修正（2026-09-10）
+
+**用户给了第二条界面数据**（数学证明模式那个会话的最近一轮）：
+
+```
+本轮用量 11,924,953 tok
+提供方 / 模型  deepseek-official/deepseek-v4-flash
+缓存命中 99.8%
+未缓存输入 22,269 tok
+缓存读取 11,852,288 tok
+输出 50,396 tok（其中推理 33,493 tok）
+```
+
+### 76.1 逐字段核对：**五处全中**
+
+在日志里定位到该回合（`session-925bd92b-ee53-4226-9c52-81007cadd9bb` turn 5），我们的折叠给出：
+
+| 字段 | 界面 | 我们 | |
+| --- | --- | --- | --- |
+| 本轮用量 | 11,924,953 | 11,924,953 | ✅ |
+| 提供方 / 模型 | deepseek-official/deepseek-v4-flash | 同 | ✅ |
+| 缓存命中 | 99.8% | 99.8% | ✅ |
+| 未缓存输入 | 22,269 | 22,269 | ✅ |
+| 缓存读取 | 11,852,288 | 11,852,288 | ✅ |
+| 输出（推理） | 50,396（33,493） | 同 | ✅ |
+
+两条真实向量（长会话 25,178,836 那条与此条）都写进回归，字段口径一旦漂移立刻变红。
+
+### 76.2 顺带查出一个真 bug：**预设归属按 header 会归错档**
+
+用户说「这个是**数学证明模式**的会话数据」，但该会话 header 写的是 `agentPreset: "standard"`。
+查日志发现 seq 4 有一条 `agent-preset/selected {"agentPreset":"math-proof"}` ——
+**header 只记会话创建时的预设，中途在 GUI 切换不改它**。而我的报表按 `header.agentPreset` 分组，
+于是把这类会话算成了 standard（实测报表里 70 轮 math-proof 中有 6 轮来自这里）。
+
+修法（与 effort / provider 同样的**阶跃值**处理）：
+
+- 折叠 `agent-preset/selected` → 逐回合记 `preset`（**切换前后分开算**，不是整会话一个值）；
+- `sessionTotals` 同时给 `presetAtCreation`（header）与 `preset`（生效）、以及 `byPreset` 分组；
+- `scanSessionTurns` / `traffic-report.mjs` 一律用**生效预设**，并在报表里点明口径；
+- 顺手修掉自己引入的一个惰性初始化 bug：`lastPreset` 在循环前用 `header?.agentPreset` 初始化，
+  而那时 header 还是 null → **第一轮的 preset 会丢**。改成读到 `session` 事件时再取初值
+  （fixture 里已验证：切换前 `math-proof`、切换后 `fixture-preset-b`）。
+
+### 76.3 复验
+
+`budget-check` 328→**335/335**（+7 条：第二条真实向量 3 条、预设归属 4 条）；
+`CHECK_ALL_OK 22/22`。文档：M7 §M7.7a′ 增补两条真实向量对照表 + 预设归属说明。

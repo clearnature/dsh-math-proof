@@ -318,6 +318,14 @@ function blankTurn(turn) {
     /** 本回合实际走的 provider / model（同样来自 `request/header`，是阶跃值）。 */
     provider: null,
     model: null,
+    /**
+     * 本回合实际生效的 **agent preset**（阶跃值）。
+     *
+     * ⚠ `header.agentPreset` 是会话**创建时**的预设，用户中途切换（GUI 里换 preset）**不会**改 header——
+     * 真实切换落成 `agent-preset/selected` 事件（实测：某会话 header 写 `standard`，
+     * 但 seq 4 有 `{"agentPreset":"math-proof"}`）。按 header 分组会把这类会话归错档。
+     */
+    preset: null,
     /** 命中的回执标记（**只留标记本身，不留原文**——一个回合的工具结果可能有几百 KB）。 */
     receipts: [],
     calls: [],
@@ -343,15 +351,29 @@ export function foldLines(lines, options = {}) {
   /** 当前生效的 provider / model（同上：阶跃值，跨回合延续）。 */
   let lastProvider = null
   let lastModel = null
+  /**
+   * 当前生效的 agent preset（`header.agentPreset` 只是创建时的值，中途切换看这个）。
+   * ⚠ 初值必须在读到 header **之后**才取——循环前 header 还是 null，否则第一轮的 preset 会丢。
+   */
+  let lastPreset = null
   for (const line of lines) {
     const e = parseLine(line)
     if (e === null) continue
     if (e.type === 'session') {
       header ??= e
+      if (lastPreset === null) lastPreset = header.agentPreset ?? null
       continue
     }
     const t = e.data?.turn
     if (typeof t === 'number') current = t
+    if (e.type === 'agent-preset/selected') {
+      const chosen = e.data?.agentPreset
+      if (typeof chosen === 'string' && chosen !== '') {
+        lastPreset = chosen
+        if (current !== null) turnOf(current).preset = chosen
+      }
+      continue
+    }
     if (e.type === 'request/header') {
       // 每一步的真实请求配置都会落盘（`data.header.config`），但**记录里没有 turn 字段**
       // → 按「最近一次出现的回合号」归属。这是「思考强度真的被改了吗」的**审计痕迹**，
@@ -392,6 +414,7 @@ export function foldLines(lines, options = {}) {
         tr.effortAtStart = lastEffort
         tr.provider = lastProvider
         tr.model = lastModel
+        tr.preset = lastPreset
         break
       case 'turn/end':
         tr.end = e.time ?? tr.end
@@ -474,7 +497,7 @@ export function foldLines(lines, options = {}) {
     delete tr.effortClosed
     out.push(tr)
   }
-  return { header, turns: out }
+  return { header, turns: out, presetEffective: lastPreset }
 }
 
 /** 从 content blocks 里取文本（工具结果 / 用户消息通用）。 */
@@ -722,7 +745,8 @@ export function scanSessionTurns(files, options = {}) {
         ...(options.keepCalls === true ? { calls } : {}),
         file,
         origin: folded.header?.origin ?? 'main',
-        preset: folded.header?.agentPreset ?? '',
+        // 生效预设优先（用户中途切换过的话，header 是旧值）
+        preset: rest.preset ?? folded.presetEffective ?? folded.header?.agentPreset ?? '',
         session: folded.header?.id ?? '',
         cwd: folded.header?.cwd ?? '',
       })
@@ -740,7 +764,7 @@ export function scanSessionTurns(files, options = {}) {
  * 只在「会话第一次开局」时读一次全量日志（约 2s / 20MB），之后靠每回合增量累加。
  */
 export function sessionTotals(file) {
-  const { header, turns } = foldSession(file)
+  const { header, turns, presetEffective } = foldSession(file)
   const acc = { tok: 0, inTok: 0, cacheTok: 0, outTok: 0, reasoningTok: 0, steps: 0, calls: 0 }
   const byProvider = new Map()
   const byModel = new Map()
@@ -772,9 +796,17 @@ export function sessionTotals(file) {
     ...acc,
     turns: turns.length,
     session: header?.id ?? null,
-    preset: header?.agentPreset ?? null,
+    /** 生效预设（`header.agentPreset` 只是创建时的值——中途切换过就以事件为准）。 */
+    preset: presetEffective ?? header?.agentPreset ?? null,
+    presetAtCreation: header?.agentPreset ?? null,
     byProvider: Object.fromEntries(byProvider),
     byModel: Object.fromEntries(byModel),
+    byPreset: turns.reduce((acc, tr) => {
+      const k = tr.preset ?? '—'
+      const cur = acc[k] ?? { tok: 0, turns: 0, inTok: 0, cacheTok: 0, outTok: 0 }
+      acc[k] = { tok: cur.tok + (tr.tok || 0), turns: cur.turns + 1, inTok: cur.inTok + (tr.inTok || 0), cacheTok: cur.cacheTok + (tr.cacheTok || 0), outTok: cur.outTok + (tr.outTok || 0) }
+      return acc
+    }, {}),
   }
 }
 
