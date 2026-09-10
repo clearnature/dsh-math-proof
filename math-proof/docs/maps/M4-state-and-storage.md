@@ -113,6 +113,24 @@ git -C ~/.dsh/state/math-proof/witness-<ws> show <commit>:dag.json | head
 > 根因在 harness 的原子写实现，不在本 preset。彻底修需要改 `dsh-fs-local`（新文件应按 `0o666 & ~umask` 落权限）；
 > 这属于上游改动，本 preset 只做**自己能做的那一半**：分发件归一化 + 门禁 + 文档写明。
 
+## M4.5c 状态目录可覆盖（`MATH_PROOF_STATE_DIR`）——顺带修掉一个测试污染事故
+
+状态目录（默认 `~/.dsh/state/math-proof`）原先在 `proof-dag` / `agda-engine` / `python-oracle` /
+`prover-limits` 里**各自硬编码 `homedir()`**。2026-09-10 暴露出两个后果：
+
+| 后果 | 实测 |
+| --- | --- |
+| **测试污染真实状态** | `tests/run.mjs` 的「编译热点」把假回执写进**用户真实回执目录**，并断言自己是「最贵的 3 条」 |
+| **门禁在本机红、CI 绿** | 用户那边出现 **345.9s / 339.5s / 169.0s** 的真实编译回执 → 假回执（60s/30s）被挤出榜外 → 断言失败；CI 的状态目录是空的，所以永远是绿的 |
+
+修法：**唯一实现** `impl/state-dir.mjs`（`stateDir()` / `statePath()`），优先读 `MATH_PROOF_STATE_DIR`，
+未设置时回落到原来的 `~/.dsh/state/math-proof`（**生产行为逐字符不变**）；四个插件全部改走它。
+随后 `tests/run.mjs` 与 `tests/hooks-check.mjs` 把**整份套件**（含进程内插件与派生钩子）的状态指向同一临时目录
+——两处必须一致，否则「进程内写台账、钩子读临时目录」这类错位会让门禁红（踩过）。
+
+门禁：`tests/paths-check.mjs` 新增 6 条——唯一实现存在、支持 env 覆盖、覆盖生效、默认回落、
+**插件里不许再硬编码状态目录**、主套件确实做了隔离。
+
 ## M4.6 已知缺口（如实列出）
 
 | 缺口 | 现状 | 影响 |

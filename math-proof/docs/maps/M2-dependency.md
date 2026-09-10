@@ -59,19 +59,24 @@ graph LR
   impl_budget-policy_mjs["impl/budget-policy.mjs"] --> impl_session-traffic_mjs["impl/session-traffic.mjs"]
   impl_quota_mjs["impl/quota.mjs"] --> impl_session-traffic_mjs["impl/session-traffic.mjs"]
   impl_session-traffic_mjs["impl/session-traffic.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
+  impl_session-traffic_mjs["impl/session-traffic.mjs"] --> impl_state-dir_mjs["impl/state-dir.mjs"]
   plugins_agda-engine_mjs["plugins/agda-engine.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
   plugins_agda-engine_mjs["plugins/agda-engine.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
+  plugins_agda-engine_mjs["plugins/agda-engine.mjs"] --> impl_state-dir_mjs["impl/state-dir.mjs"]
   plugins_budget_mjs["plugins/budget.mjs"] --> impl_budget-policy_mjs["impl/budget-policy.mjs"]
   plugins_budget_mjs["plugins/budget.mjs"] --> impl_quota_mjs["impl/quota.mjs"]
   plugins_budget_mjs["plugins/budget.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
   plugins_budget_mjs["plugins/budget.mjs"] --> impl_session-traffic_mjs["impl/session-traffic.mjs"]
   plugins_effort-governor_mjs["plugins/effort-governor.mjs"] --> impl_budget-policy_mjs["impl/budget-policy.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
+  plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> impl_state-dir_mjs["impl/state-dir.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> plugins_agda-engine_mjs["plugins/agda-engine.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> plugins_proof-graph_mjs["plugins/proof-graph.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> plugins_python-oracle_mjs["plugins/python-oracle.mjs"]
   plugins_proof-discipline_mjs["plugins/proof-discipline.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
   plugins_proof-discipline_mjs["plugins/proof-discipline.mjs"] --> plugins_agda-engine_mjs["plugins/agda-engine.mjs"]
+  plugins_prover-limits_mjs["plugins/prover-limits.mjs"] --> impl_state-dir_mjs["impl/state-dir.mjs"]
+  plugins_python-oracle_mjs["plugins/python-oracle.mjs"] --> impl_state-dir_mjs["impl/state-dir.mjs"]
   scripts_market_mjs["scripts/market.mjs"] --> impl_dsh-inventory_mjs["impl/dsh-inventory.mjs"]
   scripts_plugins_mjs["scripts/plugins.mjs"] --> impl_dsh-inventory_mjs["impl/dsh-inventory.mjs"]
   scripts_publish_mjs["scripts/publish.mjs"] --> impl_secret-scan_mjs["impl/secret-scan.mjs"]
@@ -85,7 +90,7 @@ graph LR
   tests_refs-check_mjs["tests/refs-check.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
 ```
 
-- 有出边的模块（**核心层**）：`impl/budget-policy.mjs`、`impl/quota.mjs`、`impl/session-traffic.mjs`、`plugins/agda-engine.mjs`、`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/traffic-report.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
+- 有出边的模块（**核心层**）：`impl/budget-policy.mjs`、`impl/quota.mjs`、`impl/session-traffic.mjs`、`plugins/agda-engine.mjs`、`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`plugins/python-oracle.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/traffic-report.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
 - 无出边的模块（**叶子/独立**）：`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/benchmark.mjs`、`tests/budget-check.mjs`、`tests/cache-check.mjs`、`tests/docs-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/hot-section-check.mjs`、`tests/inject-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plugins-check.mjs`、`tests/prompt-vars-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/reload-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`
 
 > 依赖方向即「谁可以 import 谁」：`plugins/` 是注册层（薄），`impl/` 是可热读共享层，
@@ -101,6 +106,7 @@ graph LR
 | `impl/quota.mjs` | `node:fs` `node:path` | — |
 | `impl/ruleset.mjs` | `node:crypto` `node:fs` `node:url` | — |
 | `impl/session-traffic.mjs` | `node:crypto` `node:fs` `node:os` `node:path` `node:zlib` | — |
+| `impl/state-dir.mjs` | `node:os` `node:path` | — |
 | `plugins/agda-engine.mjs` | `node:crypto` `node:fs` `node:os` `node:path` | — |
 | `plugins/proof-dag.mjs` | `node:crypto` `node:fs` `node:url` `node:os` `node:path` | — |
 | `plugins/proof-discipline.mjs` | `node:fs/promises` `node:fs` `node:path` | — |
@@ -165,8 +171,6 @@ graph LR
 | `dag-<ws-hash>.json`（命题台账，**主数据**） | `plugins/proof-dag.mjs` |
 | `graph-<ws-hash>.{json,md}`（知识图谱导出，可重建） | `plugins/proof-dag.mjs` |
 | `history-<ws-hash>.json`（评分历史，限 200 条） | `plugins/proof-dag.mjs` |
-| `oracle-receipts/`（oracle 回执） | `plugins/python-oracle.mjs` |
-| `receipts/`（编译回执 + `agg-*.json` 聚合索引） | `plugins/agda-engine.mjs`、`plugins/proof-dag.mjs` |
 | `witness-<ws-hash>/`（独立 git 见证仓库） | `plugins/proof-dag.mjs` |
 
 > 维护入口：`scripts/state-gc.mjs`（归档回执 / 重建聚合 / 压缩见证 / 清理图谱导出）。

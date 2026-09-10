@@ -12,6 +12,17 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmdirSync, rmSync, w
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+/**
+ * ⚠ **状态目录隔离**：本套件会写回执 / 台账 / 见证仓库。
+ * 2026-09-10 真实事故：本套件把假回执写进**用户真实回执目录**，还断言自己是「最贵的 3 条」——
+ * 用户那边出现 345.9s / 169.0s 的真实编译后，假回执被挤掉，**同一份代码在 CI 绿、在本机红**
+ * （CI 的状态目录是空的）。现在整份套件把状态指向临时目录；
+ * 路径里保留 `state/math-proof` 两段，以免打断那些检查路径子串的断言。
+ */
+const STATE_ROOT = mkdtempSync(join(tmpdir(), 'math-proof-run-state-'))
+mkdirSync(join(STATE_ROOT, 'state', 'math-proof'), { recursive: true })
+process.env.MATH_PROOF_STATE_DIR = join(STATE_ROOT, 'state', 'math-proof')
+
 const PRESET = new URL('..', import.meta.url).pathname.replace(/\/$/, '')
 const results = []
 let failures = 0

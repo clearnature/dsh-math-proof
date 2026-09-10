@@ -163,6 +163,33 @@ ok('M1 架构图说明路径集中化政策', m1.includes('local-paths.json'), '
 const readme = readFileSync(join(PRESET, 'README.md'), 'utf8')
 ok('README 说明「换机器只改一个文件 / 可用环境变量覆盖」', /local-paths\.json/.test(readme) && /SOVEREIGN_/.test(readme), '')
 
+// ── 7) 状态目录唯一实现（2026-09-10 事故：插件各自硬编码 → 测试污染真实状态）──────
+{
+  const stateDirSrc = readFileSync(join(PRESET, 'impl', 'state-dir.mjs'), 'utf8')
+  ok('状态目录有唯一实现 impl/state-dir.mjs', stateDirSrc.includes('export function stateDir'))
+  ok('状态目录支持 MATH_PROOF_STATE_DIR 覆盖（测试隔离 / 换环境）', stateDirSrc.includes('MATH_PROOF_STATE_DIR'))
+  const stateModule = await import(join(PRESET, 'impl', 'state-dir.mjs'))
+  const saved = process.env.MATH_PROOF_STATE_DIR
+  process.env.MATH_PROOF_STATE_DIR = '/tmp/state-override-probe'
+  const overridden = stateModule.stateDir()
+  delete process.env.MATH_PROOF_STATE_DIR
+  const fallback = stateModule.stateDir()
+  if (saved !== undefined) process.env.MATH_PROOF_STATE_DIR = saved
+  ok('env 覆盖生效', overridden === '/tmp/state-override-probe', overridden)
+  ok('未设置时回落到 ~/.dsh/state/math-proof（生产行为不变）', fallback.endsWith('/.dsh/state/math-proof'), fallback)
+  // 插件里不许再硬编码状态目录（否则测试又会绕过覆盖去写真实状态）
+  const offenders = []
+  for (const f of readdirSync(join(PRESET, 'plugins')).filter((x) => x.endsWith('.mjs'))) {
+    const text = readFileSync(join(PRESET, 'plugins', f), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/[^\n]*/gm, '')
+    if (/\.dsh['"]\s*,\s*['"]state['"]\s*,\s*['"]math-proof['"]/.test(text)) offenders.push(f)
+  }
+  ok('插件里没有硬编码状态目录（一律走 impl/state-dir.mjs）', offenders.length === 0, offenders.join(','))
+  const runner = readFileSync(join(PRESET, 'tests', 'run.mjs'), 'utf8')
+  ok('主回归套件把状态指向临时目录（不写用户真实状态）', runner.includes('MATH_PROOF_STATE_DIR'))
+}
+
 console.log('# 本机路径集中化门禁（唯一配置处 / token / 死键 / 解析器行为）\n')
 console.log(`- 操作性文件 **${operativeFiles.length}**｜配置键 **${keys.size ?? keys.length}**｜历史豁免文件 **${historyHits.length}**\n`)
 console.log(results.join('\n'))

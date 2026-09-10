@@ -35,6 +35,8 @@ import { createHash } from 'node:crypto'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
+
+import { stateDir, statePath } from '../impl/state-dir.mjs'
 import { dirname, isAbsolute, join } from 'node:path'
 import { compileHistory, compileHotspots, verifyReceipt } from './agda-engine.mjs'
 import * as RULESET from '../impl/ruleset.mjs'
@@ -91,7 +93,7 @@ const MAX_ORDER_ROWS = 60
 /** 台账路径（按 workspace 分桶，不写进仓库）。 */
 export function ledgerPath(workspace) {
   const hash = createHash('sha1').update(String(workspace)).digest('hex').slice(0, 12)
-  return join(homedir(), '.dsh', 'state', 'math-proof', `dag-${hash}.json`)
+  return statePath(`dag-${hash}.json`)
 }
 
 /** 读台账（不存在则返回空台账；损坏则备份后报错，绝不静默重置）。 */
@@ -277,13 +279,13 @@ export function moduleImports(workspace, moduleName) {
 /** 见证仓库目录（独立 git 仓库，按 workspace 分桶）。 */
 export function witnessDir(workspace) {
   const hash = createHash('sha1').update(String(workspace)).digest('hex').slice(0, 12)
-  return join(homedir(), '.dsh', 'state', 'math-proof', `witness-${hash}`)
+  return statePath(`witness-${hash}`)
 }
 
 /** 见证检查点（存在 git 仓库**之外**，防止「连仓库一起重写」时两边一起改）。 */
 export function checkpointPath(workspace) {
   const hash = createHash('sha1').update(String(workspace)).digest('hex').slice(0, 12)
-  return join(homedir(), '.dsh', 'state', 'math-proof', `checkpoint-${hash}.json`)
+  return statePath(`checkpoint-${hash}.json`)
 }
 
 /**
@@ -429,7 +431,7 @@ export function renderDoctor(workspace, live) {
       rulesStale ? `⚠ **磁盘上是 ${diskRulesHash}** → 改过规则但**没重启进程**，本次结果仍按进程内那一版解释` : '✅ 与磁盘一致'
     }）`,
     `- 台账: \`${ledgerPath(workspace)}\`｜节点 ${st.total}（proven ${st.proven} / refuted ${st.refuted} / blocked ${st.blocked} / needs_review ${st.needs_review} / pending ${st.pending}）`,
-    `- 工具签发回执: **${receipts.length}** 条｜状态目录: \`${join(homedir(), '.dsh', 'state', 'math-proof')}\``,
+    `- 工具签发回执: **${receipts.length}** 条｜状态目录: \`${stateDir()}\``,
     '',
     '## 其他 preset 插件的磁盘版本（仅供参考，工具无法自报它们的加载版本）',
     ...others,
@@ -442,7 +444,7 @@ export function renderDoctor(workspace, live) {
 
 /** 回执 id 列表（doctor 用；只数目录，不读内容）。 */
 function listReceiptIds() {
-  const dir = join(homedir(), '.dsh', 'state', 'math-proof', 'receipts')
+  const dir = statePath('receipts')
   try {
     return readdirSync(dir).filter((f) => f.endsWith('.json'))
   } catch {
@@ -465,7 +467,7 @@ export function renderWitness(st) {
 /** 评分历史路径（按 workspace 分桶）。 */
 export function historyPath(workspace) {
   const hash = createHash('sha1').update(String(workspace)).digest('hex').slice(0, 12)
-  return join(homedir(), '.dsh', 'state', 'math-proof', `history-${hash}.json`)
+  return statePath(`history-${hash}.json`)
 }
 
 /** 读评分历史（损坏则视为空，不抛错——历史只是趋势，不是裁决依据）。 */

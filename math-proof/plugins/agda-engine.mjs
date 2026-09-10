@@ -21,6 +21,8 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+
+import { stateDir, statePath } from '../impl/state-dir.mjs'
 import { RESULT_TRIAGE } from '../impl/ruleset.mjs'
 import { path as localPath } from '../impl/local-paths.mjs'
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
@@ -265,7 +267,7 @@ async function probeChecker(ctx, exec, candidate, cwd) {
  * 回执目录（工具签发的事实，与模型可写的台账分开放）。
  */
 export function receiptDir() {
-  return join(homedir(), '.dsh', 'state', 'math-proof', 'receipts')
+  return statePath('receipts')
 }
 
 /** 源文件内容哈希（回执的 id 就是它——内容寻址，改一个字符就失效）。 */

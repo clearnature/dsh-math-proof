@@ -86,7 +86,8 @@ section('规则表（BUDGET / RECEIPT）')
   ok('RECEIPT.dirs 指向 receipts / oracle-receipts', ruleset.RECEIPT.dirs.includes('receipts') && ruleset.RECEIPT.dirs.includes('oracle-receipts'))
   ok('规则集版本已 bump（新增 BUDGET 表 → r8 起）', Number(String(ruleset.RULESET_VERSION).slice(1)) >= 8, ruleset.RULESET_VERSION)
   const src = readFileSync(join(PRESET, 'impl', 'session-traffic.mjs'), 'utf8')
-  ok('流量模块零外部依赖（只 node: 与 ./ruleset.mjs）', !/from '(?!node:|\.\/ruleset\.mjs)/.test(src))
+  ok('流量模块零外部依赖（只 `node:` 与同 preset 的本地模块）', !/from '(?!node:|\.\/)/.test(src), (src.match(/from '[^']+'/g) ?? []).filter((x) => !/node:|'\.\//.test(x)).join(','))
+  ok('状态目录走唯一实现（impl/state-dir.mjs）', /from '\.\/state-dir\.mjs'/.test(src))
   // 2026-09-10 CI（Node 20）真实事故：`import { zstdDecompressSync } from 'node:zlib'` 在 Node 20 上
   // 是**链接期** SyntaxError → `plugins/budget.mjs` 整个挂不上、第 7 个工具不注册。
   const codeSrc = stripComments(src)
@@ -98,7 +99,7 @@ section('规则表（BUDGET / RECEIPT）')
     !/from 'node:zlib'/.test(pluginSrc) && !/zstdCompress|zstdDecompress/.test(pluginSrc) && /ZSTD_SUPPORTED/.test(pluginSrc),
     (pluginSrc.match(/import[^\n]*zlib[^\n]*/) ?? [''])[0],
   )
-  ok('预算策略模块零外部依赖', !/from '(?!node:|\.\/ruleset\.mjs|\.\/session-traffic\.mjs)/.test(readFileSync(join(PRESET, 'impl', 'budget-policy.mjs'), 'utf8')))
+  ok('预算策略模块零外部依赖（只 node: 与同 preset 本地模块）', !/from '(?!node:|\.\/)/.test(readFileSync(join(PRESET, 'impl', 'budget-policy.mjs'), 'utf8')))
 }
 
 // ── 2) 计量（fixture 折叠 / zstd 多帧 / 尾读）──────────────────────────────
@@ -499,6 +500,22 @@ section('会话 token 预算（SESSION / 总闸）')
       const block2 = traffic.renderUsageBlock(guiTurn2)
       ok('第二条真实向量：本轮用量逐字符一致', block2.split('\n')[0] === '本轮用量 11,924,953 tok', block2.split('\n')[0])
       ok('第二条真实向量：命中率 99.8% 与三个分项一致', block2.includes('\n    99.8%\n') && block2.includes('22,269 tok') && block2.includes('11,852,288 tok') && block2.includes('50,396 tok（其中推理 33,493 tok）'), block2.split('\n').filter((l) => l.includes('tok')).join(' | '))
+      // 第三、四条真实向量（同一会话的两轮：大轮 14.9M，小轮 180k）
+      const guiTurn3 = { inTok: 293757, cacheTok: 14541696, outTok: 62248, reasoningTok: 35326, tok: 293757 + 14541696 + 62248, provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+      const guiTurn4 = { inTok: 33577, cacheTok: 143360, outTok: 3342, reasoningTok: 1562, tok: 33577 + 143360 + 3342, provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+      const b3 = traffic.renderUsageBlock(guiTurn3)
+      const b4 = traffic.renderUsageBlock(guiTurn4)
+      ok('第三条向量：本轮用量与分项逐字符一致', b3.split('\n')[0] === '本轮用量 14,897,701 tok' && b3.includes('293,757 tok') && b3.includes('14,541,696 tok') && b3.includes('62,248 tok（其中推理 35,326 tok）'), b3.split('\n')[0])
+      ok('第四条向量：小的那一轮同样逐字符一致', b4.split('\n')[0] === '本轮用量 180,279 tok' && b4.includes('33,577 tok') && b4.includes('143,360 tok') && b4.includes('3,342 tok（其中推理 1,562 tok）'), b4.split('\n')[0])
+      // 命中率格式：界面整数时**不带 .0**（用户拿界面核对时发现的）
+      ok('命中率格式：98.02% → `98`（不写 98.0）', traffic.formatCacheHitPercent(14541696, 14835453) === '98', String(traffic.formatCacheHitPercent(14541696, 14835453)))
+      ok('命中率格式：81.02% → `81`', traffic.formatCacheHitPercent(143360, 176937) === '81', String(traffic.formatCacheHitPercent(143360, 176937)))
+      ok('命中率格式：99.8 / 99.9 保留一位', traffic.formatCacheHitPercent(11852288, 11874557) === '99.8' && traffic.formatCacheHitPercent(25116032, 25142904) === '99.9')
+      ok('命中率格式：只有**真全命中**才输出 100', traffic.formatCacheHitPercent(5, 5) === '100' && traffic.formatCacheHitPercent(999999, 1000000) !== '100', String(traffic.formatCacheHitPercent(999999, 1000000)))
+      ok('命中率格式：极端近似（漏 1 token / 1e6）按界面闭式给出 99.9999', traffic.formatCacheHitPercent(999999, 1000000) === '99.9999')
+      ok('命中率格式：无输入 → null（不写 0%）', traffic.formatCacheHitPercent(0, 0) === null)
+      ok('渲染里用的是同规则（不再是 toFixed(1)）', b3.includes('\n    98%\n') && b4.includes('\n    81%\n'), b4.split('\n').slice(4, 6).join('|'))
+      ok('四条向量都满足恒等式', [guiTurn, guiTurn2, guiTurn3, guiTurn4].every((t) => t.tok === t.inTok + t.cacheTok + t.outTok))
       ok('两条向量都满足恒等式', guiTurn.tok === guiTurn.inTok + guiTurn.cacheTok + guiTurn.outTok && guiTurn2.tok === guiTurn2.inTok + guiTurn2.cacheTok + guiTurn2.outTok)
 
       // 与日志折叠的一致性：fixture turn1 的渲染结果等于它自己的 tok（也是界面会显示的那个数）

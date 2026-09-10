@@ -22,6 +22,8 @@
 // 本行不 provide 任何 service，可裸露在 preset 里；文件只 import `node:` 内建模块。
 
 import { createHash } from 'node:crypto'
+
+import { statePath } from '../impl/state-dir.mjs'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
@@ -32,7 +34,7 @@ export const inject = ['shell', 'tools']
 
 /** oracle 回执目录（与编译回执分开，便于分别统计）。 */
 export function oracleDir() {
-  return join(homedir(), '.dsh', 'state', 'math-proof', 'oracle-receipts')
+  return statePath('oracle-receipts')
 }
 
 /** 共享库目录（preset 自带，零依赖）。 */
@@ -42,7 +44,7 @@ export function kitDir() {
 
 /** 运行期累积的算法条目落盘路径。 */
 export function kitIndexPath() {
-  return join(homedir(), '.dsh', 'state', 'math-proof', 'oracle-kit.json')
+  return statePath('oracle-kit.json')
 }
 
 /**

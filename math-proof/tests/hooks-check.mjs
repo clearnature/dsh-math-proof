@@ -27,8 +27,14 @@ const ok = (name, cond, detail = '') => {
   results.push(`${cond ? '✅' : '❌'} ${name}${cond || detail === '' ? '' : ` — ${detail}`}`)
   if (!cond) failures++
 }
-/** 预算钩子的状态目录：**指向临时目录**，绝不碰用户的真实预算账本。 */
+/**
+ * 状态目录：**整份套件（含进程内的 proof-dag 与派生的钩子）共用同一个临时目录**。
+ *
+ * ⚠ 2026-09-10：只给钩子设 `MATH_PROOF_STATE_DIR` 时，进程内写的台账落在**真实**状态目录，
+ * 而钩子读的是临时目录 → 「收工检查」看不到台账（门禁红）。状态目录既然可覆盖，就必须**全程一致**。
+ */
 const HOOK_STATE = mkdtempSync(join(tmpdir(), 'math-proof-hooks-state-'))
+process.env.MATH_PROOF_STATE_DIR = HOOK_STATE
 const runHook = (file, payload, env = {}) => {
   const r = spawnSync(process.execPath, [join(HOOKS, file)], {
     input: JSON.stringify(payload),

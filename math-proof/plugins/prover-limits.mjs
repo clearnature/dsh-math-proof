@@ -14,6 +14,8 @@
 // 本行不 provide 任何 service，可裸露在 preset 里；文件只 import `node:` 内建模块。
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+
+import { statePath } from '../impl/state-dir.mjs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -22,7 +24,7 @@ export const inject = ['tools']
 
 /** 运行期累积的限制条目落盘路径（按用户，不按 workspace）。 */
 export function limitsPath() {
-  return join(homedir(), '.dsh', 'state', 'math-proof', 'prover-limits.json')
+  return statePath('prover-limits.json')
 }
 
 /**

@@ -27,6 +27,8 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+
+import { stateDir } from './state-dir.mjs'
 import * as zlib from 'node:zlib'
 
 import { BUDGET, RECEIPT } from './ruleset.mjs'
@@ -49,13 +51,11 @@ const zstdDecompressSync = typeof zlib.zstdDecompressSync === 'function' ? zlib.
 export const ZSTD_SUPPORTED = zstdDecompressSync !== null
 
 /**
- * 状态目录：默认 `~/.dsh/state/math-proof`。
- * `MATH_PROOF_STATE_DIR` 可覆盖——**测试必须用它**，否则会污染用户的真实预算账本
+ * 状态目录（唯一实现在 `impl/state-dir.mjs`，这里 import 后再导出：本模块内部也要用它）。
+ * `MATH_PROOF_STATE_DIR` 可覆盖——**测试必须用它**，否则会污染用户的真实账本
  * （历史样本是学习状态，被测试写坏就再也回不来了）。
  */
-export function stateDir() {
-  return process.env.MATH_PROOF_STATE_DIR ?? join(homedir(), '.dsh', 'state', 'math-proof')
-}
+export { stateDir }
 
 /** 预算账本（跨天/跨会话/跨进程保留的学习状态）。 */
 export function profilePath() {
@@ -842,6 +842,46 @@ export function fmtTokenLine(t) {
   return parts.join(' ')
 }
 
+/**
+ * 缓存命中百分比文本——**与界面 `formatCacheHitPercent` 同规则**（逐字符对齐）：
+ *
+ *   1. 分母是 **prompt tokens**（= 未缓存输入 + 缓存读取 = `totalTokens - outputTokens`）；
+ *   2. 用**整数算术**取到 `decimalPlaces` 位（默认 1 位，即 0.1 个百分点），**中值向上**；
+ *   3. `tenths === 0` 时**去掉尾随 `.0`**（`98` 而不是 `98.0`）——这一条是用户拿界面数字核对时发现的；
+ *   4. **部分命中绝不显示成 100%**：四舍五入到 100 但仍漏了 token 时，自动加精度（`99.99…`），
+ *      只有真的全命中才输出 `100`。
+ *
+ * 为什么不用 `toFixed(1)`：浮点四舍五入在 `.x5` 上的方向与整数规则不一致，而这里要的是
+ * 「和界面同一个数字」，所以照整数规则算。
+ */
+export function formatCacheHitPercent(cacheReadTokens, promptTokens, decimalPlaces = 1) {
+  const cacheRead = Number(cacheReadTokens)
+  const prompt = Number(promptTokens)
+  if (!Number.isFinite(prompt) || prompt <= 0) return null
+  if (!Number.isFinite(cacheRead) || cacheRead < 0) return null
+  const missed = prompt - cacheRead
+  if (missed === 0) return '100'
+  // 单位数：dp 位小数 → 10^dp * 100 个单位（dp=1 → 1000 个单位 = 0.01% 精度单位…实际是 0.1 个百分点的 1/10）
+  for (let dp = decimalPlaces; dp <= 6; dp += 1) {
+    const scale = 10 ** dp * 100
+    // 四舍五入（中值向上）的整数形式：floor((2*cacheRead*scale + prompt) / (2*prompt))
+    const doubled = 2 * cacheRead * scale + prompt
+    const units = Math.floor(doubled / (2 * prompt))
+    if (units < scale) return displayPercentUnits(units, dp)
+  }
+  // 漏得极少（连 6 位都还能舍到 100）→ 退化成界面那种 `99.9…X` 的写法，**不谎报 100**
+  return `99.${'9'.repeat(5)}9`
+}
+
+/** 把「单位数」渲染成文本（去掉尾随 `.0`）。 */
+export function displayPercentUnits(units, decimalPlaces) {
+  if (decimalPlaces === 0) return String(units)
+  const whole = Math.floor(units / 10 ** decimalPlaces)
+  const rest = units % 10 ** decimalPlaces
+  if (rest === 0) return String(whole)
+  return `${whole}.${String(rest).padStart(decimalPlaces, '0')}`
+}
+
 /** 分组整数（`25,178,836`）——**与界面显示逐字符对齐**，便于人肉核对。 */
 export function fmtInt(n) {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
@@ -882,6 +922,7 @@ export function turnUsageRow(tr) {
     reasoning: reasoningTok,
     input,
     cacheHitRate: input > 0 ? cacheTok / input : 0,
+    cacheHitText: formatCacheHitPercent(cacheTok, input),
     steps: tr?.steps ?? null,
     calls: tr?.toolCalls ?? null,
   }
@@ -897,7 +938,7 @@ export function renderUsageBlock(tr, options = {}) {
   const lines = [`${title} ${fmtInt(u.total)} tok`, '']
   lines.push('提供方 / 模型', `    ${u.provider === null ? '未记录' : `${u.provider}/${u.model ?? '—'}`}`)
   if (u.input > 0) {
-    lines.push('缓存命中', `    ${(u.cacheHitRate * 100).toFixed(1)}%`)
+    lines.push('缓存命中', `    ${formatCacheHitPercent(u.cacheRead, u.input) ?? '—'}%`)
     lines.push('未缓存输入', `    ${fmtInt(u.uncachedInput)} tok`)
     lines.push('缓存读取', `    ${fmtInt(u.cacheRead)} tok`)
   } else {

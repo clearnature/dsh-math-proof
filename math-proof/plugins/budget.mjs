@@ -179,7 +179,7 @@ function renderUsage(args) {
           return [
             String(t.turn),
             `**${fmtInt(u.total)}**`,
-            u.input > 0 ? `${(u.cacheHitRate * 100).toFixed(1)}%` : '—',
+            u.cacheHitText === null ? '—' : `${u.cacheHitText}%`,
             fmtInt(u.uncachedInput),
             fmtInt(u.cacheRead),
             u.reasoning > 0 ? `${fmtInt(u.output)}（${fmtInt(u.reasoning)}）` : fmtInt(u.output),
