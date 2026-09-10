@@ -14,7 +14,10 @@
 // 知识部分仍在 `skills/fable5-thinking/SKILL.md`（随 preset 分发，九条原则原文）。
 // 输入/输出契约与其它钩子一致：stdin JSON（Claude Code 方言），stdout `hookSpecificOutput.additionalContext`。
 
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 let payload = {}
 try {
@@ -62,6 +65,29 @@ const WRAPUP = [
   '  没有证据的，写「未验证」或「待做」，不要写成已完成。',
 ].join('\n')
 
+/**
+ * 写「流程标记」：`fable5-gate.mjs` 靠它做「计划绑定」——
+ * 多步任务已开工但台账里还没有分解时，动文件会被拦一次（exit 2）。
+ * 标记放状态目录（按工作区 hash），**不写进用户仓库**。
+ */
+function markTask() {
+  try {
+    const ws = String(payload.cwd ?? process.cwd())
+    const hash = createHash('sha1').update(ws).digest('hex').slice(0, 12)
+    const dir = join(homedir(), '.dsh', 'state', 'math-proof')
+    const file = join(dir, `flow-${hash}.json`)
+    mkdirSync(dir, { recursive: true })
+    const tmp = `${file}.${process.pid}.tmp`
+    writeFileSync(
+      tmp,
+      `${JSON.stringify({ ts: Date.now(), sessionId: String(payload.session_id ?? ''), planned: false, blockedOnce: false, prompt: prompt.slice(0, 120) })}\n`,
+    )
+    renameSync(tmp, file)
+  } catch {
+    /* 写不进去就算了：闸门读到旧标记最多多拦一次，不会卡死 */
+  }
+}
+
 let ctx = ''
 let name = 'UserPromptSubmit'
 if (event === 'Stop') {
@@ -69,6 +95,7 @@ if (event === 'Stop') {
   ctx = WRAPUP
 } else if (looksMultiStep(prompt)) {
   ctx = INTAKE
+  markTask()
 }
 
 process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: name, additionalContext: ctx } })}\n`)

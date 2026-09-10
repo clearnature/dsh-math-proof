@@ -193,6 +193,7 @@ orbitStabilizer      : Orbit x ≃ A4/Stab x            -- :1068
 | 四十五 | 插件市场 | `scripts/market.mjs`：市场 272 / 已装 214 / 可装未装 58（同版本线 28）；版本线陷阱（latest 停在 0.0.1-rc.1）；相关 18 条均带前置条件 |
 | 四十六 | 升级后插件对账 | 三平面 provenance：宿主 117 启用/25 禁用、preset 37 行（接管 22 行）、双份 0、真缺口 0；改正「禁用=已挂」的分类错误；宿主平面本就无我们的改动，重置没丢东西 |
 | 六十一 | fable5 是流程而非纯知识 |
+| 六十二 | fable5 两条升级为机器挡 | 新增 `hooks/fable5-gate.mjs`（PreToolUse）：**计划绑定**（多步任务未落台账就动文件 → 拦一次）+ **防虚假完成**（完成宣称无证据 → 拦）；`MATH_PROOF_FLOW_GATE=off` 可关；hooks-check 35→48 |
 | 六十一c | `.git/hooks` 澄清 | 上游 `.git/hooks/` 是 git 自带 `*.sample` 示例（永不执行），非 agent 钩子；1 commit / 非浅克隆 / 无悬空对象 / 仅两个文件 → 上游确无钩子，`fable5-flow.mjs` 为本项目原创 |
 | 六十一b | 许可判断更正 | 上游 README 的 `## License` 段明确写 MIT © 2026（无独立 LICENSE 文件）→ 之前「许可不清」是错判；三处表述已改准 | 查证上游全历史只有 README+SKILL.md（无 hooks）；九步闭环里能拦截的两步由本项目新钩子 `hooks/fable5-flow.mjs` 承担（UserPromptSubmit 开工四项 / Stop 收工三项，短问句与纯应答不打扰），其余映射到既有关卡；文档与署名明确「钩子非上游提供」 |
 | 六十 | 技能打包范围收紧 + 第三方声明 | 标准＝「强关联 + 许可清晰」；移出通用技能 `loop-engineer`（其证明相关部分本地化为 `agda-proof-engine` §5.9），保留第三方 `fable5-thinking`（上游 MIT、作者开放共享）并新增 `docs/THIRD-PARTY.md` 署名出处；引用一律条件式（门禁新增检查，当场抓出 12 处） |

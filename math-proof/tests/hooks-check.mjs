@@ -119,6 +119,51 @@ try {
   const wrap = runHook('fable5-flow.mjs', { hook_event_name: 'Stop' })
   ok('fable5: Stop → 收工三项', wrap.code === 0 && wrap.out.includes('收工三项'), wrap.out.slice(0, 120))
   ok('fable5: 收工含持久记忆/对抗自检/防虚假完成', wrap.out.includes('持久记忆') && wrap.out.includes('对抗自检') && wrap.out.includes('防虚假完成'))
+
+  // ── fable5 流程闸门（PreToolUse）：计划绑定 + 防虚假完成 ────────────────
+  const gws = mkdtempSync(join(tmpdir(), 'math-proof-flow-'))
+  try {
+    // 无标记：直接写文件应放行
+    const free = runHook('fable5-gate.mjs', { cwd: gws, tool_name: 'write', tool_input: { content: 'x' } })
+    ok('流程闸门: 非多步任务不干预', free.code === 0, `exit ${free.code}`)
+
+    // 多步任务 → 写标记 → 未落计划就动文件应被拦（exit 2 + 理由）
+    runHook('fable5-flow.mjs', { hook_event_name: 'UserPromptSubmit', cwd: gws, session_id: 's-test', prompt: '帮我重构 proof-dag 的评分逻辑，并补上回归测试' })
+    const blocked = runHook('fable5-gate.mjs', { cwd: gws, tool_name: 'write', tool_input: { content: 'x' } })
+    ok('流程闸门: 多步任务未落计划 → 拦', blocked.code === 2, `exit ${blocked.code} ${blocked.err.slice(0, 80)}`)
+    ok('流程闸门: 拦截理由指向台账/计划', blocked.err.includes('proof_dag') && blocked.err.includes('exit_plan_mode'), blocked.err.slice(0, 120))
+
+    const retry = runHook('fable5-gate.mjs', { cwd: gws, tool_name: 'write', tool_input: { content: 'x' } })
+    ok('流程闸门: 只拦一次（重试放行）', retry.code === 0, `exit ${retry.code}`)
+
+    // 落台账后放行（另一任务）
+    const gws2 = mkdtempSync(join(tmpdir(), 'math-proof-flow2-'))
+    runHook('fable5-flow.mjs', { hook_event_name: 'UserPromptSubmit', cwd: gws2, prompt: '把这批模块的断链全部修掉，并补回归测试' })
+    const planned = runHook('fable5-gate.mjs', { cwd: gws2, tool_name: 'proof_dag', tool_input: { action: 'add' } })
+    ok('流程闸门: proof_dag add 放行并记为已出计划', planned.code === 0)
+    const after = runHook('fable5-gate.mjs', { cwd: gws2, tool_name: 'write', tool_input: { content: 'x' } })
+    ok('流程闸门: 落台账后写文件放行', after.code === 0, `exit ${after.code}`)
+    rmSync(gws2, { recursive: true, force: true })
+
+    // 防虚假完成：强完成宣称 + 无证据 → 拦；带证据 → 放行
+    const claim = runHook('fable5-gate.mjs', { cwd: gws, tool_name: 'write', tool_input: { content: '状态: DONE\n文件: A.agda' } })
+    ok('流程闸门: 完成宣称无证据 → 拦', claim.code === 2, `exit ${claim.code}`)
+    ok('流程闸门: 拦截理由要求补证据', claim.err.includes('证据'), claim.err.slice(0, 100))
+    const evidenced = runHook('fable5-gate.mjs', { cwd: gws, tool_name: 'write', tool_input: { content: '状态: DONE（回执 b55d4695fff8，编译 3.2s exit 0）' } })
+    ok('流程闸门: 有证据的完成宣称放行', evidenced.code === 0, `exit ${evidenced.code}`)
+    const prose = runHook('fable5-gate.mjs', { cwd: gws, tool_name: 'write', tool_input: { content: '# 已完成的功能列表\n- A\n- B' } })
+    ok('流程闸门: 普通叙述不误拦', prose.code === 0, `exit ${prose.code}`)
+
+    // 逃生开关
+    const off = spawnSync(process.execPath, [join(HOOKS, 'fable5-gate.mjs')], {
+      input: JSON.stringify({ cwd: gws, tool_name: 'write', tool_input: { content: '状态: DONE' } }),
+      encoding: 'utf8',
+      env: { ...process.env, MATH_PROOF_FLOW_GATE: 'off' },
+    })
+    ok('流程闸门: MATH_PROOF_FLOW_GATE=off 全放行', off.status === 0, `exit ${off.status}`)
+  } finally {
+    rmSync(gws, { recursive: true, force: true })
+  }
 } finally {
   purge()
   rmSync(ws, { recursive: true, force: true })
@@ -128,7 +173,7 @@ try {
   const cfg = JSON.parse(readFileSync(join(HOOKS, 'hooks.json'), 'utf8')).hooks
   ok('hooks.json 注册了 UserPromptSubmit', Array.isArray(cfg.UserPromptSubmit) && cfg.UserPromptSubmit.length > 0)
   const commands = Object.values(cfg).flat().flatMap((g) => g.hooks.map((h) => h.command))
-  for (const f of ['session-start.mjs', 'gate-dag.mjs', 'stop-reminder.mjs', 'fable5-flow.mjs']) {
+  for (const f of ['session-start.mjs', 'gate-dag.mjs', 'stop-reminder.mjs', 'fable5-flow.mjs', 'fable5-gate.mjs']) {
     ok(`hooks.json 指向真实脚本 ${f}`, commands.some((c) => c.includes(f)) && existsSync(join(HOOKS, f)))
   }
 }

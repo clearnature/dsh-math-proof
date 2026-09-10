@@ -99,7 +99,8 @@ graph LR
 | `hooks/session-start.mjs` | `SessionStart` | 注入接手简报（进度/评分/证据/对象完整度/待裁决） | 跨天接手时，模型还没开口就该知道现状 |
 | `hooks/gate-dag.mjs` | `PreToolUse`（`proof_dag`） | 标 `proven` 而无回执、或依赖未 proven → **exit 2 拦截** | 工具内的校验可能被绕过（模型可以不调用工具），钩子在**调用前**挡 |
 | `hooks/stop-reminder.mjs` | `Stop` | 有未验证/断链/待裁决时提醒收工写 `handoff` | 收工时刻最容易漏记 |
-| `hooks/fable5-flow.mjs` | `UserPromptSubmit` + `Stop` | 多步新任务 → 注入「开工四项」（分解/拓扑扫描/多路径/落台账）；收工 → 注入「收工三项」（持久记忆/对抗自检/防虚假完成） | fable5 九步流程里**能拦截**的两步；短问句与纯应答不打扰 |
+| `hooks/fable5-flow.mjs` | `UserPromptSubmit` + `Stop` | 多步新任务 → 注入「开工四项」（分解/拓扑扫描/多路径/落台账）+ **写流程标记**；收工 → 注入「收工三项」（持久记忆/对抗自检/防虚假完成） | fable5 九步流程的入口；短问句与纯应答不打扰 |
+| `hooks/fable5-gate.mjs` | `PreToolUse`（`write`/`edit`/`proof_dag`/`exit_plan_mode`） | **计划绑定**：多步任务未落台账就动文件 → **exit 2 拦一次**（理由给出解法）；**防虚假完成**：写入含强完成宣称却无证据 → **exit 2** | 「流程」而非「知识」——把 fable5 第 1/3/9 条变成机器挡；`MATH_PROOF_FLOW_GATE=off` 可关 |
 
 ## M1.6 技能打包范围：只打「强关联 + 许可清晰」的
 

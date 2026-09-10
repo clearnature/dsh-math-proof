@@ -2406,3 +2406,47 @@ README 里 `/fable5-thinking` 是 Claude Code 的**技能调用方式**，而「
 
 **因此 §61 的结论不变**：fable5 的「流程」性质来自 README 描述的九步闭环（用法约定）；
 可拦截的两步由本项目自行实现（`hooks/fable5-flow.mjs`），文档中已明确署名，未冒领。
+
+## 六十二、第五十七轮：把 fable5 的两条从「提醒」升级为「机器挡」（2026-09-10）
+
+用户：**「加」**（上一轮末尾提的两处机器拦截）。
+
+### 62.1 新增 `hooks/fable5-gate.mjs`（PreToolUse 上的两道闸门）
+
+| 闸门 | 触发 | 行为 |
+| --- | --- | --- |
+| **① 计划绑定**（fable5 第 1/3 条） | `UserPromptSubmit` 判定为跨多步任务后 → 写流程标记；此后 `write`/`edit` 在台账里还没有该任务的分解时 | **exit 2 拦一次**，理由写清解法（`proof_dag add`/`import` 或 `exit_plan_mode`）；**每任务只拦一次**（减速带不是墙）；标记 2 小时过期 |
+| **② 防虚假完成**（第 9 条） | `write`/`edit` 的内容含**强完成宣称**（`状态: DONE` / `状态：完成` / `全部通过` / `任务完成` / `已证明` / `✅ 全绿`）却**没有任何证据标记** | **exit 2**，要求补证据或改成「未验证/待做」；**不受「只拦一次」豁免**（内容问题必须改） |
+
+- **达成条件**：模型调用 `proof_dag`（`add`/`import`/`journal`/`update`）或 `exit_plan_mode` → 标记 `planned=true`，此后写文件放行。
+- **证据标记**（任一即算）：`回执` / `receipt` / `exit 0` / `编译通过` / `CHECK_ALL_OK` / 形如 `3.2s` 的耗时 / 行号 / `已验证` / `oracle` / 命令输出。
+- **误报控制**：只认强宣称——实测「`# 已完成的功能列表`」「这段已完成（小改动）」**不拦**；`状态: DONE`、`已证明 SOVEREIGN_LCM=…` 拦。
+- **逃生开关**：`MATH_PROOF_FLOW_GATE=off` 整体放行（赶工时不被流程绑住），已进回归。
+- 状态文件 `~/.dsh/state/math-proof/flow-<wsHash>.json`——**不写进用户仓库**（与台账同目录约定）。
+
+### 62.2 行为自测（全部进 `hooks-check`）
+
+| 场景 | 期望 | 实测 |
+| --- | --- | --- |
+| 非多步任务写文件 | 放行 | exit 0 |
+| 多步任务未落台账就 write | **拦**且理由指向台账/计划 | exit 2 ✅ |
+| 同任务再 write | 放行（只拦一次） | exit 0 |
+| 先 `proof_dag add` 再 write | 放行 | exit 0 |
+| 写入「状态: DONE」无证据 | **拦**且理由要求补证据 | exit 2 ✅ |
+| 写入「状态: DONE（回执…exit 0）」 | 放行 | exit 0 |
+| 普通叙述「# 已完成的功能列表」 | 不误拦 | exit 0 |
+| `MATH_PROOF_FLOW_GATE=off` | 全放行 | exit 0 |
+
+`hooks-check` **35 → 48 断言**。
+
+### 62.3 文档
+
+- `skills/fable5-thinking/SKILL.md` 的映射表：第 1/2 条与第 9 条由「机器提醒」改为「**机器挡**」，并写明「减速带不是墙 + 逃生开关」；
+- `docs/maps/M1-architecture.md` §M1.4 钩子表新增一行（`fable5-gate.mjs` 的触发与行为）；
+- `docs/THIRD-PARTY.md`：两个钩子脚本都明确为本项目原创（MIT），不冒领上游；
+- README 的钩子描述同步。
+
+### 62.4 复验
+
+`check-all` → **CHECK_ALL_OK 17/17**（`hooks-check` 48/48；`run` 412/412；`skills-ref` 55/55）。
+⚠ 钩子属**冷档**：正在运行的会话要等一次重挂载（新会话）才会加载 `fable5-gate.mjs`。

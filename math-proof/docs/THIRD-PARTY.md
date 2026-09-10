@@ -42,8 +42,8 @@ git **永远不会执行**它们；要启用得去掉后缀并自己写内容。
 **关于「钩子」**：上游仓库（含全部历史）**只有 `README.md` 与 `SKILL.md`，没有任何 hooks/commands 文件**；
 `/fable5-thinking` 是 Claude Code 里对该技能的调用方式，README 描述的「九步闭环工作流」是**用法约定**。
 本仓库据此把流程里可机械拦截的两步**自行实现**为 `math-proof/hooks/fable5-flow.mjs`
-（`UserPromptSubmit` 注入开工四项、`Stop` 注入收工三项），并**没有**声称上游提供了这些钩子；
-该钩子脚本是本项目原创代码，按本仓库 MIT 分发。
+（`UserPromptSubmit` 注入开工四项、`Stop` 注入收工三项、`PreToolUse` 闸门做计划绑定与防虚假完成），并**没有**声称上游提供了这些钩子；
+这两个钩子脚本（`fable5-flow.mjs`、`fable5-gate.mjs`）都是本项目原创代码，按本仓库 MIT 分发。
 
 > 若上游作者对再分发有不同意见，请联系仓库维护者，我们会立即移除或按其要求调整署名方式。
 
