@@ -75,7 +75,7 @@ if (snap !== null) {
     results.push('⏭ 本机无 dsh 安装（新克隆 / CI）→ 出厂预设对照检查跳过')
   }
 
-  ok('本地插件行单独列出（7 个）', snap.counts.presetLocal === 7, String(snap.counts.presetLocal))
+  ok('本地插件行单独列出（8 个）', snap.counts.presetLocal === 8, String(snap.counts.presetLocal))
   ok('外部包名去重计数（24 包 / 25 spec）', snap.counts.presetPackages === 24 && snap.counts.presetExternalSpecs === 25, `${snap.counts.presetPackages}/${snap.counts.presetExternalSpecs}`)
 }
 

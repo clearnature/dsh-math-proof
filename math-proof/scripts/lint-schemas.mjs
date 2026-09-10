@@ -86,6 +86,8 @@ for (const file of readdirSync(PLUGIN_DIR).filter((f) => f.endsWith('.mjs')).sor
     tools: { register: (t) => { tools.push(t); return () => {} } },
     systemPrompt: { section: () => () => {} },
     effect: (fn) => { fn(); return () => {} },
+    // 事件监听（`ctx.on`）：有些插件只挂事件、不注册工具（如 effort-governor 挂 agent/request）
+    on: () => () => {},
     get: () => undefined,
   })
   for (const t of tools) {

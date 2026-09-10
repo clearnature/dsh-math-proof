@@ -42,6 +42,7 @@ async function toolDescriptions() {
     const tools = []
     mod.apply({
       tools: { register: (t) => { tools.push(t); return () => {} } },
+    on: () => () => {},
       effect: (fn) => { fn(); return () => {} },
       systemPrompt: { section: (d) => d },
     })

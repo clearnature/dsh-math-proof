@@ -42,6 +42,9 @@ const skip = (name, why) => {
   skips++
 }
 
+/** 剥注释（静态扫描用：注释里常引用反面写法作为文档）。 */
+const stripComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*/gm, '')
+
 const ruleset = await import(join(PRESET, 'impl', 'ruleset.mjs'))
 const traffic = await import(join(PRESET, 'impl', 'session-traffic.mjs'))
 const policy = await import(join(PRESET, 'impl', 'budget-policy.mjs'))
@@ -86,8 +89,6 @@ section('规则表（BUDGET / RECEIPT）')
   ok('流量模块零外部依赖（只 node: 与 ./ruleset.mjs）', !/from '(?!node:|\.\/ruleset\.mjs)/.test(src))
   // 2026-09-10 CI（Node 20）真实事故：`import { zstdDecompressSync } from 'node:zlib'` 在 Node 20 上
   // 是**链接期** SyntaxError → `plugins/budget.mjs` 整个挂不上、第 7 个工具不注册。
-  // 剥注释再查：注释里**故意**引用了那种写法作为文档（与 ruleset-check 同一手法）
-  const stripComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*/gm, '')
   const codeSrc = stripComments(src)
   ok('不许命名导入 zstd（Node 20 上会链接期炸掉整个插件）', !/import\s*\{[^}]*zstd/i.test(codeSrc), (codeSrc.match(/import[^\n]*zstd[^\n]*/i) ?? [''])[0])
   ok('zstd 能力是运行时探测的（ZSTD_SUPPORTED）', /export const ZSTD_SUPPORTED/.test(src) && /typeof zlib\.zstdDecompressSync === 'function'/.test(src))
@@ -105,7 +106,7 @@ section('计量（session-traffic）')
 {
   const { header, turns } = traffic.foldSession(FIXTURE)
   ok('读出头（id / preset）', header?.id === 'fixture-session' && header?.agentPreset === 'math-proof', JSON.stringify(header))
-  ok('折出 3 个回合', turns.length === 3, String(turns.length))
+  ok('折出 4 个回合', turns.length === 4, String(turns.length))
   const [t1, t2, t3] = turns
   ok('turn1：2 步 / tok 320 / 1 次调用 / completed', t1.steps === 2 && t1.tok === 320 && t1.toolCalls === 1 && t1.reason === 'completed' && t1.open === false, JSON.stringify({ s: t1.steps, tok: t1.tok, c: t1.toolCalls, r: t1.reason }))
   ok('turn1：tok = input+cacheRead+output', t1.tok === t1.inTok + t1.cacheTok + t1.outTok, `${t1.inTok}+${t1.cacheTok}+${t1.outTok}`)
@@ -137,8 +138,9 @@ section('计量（session-traffic）')
     const zf = traffic.foldSession(zpath)
     ok('zstd 多帧：帧数=3 且结构扫描认得', traffic.scanZstdFrames(readFileSync(zpath)).frames.length === 3, String(traffic.scanZstdFrames(readFileSync(zpath)).frames.length))
     ok('zstd 多帧：折叠结果与明文一致', JSON.stringify(zf.turns.map((t) => [t.turn, t.steps, t.tok])) === JSON.stringify(turns.map((t) => [t.turn, t.steps, t.tok])), JSON.stringify(zf.turns.map((t) => [t.turn, t.steps, t.tok])))
+    ok('zstd 多帧：思考强度折叠也一致', JSON.stringify(zf.turns.map((t) => [t.effortAtStart, t.effortLast])) === JSON.stringify(turns.map((t) => [t.effortAtStart, t.effortLast])), JSON.stringify(zf.turns.map((t) => [t.effortAtStart, t.effortLast])))
     const tail = traffic.foldLastTurn(zpath)
-    ok('foldLastTurn 只留最后一个回合且与全读一致', tail.turns.length === 1 && tail.turns[0].tok === 420 && tail.truncated === false, JSON.stringify(tail.turns.map((t) => t.tok)))
+    ok('foldLastTurn 只留最后一个回合且与全读一致', tail.turns.length === 1 && tail.turns[0].tok === 500 && tail.truncated === false, JSON.stringify(tail.turns.map((t) => t.tok)))
     const win = traffic.foldSessionWindow(zpath, { fromTurn: 2 })
     ok('foldSessionWindow(fromTurn=2) 与全读的 turn2 一致', win.turns[0]?.turn === 2 && win.turns[0]?.tok === 900 && win.truncated === false, JSON.stringify(win.turns.map((t) => [t.turn, t.tok])))
 
@@ -250,6 +252,96 @@ section('拦截判定（gateDecision）')
   ok('墙钟到点 → 按硬线拦（wall）', d.action === 'deny' && d.kind === 'wall', JSON.stringify({ a: d.action, k: d.kind }))
   ok('无回合状态 → 直接放行（钩子没开局就不介入）', policy.gateDecision({ state: null, toolName: 'bash' }).action === 'allow')
   ok('重复指纹表有界（超过 400 个键会被裁剪）', (() => { const s = mk(); for (let i = 0; i < 430; i++) gate(s, 'read', { i }); return Object.keys(s.repeat).length <= 300 })())
+}
+
+// ── 4.5) 思考强度（折叠 + 调速策略 + 安全纪律）─────────────────────────────
+section('思考强度（EFFORT / planEffort / govern）')
+{
+  const gov = await import(join(PRESET, 'plugins', 'effort-governor.mjs'))
+  const { turns: fx } = traffic.foldSession(FIXTURE) // 本节的块作用域里重新折一次（上节的 turns 在别的块里）
+  const L = ruleset.EFFORT.ladder
+  ok('EFFORT 梯子顺序：max → high → low → off（序号越大 = 想得越少）', JSON.stringify(L) === JSON.stringify(['max', 'high', 'low', 'off']), L.join('>'))
+  ok('rungs 按比例降序排列（先命中更严的那条）', ruleset.EFFORT.rungs.every((r, i, a) => i === 0 || a[i - 1].atRatio > r.atRatio), JSON.stringify(ruleset.EFFORT.rungs.map((r) => r.atRatio)))
+  ok('rungs 的档位都在梯子上且都不是顶档', ruleset.EFFORT.rungs.every((r) => L.includes(r.effort) && r.effort !== L[0]), ruleset.EFFORT.rungs.map((r) => r.effort).join(','))
+  ok('classDefault 的档位合法（或 null = 不干预）', Object.values(ruleset.EFFORT.classDefault).every((v) => v === null || L.includes(v)), JSON.stringify(ruleset.EFFORT.classDefault))
+  ok('各档位阈值都在 (0,1] 内', ruleset.EFFORT.rungs.every((r) => r.atRatio > 0 && r.atRatio <= 1), ruleset.EFFORT.rungs.map((r) => r.atRatio).join(','))
+  ok('effortRank 反映「想得多少」的方向', policy.effortRank('max') < policy.effortRank('high') && policy.effortRank('high') < policy.effortRank('low') && policy.effortRank('low') < policy.effortRank('off'))
+  ok('未知档位 rank = -1', policy.effortRank('ultra') === -1 && policy.effortRank(undefined) === -1)
+
+  const st = (over = {}) => ({ session: 'e', class: 'build', budget: 20, granted: 0, used: 0, effortOwned: false, effortBefore: null, effortSet: null, ...over })
+  const plan = (used, seed, over = {}) => policy.planEffort({ state: st({ used, ...over }), seedEffort: seed })
+  ok('未过线 → 不动（保持 seed）', plan(2, 'high').effort === null && plan(2, 'high').why.includes('未过线'), plan(2, 'high').why)
+  ok('过 60%：high → low', plan(13, 'high').effort === 'low', JSON.stringify(plan(13, 'high')))
+  ok('过 85%：high → off', plan(18, 'high').effort === 'off', JSON.stringify(plan(18, 'high')))
+  ok('过 85%：max → off（跨档也能一口气降到底）', plan(18, 'max').effort === 'off', JSON.stringify(plan(18, 'max')))
+  ok('**只降不升**：已经是 low，过 60% 不再动', plan(13, 'low').effort === null && plan(13, 'low').why.includes('只降不升'), plan(13, 'low').why)
+  ok('**只降不升**：已经是 off，过 85% 不再动', plan(18, 'off').effort === null, plan(18, 'off').why)
+  ok('看不到档位（部署没开思考/换适配器）→ 不动', plan(18, undefined).effort === null && plan(18, undefined).why.includes('看不到'), plan(18, undefined).why)
+  ok('未知档位 → 不动（乱传会让适配器抛 UNSUPPORTED_REASONING_EFFORT）', plan(18, 'ultra').effort === null && plan(18, 'ultra').why.includes('未知档位'), plan(18, 'ultra').why)
+  ok('没有回合状态 → 不动', policy.planEffort({ state: null, seedEffort: 'high' }).effort === null)
+  ok('过线时不还原（先收敛）', plan(13, 'low', { effortOwned: true, effortBefore: 'high', effortSet: 'low' }).effort === null)
+  ok('未过线且我们改过 → 还原到改之前那一档', plan(2, 'low', { effortOwned: true, effortBefore: 'high', effortSet: 'low' }).effort === 'high', JSON.stringify(plan(2, 'low', { effortOwned: true, effortBefore: 'high', effortSet: 'low' })))
+  ok('未过线但我们**没**改过 → 不动（不猜用户想要哪档）', plan(2, 'low', { effortOwned: false }).effort === null)
+
+  ok('noteEffort：首次降档记录「改之前是什么」', (() => { const s2 = st(); policy.noteEffort(s2, { effort: 'low', rung: '0.6', why: 'x' }, 'high'); return s2.effortOwned === true && s2.effortBefore === 'high' && s2.effortSet === 'low' })())
+  ok('noteEffort：还原后交还所有权', (() => { const s2 = st({ effortOwned: true, effortBefore: 'high', effortSet: 'low' }); policy.noteEffort(s2, { effort: null, rung: null, why: 'x' }, 'low'); return s2.effortOwned === false && s2.effortSet === null })())
+  ok('noteEffort：过线保持时不动所有权', (() => { const s2 = st({ effortOwned: true, effortBefore: 'high', effortSet: 'low' }); policy.noteEffort(s2, { effort: null, rung: '0.6', why: 'x' }, 'low'); return s2.effortOwned === true && s2.effortSet === 'low' })())
+
+  // govern：插件层的最终防线
+  const seed = { provider: 'p', model: 'm', reasoningEffort: 'high', maxTokens: 1000 }
+  ok('govern：未过线 → **同一个对象**返回（不改配置）', gov.govern(seed, st({ used: 1 }), 'brake').config === seed)
+  const changed = gov.govern(seed, st({ used: 18 }), 'brake').config
+  ok('govern：过线 → 只改 reasoningEffort', changed.reasoningEffort === 'off' && changed.provider === 'p' && changed.model === 'm' && changed.maxTokens === 1000, JSON.stringify(changed))
+  ok('govern：只改一个字段（键集不变）', JSON.stringify(Object.keys(changed).sort()) === JSON.stringify(Object.keys(seed).sort()), Object.keys(changed).join(','))
+  ok('govern：warn 模式不调速（只记账）', gov.govern(seed, st({ used: 18 }), 'warn').config === seed)
+  ok('govern：off 模式不调速', gov.govern(seed, st({ used: 18 }), 'off').config === seed)
+  ok('govern：seed 没有档位 → 原样返回', gov.govern({ provider: 'p', model: 'm' }, st({ used: 18 }), 'brake').config.reasoningEffort === undefined)
+
+  // 折叠：把 request/header 的档位按「运行值」归到回合
+  ok('折叠：turn4 起始 low → 结束 off（被降档过）', fx[3].effortAtStart === 'low' && fx[3].effortLast === 'off' && fx[3].effortDowngraded === true, JSON.stringify({ a: fx[3].effortAtStart, b: fx[3].effortLast }))
+  ok('折叠：turn3 记录了两次档位变化（high → low）', JSON.stringify(fx[2].efforts) === JSON.stringify(['high', 'low']), JSON.stringify(fx[2].efforts))
+  ok('折叠：档位是**运行值**（早于首个 header 的回合不该拿到末尾的值）', fx[0].effortAtStart === null && fx[0].effortLast === null, JSON.stringify({ a: fx[0].effortAtStart, b: fx[0].effortLast }))
+  ok('折叠：不把 request/header 的 header 整体留在回合对象里（只留标量）', !JSON.stringify(fx[3]).includes('fix-model'), JSON.stringify(Object.keys(fx[3])).slice(0, 120))
+
+  // 端到端：从 apply 抓监听器，用假 next 驱动一遍（本地能做到的、最接近真 harness 的验证）
+  {
+    resetState()
+    policy.startTurn({ sessionId: 'gov1', transcript: FIXTURE, cwd: '/w', prompt: '帮我证一下这个引理' })
+    policy.writeTurn({ ...policy.readTurn('gov1'), budget: 20, used: 18 })
+    const listeners = []
+    gov.apply({ on: (n, fn) => { listeners.push([n, fn]); return () => {} }, get: () => undefined })
+    ok('apply 注册了 agent/request 监听器', listeners.length === 1 && listeners[0][0] === 'agent/request', JSON.stringify(listeners.map((l) => l[0])))
+    const seed = { provider: 'p', model: 'm', reasoningEffort: 'high', maxTokens: 1000 }
+    const got = await listeners[0][1]({ agent: { id: 'gov1' }, turn: 1, step: 1 }, async () => seed)
+    ok('端到端：预算 90% 时把档位降到 off（其余字段不动）', got.reasoningEffort === 'off' && got.provider === 'p' && got.maxTokens === 1000, JSON.stringify(got))
+    const after = policy.readTurn('gov1')
+    ok('端到端：状态记下「我们改过 + 改之前是 high」', after.effortOwned === true && after.effortBefore === 'high' && after.effortSet === 'off', JSON.stringify({ o: after.effortOwned, b: after.effortBefore, s: after.effortSet }))
+    policy.writeTurn({ ...after, used: 1 })
+    const got2 = await listeners[0][1]({ agent: { id: 'gov1' } }, async () => ({ ...seed, reasoningEffort: 'off' }))
+    ok('端到端：新任务未过线 → 还原到改之前那一档', got2.reasoningEffort === 'high', JSON.stringify(got2))
+    let threw = null
+    try {
+      await listeners[0][1]({ agent: { id: 'gov1' } }, async () => { throw new Error('route failure') })
+    } catch (e) {
+      threw = e
+    }
+    ok('端到端：next() 的异常原样抛出（不吞模型路由错误）', threw !== null && threw.message === 'route failure', String(threw))
+    const untouched = await listeners[0][1]({ agent: { id: 'never-started' } }, async () => seed)
+    ok('端到端：没有回合状态的会话 → 配置原样返回（同一个对象）', untouched === seed)
+    const noAgent = await listeners[0][1]({}, async () => seed)
+    ok('端到端：payload 没有 agent → 原样返回（不猜会话）', noAgent === seed)
+  }
+
+  // 组合与依赖
+  const composition = readFileSync(join(PRESET, 'agent.cordis.yml'), 'utf8')
+  ok('组合里注册了 effort-governor 行', /name: '\.\/plugins\/effort-governor\.mjs'/.test(composition))
+  const govSrc = readFileSync(join(PRESET, 'plugins', 'effort-governor.mjs'), 'utf8')
+  ok('调速器零外部依赖', !/from '(?!\.\.\/impl\/)/.test(stripComments(govSrc)), (govSrc.match(/from '[^']+'/g) ?? []).join(' '))
+  ok('调速器监听的是官方 agent/request 瀑布', /ctx\.on\('agent\/request'/.test(govSrc) && /await next\(\)/.test(govSrc))
+  ok('调速器把 next() 的 seed 传进判定（不凭空造配置）', /const seed = await next\(\)/.test(govSrc) && /govern\(seed, state, mode\)/.test(govSrc))
+  ok('调速器源码里没有自造 provider/model（只改档位）', !/provider:|model:/.test(stripComments(govSrc)))
+  ok('调速器不碰 next() 的异常（不吞模型路由错误）', !/try \{\s*const seed = await next\(\)/.test(govSrc))
+  ok('调速器有兜底：异常时退回原配置', /catch \{\s*\n[\s\S]{0,200}return seed/.test(govSrc))
 }
 
 // ── 5) 过程播报 ───────────────────────────────────────────────────────────

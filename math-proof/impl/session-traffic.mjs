@@ -309,6 +309,12 @@ function blankTurn(turn) {
     stepsWithUsage: 0,
     /** 本回合的**人类提示词**（第一条第 source.kind=user 的消息；用于按类标定）。 */
     prompt: null,
+    /** 本回合内**被改动过**的思考强度（`request/header` 只在配置**变化**时落盘，所以这是阶跃值）。 */
+    efforts: [],
+    /** 回合开始/结束时生效的思考强度（跨回合延续；用于判断「本回合是否被降过档」）。 */
+    effortAtStart: null,
+    effortLast: null,
+    effortClosed: false,
     /** 命中的回执标记（**只留标记本身，不留原文**——一个回合的工具结果可能有几百 KB）。 */
     receipts: [],
     calls: [],
@@ -329,6 +335,8 @@ export function foldLines(lines, options = {}) {
     return turns.get(t)
   }
   let current = null
+  /** 当前生效的思考强度（`request/header` 只在变化时落盘 → 需要跨行记住上一个值）。 */
+  let lastEffort = null
   for (const line of lines) {
     const e = parseLine(line)
     if (e === null) continue
@@ -338,6 +346,18 @@ export function foldLines(lines, options = {}) {
     }
     const t = e.data?.turn
     if (typeof t === 'number') current = t
+    if (e.type === 'request/header') {
+      // 每一步的真实请求配置都会落盘（`data.header.config`），但**记录里没有 turn 字段**
+      // → 按「最近一次出现的回合号」归属。这是「思考强度真的被改了吗」的**审计痕迹**，
+      // 也是事后按档位分组统计（每步 reasoning vs 步数/流量）的唯一数据源。
+      // ⚠ `header` 里含完整系统提示词，**只取 config.reasoningEffort 这一个标量**，绝不整条序列化。
+      const effort = e.data?.header?.config?.reasoningEffort ?? e.data?.config?.reasoningEffort
+      if (typeof effort === 'string' && effort !== '') {
+        lastEffort = effort
+        if (current !== null) turnOf(current).efforts.push(effort)
+      }
+      continue
+    }
     if (e.type === 'user/message') {
       // 人类提示词在日志里**没有 turn 字段**（实测：source.kind=user，data 里只有 content/source）
       // → 按「最近一次出现的回合号」归属；钩子注入的消息是 source.kind=plugin，天然被排除。
@@ -356,10 +376,15 @@ export function foldLines(lines, options = {}) {
     switch (e.type) {
       case 'turn/start':
         tr.start = e.time ?? tr.start
+        tr.effortAtStart = lastEffort
         break
       case 'turn/end':
         tr.end = e.time ?? tr.end
         tr.reason = e.data?.reason?.kind ?? tr.reason
+        // 回合结束时**当场**记下生效档位（`lastEffort` 是折叠过程中的运行值，
+        // 若留到最后统一取，前面每个回合都会拿到折叠末尾的值——那是错的）
+        tr.effortLast = lastEffort
+        tr.effortClosed = true // 用独立标志区分「回合结束时刻档位是 null」与「回合没结束」
         break
       case 'assistant/message': {
         const usage = e.data?.usage
@@ -426,9 +451,12 @@ export function foldLines(lines, options = {}) {
     tr.wallMs = tr.start !== null && tr.end !== null ? tr.end - tr.start : null
     tr.open = tr.end === null
     tr.repeatMax = maxRepeat(tr.calls)
+    if (tr.effortClosed !== true) tr.effortLast = lastEffort // 未闭合的回合（通常是最后一个）用折叠末尾的值
+    tr.effortDowngraded = tr.effortAtStart !== null && tr.effortLast !== null && tr.effortAtStart !== tr.effortLast
     // 类别只按「本回合第一条用户消息」判——与运行时钩子的判据一致
     delete tr._stepUsage
     delete tr._chunkUsage
+    delete tr.effortClosed
     out.push(tr)
   }
   return { header, turns: out }

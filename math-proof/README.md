@@ -313,8 +313,15 @@ node tests/paths-check.mjs   # PATHS_OK
 （原地打转与预算无关），**墙钟**超限按硬线处理。一个回合最多拦 3 次（拦多了本身就是流量）。
 被拦**不是失败**：正确动作是 `proof_dag journal` 落盘 + `todo_write` 列缺口——信息只许收敛，不许丢。
 
-**开关**：`MATH_PROOF_BUDGET=off` 全关｜`=warn` 只提醒不拦｜`budget action:"off"` 等同 warn｜
-`budget action:"status"` 看本回合实况｜`budget action:"calibrate"` 用真实日志标定各类预算。
+**思考强度自动调节**（`plugins/effort-governor.mjs`，挂官方 `agent/request` 瀑布）：
+预算过 60% 自动降到 `low`、过 85% 降到 `off`，任务结束**还原**到改之前那一档（**只降不升**、
+看不懂就不动、任何异常退回原配置）。⚠ 先说清它**不是省流量的旋钮**：实测 reasoning 只占流量的
+**0.12%**，而且**高思考回合反而更省**（每步 ≥1000 reasoning：15.5 步 / 4.05M；<300：17 步 / 9.32M）
+——它是**预算吃紧时强制收敛**的旋钮。同一轮还否掉了两个直觉（重复长文本 0 次、50% 的回合本来就
+不写任何文件），见 [M7.6](docs/maps/M7-budget.md)。
+
+**开关**：`MATH_PROOF_BUDGET=off` 全关｜`=warn` 只提醒不拦（且**不调速**）｜`budget action:"off"` 等同 warn｜
+`budget action:"status"` 看本回合实况（含当前思考档位与下一步计划）｜`budget action:"calibrate"` 用真实日志标定各类预算。
 
 **运行环境**：读 `session.jsonl.zstd` 需要 **Node ≥ 22.15 / 23.8**（`node:zlib` 的 zstd）。
 更老的 Node（如 20）上**能力是运行时探测的**，不会崩：`budget status` 会明确报「日志读取不可用」，

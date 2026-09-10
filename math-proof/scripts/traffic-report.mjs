@@ -102,6 +102,31 @@ if (wantJson) {
     console.log(`- 占比: 上下文重复读 **${((overall.cache.median / total) * 100).toFixed(1)}%**｜模型输出 **${((overall.output.median / total) * 100).toFixed(1)}%**`)
     console.log('  ⇒ 结论：**流量 ≈ 调用次数 × 每步上下文**；「少写字」几乎省不了流量，主控量是调用次数与上下文规模。')
   }
+  // ── 思考强度（相关，不是因果）─────────────────────────────────────────────
+  // 为什么单列：用户关心「过度思考」。实测 reasoning token 只占流量的 0.12%，
+  // 但「档位 ↔ 步数/流量」的关系值得用**自己的数据**持续看，而不是靠印象。
+  const effortGroups = new Map()
+  for (const t of usable) {
+    const key = t.effortAtStart ?? '（未记录）'
+    const list = effortGroups.get(key) ?? []
+    list.push(t)
+    effortGroups.set(key, list)
+  }
+  console.log('\n## 思考强度 vs 消耗（**相关，不是因果**；档位取自 request/header，是阶跃值）')
+  console.log('| 回合起始档位 | 回合 | 中位调用 | 中位步数 | 中位 tok | 每步 reasoning（中位） |')
+  console.log('| --- | --- | --- | --- | --- | --- |')
+  for (const [key, list] of [...effortGroups.entries()].sort((a, b) => b[1].length - a[1].length)) {
+    console.log(
+      `| \`${key}\` | ${list.length} | ${summarize(list.map((t) => t.toolCalls)).median ?? '—'} | ${summarize(list.map((t) => t.steps)).median ?? '—'} | ${fmt(summarize(list.map((t) => t.tok)).median)} | ${Math.round(summarize(list.map((t) => (t.reasoningTok ?? 0) / Math.max(1, t.steps))).median ?? 0)} |`,
+    )
+  }
+  const reas = summarize(usable.map((t) => t.reasoningTok ?? 0))
+  console.log(
+    `- reasoning token 合计 **${fmt(reas.sum)}**，占全部流量 **${((reas.sum / (overall.tok.sum || 1)) * 100).toFixed(2)}%**` +
+      `（中位回合每个 reasoning token 只值 ${Math.round(summarize(usable.map((t) => (t.reasoningTok ?? 0) / Math.max(1, t.steps))).median ?? 0)}/步）`,
+  )
+  console.log('- ⇒ **思考强度不是省流量的杠杆**；它是「预算吃紧时强制收敛」的杠杆（见 M7.6）。')
+
   console.log('\n## 按任务类')
   console.log('| 类 | 含义 | 回合 | 中位调用 | p90 调用 | 中位步数 | 中位 tok |')
   console.log('| --- | --- | --- | --- | --- | --- | --- |')

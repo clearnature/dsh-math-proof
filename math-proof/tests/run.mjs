@@ -43,6 +43,7 @@ async function toolOf(file, toolName, extraCtx = {}) {
   mod.apply({
     tools: { register: (t) => { tools.push(t); return () => {} } },
     effect: (fn) => { fn(); return () => {} },
+    on: () => () => {},
     systemPrompt: { section: (def) => def },
     get: () => undefined,
     ...extraCtx,
@@ -657,7 +658,7 @@ function scratch(label) {
 
   // 工具描述里必须写明 dype 非权威
   const tools = []
-  engine.apply({ tools: { register: (t) => { tools.push(t); return () => {} } }, get: () => undefined })
+  engine.apply({ tools: { register: (t) => { tools.push(t); return () => {} } }, on: () => () => {}, get: () => undefined })
   const compile = tools.find((t) => t.name === 'proof_compile')
   ok('权威: proof_compile 描述写明 Agda 唯一裁决', compile.description.includes('唯一裁决器'), compile.description.slice(0, 80))
   ok('权威: proof_compile 描述写明 dype 非权威', compile.description.includes('非权威'), compile.description.slice(0, 160))
@@ -1262,6 +1263,7 @@ function scratch(label) {
   disc.apply({
     tools: { register: () => () => {} },
     effect: (fn) => { fn(); return () => {} },
+    on: () => () => {},
     systemPrompt: { section: (d) => { sectionDef = d; return () => {} } },
     get: () => undefined,
   })

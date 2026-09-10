@@ -7,7 +7,7 @@
 
 ## M2.1 组合行（agent 平面）
 
-共 **35** 行 = 外部包 **28** 条行（去重后 **25** 条 spec / **24** 个包） + 本地插件 **7** 个，另有 **3** 个分组。
+共 **36** 行 = 外部包 **28** 条行（去重后 **25** 条 spec / **24** 个包） + 本地插件 **8** 个，另有 **3** 个分组。
 
 | 行 id | 提供者 | 所属分组 | 状态 |
 | --- | --- | --- | --- |
@@ -20,6 +20,7 @@
 | `proof-dag` | `./plugins/proof-dag.mjs` | — | 启用 |
 | `prover-limits` | `./plugins/prover-limits.mjs` | — | 启用 |
 | `budget` | `./plugins/budget.mjs` | — | 启用 |
+| `effort-governor` | `./plugins/effort-governor.mjs` | — | 启用 |
 | `agent-instructions` | `@deepseek-ai/dsh-agent-instructions` | — | 启用 |
 | `tool-bash` | `@deepseek-ai/dsh-tool-bash` | — | 启用 |
 | `tool-pwsh` | `@deepseek-ai/dsh-tool-pwsh` | — | 启用 |
@@ -62,6 +63,7 @@ graph LR
   plugins_budget_mjs["plugins/budget.mjs"] --> impl_budget-policy_mjs["impl/budget-policy.mjs"]
   plugins_budget_mjs["plugins/budget.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
   plugins_budget_mjs["plugins/budget.mjs"] --> impl_session-traffic_mjs["impl/session-traffic.mjs"]
+  plugins_effort-governor_mjs["plugins/effort-governor.mjs"] --> impl_budget-policy_mjs["impl/budget-policy.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> plugins_agda-engine_mjs["plugins/agda-engine.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> plugins_proof-graph_mjs["plugins/proof-graph.mjs"]
@@ -79,8 +81,8 @@ graph LR
   tests_refs-check_mjs["tests/refs-check.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
 ```
 
-- 有出边的模块（**核心层**）：`impl/budget-policy.mjs`、`impl/session-traffic.mjs`、`plugins/agda-engine.mjs`、`plugins/budget.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/traffic-report.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
-- 无出边的模块（**叶子/独立**）：`plugins/budget.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/benchmark.mjs`、`tests/budget-check.mjs`、`tests/cache-check.mjs`、`tests/docs-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/hot-section-check.mjs`、`tests/inject-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plugins-check.mjs`、`tests/prompt-vars-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/reload-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`
+- 有出边的模块（**核心层**）：`impl/budget-policy.mjs`、`impl/session-traffic.mjs`、`plugins/agda-engine.mjs`、`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/traffic-report.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
+- 无出边的模块（**叶子/独立**）：`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/benchmark.mjs`、`tests/budget-check.mjs`、`tests/cache-check.mjs`、`tests/docs-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/hot-section-check.mjs`、`tests/inject-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plugins-check.mjs`、`tests/prompt-vars-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/reload-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`
 
 > 依赖方向即「谁可以 import 谁」：`plugins/` 是注册层（薄），`impl/` 是可热读共享层，
 > `tests/` 与 `scripts/` 只消费、不被消费（所以它们不会出现在别人的 import 里）。

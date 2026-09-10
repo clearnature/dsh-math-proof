@@ -89,6 +89,7 @@ const mountResults = []
 for (const file of files) {
   const declared = declaredCount.get(file) ?? new Set()
   const registered = { tools: [], sections: [] }
+  const listeners = []
   const services = {
     tools: { register: (t) => registered.tools.push(t?.name ?? '(无名)') },
     systemPrompt: { section: (sec) => { registered.sections.push(sec?.name ?? '(无名)'); return () => {} } },
@@ -98,7 +99,9 @@ for (const file of files) {
     skills: { register: () => () => {} },
   }
   const base = {
-    get: () => undefined, on: () => () => {}, effect: (fn) => { const d = typeof fn === 'function' ? fn() : undefined; return typeof d === 'function' ? d : () => {} },
+    get: () => undefined,
+    on: (name) => { listeners.push(String(name)); return () => {} },
+    effect: (fn) => { const d = typeof fn === 'function' ? fn() : undefined; return typeof d === 'function' ? d : () => {} },
     inject: (deps, fn) => fn({ get: () => undefined }), logger: { warn() {}, info() {}, error() {} }, root: {}, fiber: {},
   }
   const ctx = new Proxy(base, {
@@ -112,7 +115,7 @@ for (const file of files) {
     const mod = await import(join(PRESET, 'plugins', file))
     const r = typeof mod.apply === 'function' ? mod.apply(ctx) : undefined
     if (r !== undefined && typeof r.then === 'function') await r
-    mountResults.push({ file, ok: true, tools: registered.tools, sections: registered.sections })
+    mountResults.push({ file, ok: true, tools: registered.tools, sections: registered.sections, listeners })
   } catch (err) {
     mountResults.push({ file, ok: false, error: String(err?.message ?? err) })
   }
@@ -125,6 +128,8 @@ for (const r of mountResults) {
   const allSections = mountResults.filter((r) => r.ok).flatMap((r) => r.sections)
   ok('7 个工具都被注册（含 budget）', allTools.length === 7 && new Set(allTools).size === 7 && allTools.includes('budget'), allTools.join(','))
   ok('纪律提示段被注册', allSections.includes('math-proof:discipline'), allSections.join(','))
+  const allListeners = mountResults.filter((r) => r.ok).flatMap((r) => r.listeners ?? [])
+  ok('思考强度调速器挂上了官方 agent/request 瀑布', allListeners.includes('agent/request'), allListeners.join(','))
 }
 
 // ── 具体回归：把「真实事故」钉死 ─────────────────────────────────────────

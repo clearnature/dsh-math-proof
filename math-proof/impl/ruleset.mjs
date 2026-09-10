@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 /** 规则语义版本：**规则一变就加一**（进输出日志，保证分数可比）。 */
-export const RULESET_VERSION = 'r8'
+export const RULESET_VERSION = 'r9'
 
 /**
  * 「已验证」的**弱证据**：工具回执文本里出现这些标记才算机器出过声。
@@ -291,6 +291,43 @@ export const RESULT_TRIAGE = [
     notThis: '用 `--terminating` 友好写法重写后仍报错，才说明是真正的递归结构问题',
   },
 ]
+
+/**
+ * **思考强度（reasoning effort）自动调节**——回答「让模型自动调节思考强度」。
+ *
+ * 先说实测（2026-09-10，本机 176 个有 usage 的回合，`scripts/traffic-report.mjs` 可复算）：
+ *   · reasoning token 合计 **2.00M**，占全部流量 **0.12%**（中位回合里只占 0.078%）；
+ *   · **高思考回合反而更省**：每步 reasoning ≥1000 的回合（n=20）步数中位 15.5、tok 中位 4.05M；
+ *     每步 <300 的回合（n=75）步数中位 17、tok 中位 9.32M。
+ *
+ * ⇒ 所以本表**不是「省流量」的开关**（省不到），它是**「预算吃紧时强制收敛」的开关**：
+ *   流量 ≈ 调用次数 × 每步上下文（99.6% 是上下文重复读），真正决定花销的是**还要跑多少轮**。
+ *   预算过半后降一档思考，是为了让模型少绕路、早点交出结论，而不是为了少写几个思考 token。
+ *
+ * 安全规则（**必须逐条遵守，否则会把正常请求打挂**）：
+ *   1. **只降不升**：绝不超过该类默认档（否则就成了「多想」旋钮，反而涨流量）；
+ *   2. **看不懂就不动**：`next()` 给的 config 若没有 `reasoningEffort`（部署关了思考、或走别的适配器）
+ *      → 原样返回，什么都不改；
+ *   3. 适配器只认 `off|low|high|max`（实测 `dsh-llm-deepseek` 的 `reasoningEffort()` 会**抛错**），
+ *      `off` 永远合法；`low/high/max` 要求部署开了思考；
+ *   4. 任何不确定 → 返回原 config。**绝不因为调节思考强度让一次请求失败。**
+ */
+export const EFFORT = {
+  /** 档位从「想得多」到「想得少」；`null` 表示不改（保持原样）。 */
+  ladder: ['max', 'high', 'low', 'off'],
+  /**
+   * 按「已用预算比例」选档：命中第一条即用。
+   * `ratio` 是**已用调用数 / 有效预算**（与刹车同一把尺子）。
+   */
+  rungs: [
+    { atRatio: 0.85, effort: 'off', why: '预算 ≥85%：思考关掉，直接把结论与未完成项写出来' },
+    { atRatio: 0.6, effort: 'low', why: '预算 ≥60%：降到 low，少绕路、先收敛' },
+  ],
+  /** 各类任务的**默认档**（预算宽裕时用；`null` = 不干预，尊重用户/会话设置）。 */
+  classDefault: { chat: null, docs: null, diagnose: null, compile: 'high', proof: 'high', build: 'high' },
+  /** 每步思考的实测中位（仅用于报表对照，不参与判定）。 */
+  observedReasoningPerStepMedian: 346,
+}
 
 /** 规则模块自身的路径与哈希（`doctor` 用它比对「磁盘 vs 进程内」）。 */
 export const RULESET_PATH = fileURLToPath(import.meta.url)

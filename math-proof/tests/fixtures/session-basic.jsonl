@@ -13,3 +13,8 @@
 {"type":"turn/start","seq":12,"time":5000,"data":{"turn":3}}
 {"type":"assistant/chunk","seq":13,"time":5100,"data":{"turn":3,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":300,"outputTokens":5,"totalTokens":400,"cacheReadTokens":95,"reasoningTokens":0}}}}
 {"type":"assistant/chunk","seq":14,"time":5150,"data":{"turn":3,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":5,"totalTokens":20,"cacheReadTokens":5,"reasoningTokens":0}}}}
+{"type":"request/header","seq":15,"time":5200,"data":{"header":{"config":{"provider":"fix","model":"fix-model","reasoningEffort":"high","maxTokens":1000}},"reason":"first"}}
+{"type":"request/header","seq":16,"time":5300,"data":{"header":{"config":{"provider":"fix","model":"fix-model","reasoningEffort":"low","maxTokens":1000}},"reason":"budget"}}
+{"type":"turn/start","seq":17,"time":6000,"data":{"turn":4}}
+{"type":"request/header","seq":18,"time":6100,"data":{"header":{"config":{"provider":"fix","model":"fix-model","reasoningEffort":"off","maxTokens":1000}},"reason":"budget-hard"}}
+{"type":"assistant/message","seq":19,"time":6200,"data":{"turn":4,"step":1,"message":{"role":"assistant","content":[{"type":"text","text":"收尾"}]},"usage":{"inputTokens":400,"outputTokens":100,"totalTokens":500,"cacheReadTokens":0,"reasoningTokens":0}}}

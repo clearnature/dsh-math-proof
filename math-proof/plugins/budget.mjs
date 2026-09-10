@@ -15,8 +15,8 @@
 //
 // 本行不 provide 任何 service，可裸露在 preset 里；只 import `node:` 内建与 preset 内模块。
 
-import { BUDGET } from '../impl/ruleset.mjs'
-import { budgetMode, effectiveCalls, fmtTok, readTurn, wallLimitMs, writeTurn } from '../impl/budget-policy.mjs'
+import { BUDGET, EFFORT } from '../impl/ruleset.mjs'
+import { budgetMode, effectiveCalls, fmtTok, planEffort, readTurn, wallLimitMs, writeTurn } from '../impl/budget-policy.mjs'
 import {
   budgetFor,
   classBaseline,
@@ -79,6 +79,17 @@ function renderStatus(args) {
       lines.push(
         `- 日志实测（本回合，读到哪算哪）: 步数 **${live.steps}**｜tok **${fmtTok(live.tok)}**｜上下文峰值 ${fmtTok(live.ctxPeak)}｜模型输出 ${fmtTok(live.outTok)}｜结束原因 ${live.reason ?? '（进行中）'}｜最高重复调用 ${live.repeatMax} 次`,
       )
+    }
+    const logged = live?.effortLast ?? live?.effortAtStart ?? null
+    lines.push(
+      `- 思考强度: 日志记录 **${logged ?? '未记录（本机未开思考 / 尚未落 request/header）'}**${state.effortOwned === true ? `｜**调速器已介入**：档位设为 \`${state.effortSet}\`（原为 \`${state.effortBefore ?? '未知'}\`，任务结束还原）` : '｜调速器未介入'}`,
+    )
+    const observed = logged ?? state.effortSet ?? state.effortBefore ?? null
+    if (observed !== null) {
+      const next = planEffort({ state, seedEffort: observed })
+      lines.push(`- 下一步档位: ${next.effort === null ? '保持' : `**${next.effort}**`}（按 \`${observed}\` 起算：${next.why}）`)
+    } else {
+      lines.push('- 下一步档位: 未知（看不到当前档位就不动——**看不懂就不猜**）')
     }
     if (state.error !== undefined) lines.push(`- ⚠ 钩子内部错误（已放行）: \`${state.error}\``)
     if (state.lastLiveWhy !== undefined && state.lastLiveWhy !== null) lines.push(`- 过程中不读日志的原因: ${state.lastLiveWhy}`)
@@ -331,6 +342,14 @@ function renderExplain() {
     '- **不动**：失败/中断/无证据的「完成」——失败不养预算，没证据的完成不算数；',
     `- **夹紧**：[${BUDGET.clamp.min}×, ${BUDGET.clamp.max}×] 该类中位调用数（棘轮的物理上限）；`,
     `- **追加**：\`budget action:"topup"\` 每任务限 ${BUDGET.topup.maxPerTask} 次、理由 ≥${BUDGET.topup.minReasonChars} 字、批 +${Math.round(BUDGET.topup.grantRatio * 100)}%、**记债**（下个已验证完成的任务扣回 ${Math.round(BUDGET.topup.debtRepayRatio * 100)}%）。`,
+    '',
+    '## 思考强度（自动调节；`agent/request` 瀑布）',
+    `- 实测：reasoning token 只占全部流量的 **0.12%**（中位回合 0.078%），而且**高思考回合反而更省**`,
+    '  （每步 ≥1000 reasoning 的回合步数中位 15.5 / tok 4.05M；<300 的回合 17 步 / 9.32M）。',
+    '  ⇒ 它**不是省流量的旋钮**，是**「预算吃紧时强制收敛」的旋钮**：流量 ≈ 调用次数 × 每步上下文。',
+    `- 规则：预算过 ${Math.round(EFFORT.rungs[EFFORT.rungs.length - 1].atRatio * 100)}% 降到 \`low\`，过 ${Math.round(EFFORT.rungs[0].atRatio * 100)}% 降到 \`off\`；**只降不升**、任务结束**还原**到改之前那一档；`,
+    '  看不见档位（部署关了思考/换适配器）或档位未知 → **不动**；任何异常 → 退回原配置（绝不因为调速让请求失败）。',
+    '- 效果可审计：每次配置变化都会落 `request/header`（里面有 `config.reasoningEffort`）。',
     '',
     '## 刹车（`brake` 模式）',
     `- ${Math.round(BUDGET.warnAt * 100)}% 提醒（PostToolUse 附加上下文，不拦）｜${BUDGET.softAt}× 起禁取证类（${BUDGET.evidenceTools.slice(0, 6).join('/')}…）｜${BUDGET.hardAt}× 起只留收尾白名单（${BUDGET.allowlist.slice(0, 5).join('/')}…）；`,

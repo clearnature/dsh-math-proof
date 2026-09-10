@@ -21,7 +21,7 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 
-import { BUDGET } from './ruleset.mjs'
+import { BUDGET, EFFORT } from './ruleset.mjs'
 import {
   budgetFor,
   callFingerprint,
@@ -163,6 +163,12 @@ export function startTurn(input) {
     tickAt: 0,
     warned: false,
     lastLiveMs: previous?.lastLiveMs ?? null,
+    // 思考强度治理：记住「我们自己把档位改成什么、改之前是什么」，
+    // 任务结束后按 `effortBefore` 精确还原（不去猜用户想用什么档）。
+    effortOwned: previous?.effortOwned === true,
+    effortBefore: previous?.effortBefore ?? null,
+    effortSet: previous?.effortSet ?? null,
+    effortPlan: previous?.effortPlan ?? null,
     topup: 0,
   }
   if (input.persist !== false) {
@@ -191,6 +197,7 @@ export function renderAnnouncement(state, profile, mode) {
     `- 提醒线 ${Math.round(eff * BUDGET.warnAt)} 次（只提醒）｜${Math.round(eff * BUDGET.softAt)} 次起**禁取证类**工具（read/glob/grep/bash/web_*）｜${Math.round(eff * BUDGET.hardAt)} 次起只留收尾路径（${BUDGET.allowlist.slice(0, 4).join(' / ')} …）`,
     '- 被拦**不是失败**：停下取证，把已得结论与**未完成项**写进台账（`proof_dag action:"journal"`）就是合格交付——信息只许收敛，不许丢；',
     `- 确需追加：\`budget action:"topup" reason:"…（≥${BUDGET.topup.minReasonChars} 字）"\` —— 每任务限 ${BUDGET.topup.maxPerTask} 次，批 +${Math.round(BUDGET.topup.grantRatio * 100)}%，**记债**（下个已验证完成的任务扣回 ${Math.round(BUDGET.topup.debtRepayRatio * 100)}%）；`,
+    `- 思考强度：预算过 ${Math.round(EFFORT.rungs[EFFORT.rungs.length - 1].atRatio * 100)}% 后机器把思考**自动降档**（路径 ${EFFORT.ladder.slice(1).join('→')}，即降到 low），过 ${Math.round(EFFORT.rungs[0].atRatio * 100)}% 直接关掉（off）——**不是惩罚，是让你把结论写出来**；任务结束自动还原。`,
     `- 墙钟上限 ${(wall / 60000).toFixed(1)} min｜随时自查 \`budget action:"status"\`。`,
   ]
   if (mode === 'warn') lines.push('- ⚠ 当前是 **warn 模式**（只提醒不拦）——`budget action:"explain"` 看口径。')
@@ -293,6 +300,75 @@ export function brakeReason(input) {
     `③ 确需追加：\`budget action:"topup" reason:"…"\`（每任务限 ${BUDGET.topup.maxPerTask} 次，记债 ${Math.round(BUDGET.topup.debtRepayRatio * 100)}%）。`,
     '**不要用「已完成」蒙过去**：交付里必须写明未验证的部分。被拦即停，就是本任务的正确收尾。',
   ].join('\n')
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 三·五、思考强度治理（`agent/request` 瀑布；**只降不升、看不懂就不动**）
+// ────────────────────────────────────────────────────────────────────────────
+
+/** 档位序号（越大 = 想得越少）。不在梯子上的档返回 -1。 */
+export function effortRank(effort) {
+  return EFFORT.ladder.indexOf(String(effort))
+}
+
+/**
+ * 决策：本步该用什么思考强度。**纯函数**（测试直接调它）。
+ *
+ * 规则（顺序即优先级）：
+ *   1. 看不见 seed 的档位（部署关了思考 / 换适配器）→ `null`（不动）；
+ *   2. 预算过线 → 用该线的目标档，但**只降不升**（目标必须比当前想得更少）；
+ *   3. 预算没过线且我们**之前改过** → 还原到改之前那一档（`effortBefore`）；
+ *   4. 其余 → `null`（保持原样）。
+ *
+ * @returns `{ effort: string|null, rung: string|null, why: string }`
+ */
+export function planEffort(input) {
+  const seed = input.seedEffort
+  const state = input.state
+  if (seed === undefined || seed === null || seed === '') {
+    return { effort: null, rung: null, why: '看不到当前档位（部署可能关闭思考或换了适配器）→ 不动' }
+  }
+  if (effortRank(seed) < 0) return { effort: null, rung: null, why: `未知档位 \`${seed}\` → 不动` }
+  if (state === null || state === undefined) return { effort: null, rung: null, why: '没有回合状态（钩子未开局）→ 不动' }
+  const eff = effectiveCalls(state)
+  const ratio = Number(state.used ?? 0) / eff
+  for (const rung of EFFORT.rungs) {
+    if (ratio < rung.atRatio) continue
+    // 档位序号越大 = 想得越少 ⇒ **降档 = 目标序号更大**（严格大于；相等等于没变，不动）
+    if (effortRank(rung.effort) > effortRank(seed)) {
+      return { effort: rung.effort, rung: `${rung.atRatio}×`, why: rung.why, ratio }
+    }
+    return {
+      effort: null,
+      rung: `${rung.atRatio}×`,
+      why: `当前 \`${seed}\` 已经不比目标档 \`${rung.effort}\` 想得多 → 不动（**只降不升**）`,
+      ratio,
+    }
+  }
+  if (state.effortOwned === true && typeof state.effortBefore === 'string' && state.effortBefore !== '' && state.effortBefore !== seed) {
+    return { effort: state.effortBefore, rung: null, why: `新任务/预算松动 → 还原到我们改之前的档 \`${state.effortBefore}\``, ratio }
+  }
+  return { effort: null, rung: null, why: `预算 ${(ratio * 100).toFixed(0)}% 未过线 → 保持`, ratio }
+}
+
+/** 把一次治理结果记进回合状态（**只记标量**：档位与理由，不碰活数据）。 */
+export function noteEffort(state, plan, seedEffort) {
+  if (state === null || state === undefined) return state
+  if (plan.effort === null) {
+    if (plan.rung === null && state.effortOwned === true && state.effortSet !== null && seedEffort === state.effortSet) {
+      // 还原成功：交出所有权
+      state.effortOwned = false
+      state.effortSet = null
+    }
+    return state
+  }
+  if (state.effortOwned !== true) {
+    state.effortOwned = true
+    state.effortBefore = seedEffort
+  }
+  state.effortSet = plan.effort
+  state.effortPlan = plan.why
+  return state
 }
 
 // ────────────────────────────────────────────────────────────────────────────

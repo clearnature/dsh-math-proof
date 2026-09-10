@@ -183,6 +183,7 @@
 #   python-oracle    —— `proof_oracle` 先算后验证（Python 精确整数 + 覆盖清单 + 回执）
 #   prover-limits    —— `prover_limits` 工具链限制经验库（证据 + 误判防护必填）
 #   budget           —— `budget` 每次任务的预算与流量账本（本回合实况 / 按类基线 / 追加申请 / 标定）
+#   effort-governor  —— `agent/request` 瀑布：预算过线后**自动下调思考强度**（收敛杠杆，不是省流量杠杆）
 # 本地插件行都不 provide 任何 service，因此可以裸露在 preset 里，不需要 isolate realm；
 # 文件内只 import `node:` 内建模块（preset 目录不在 harness 的 node_modules 走查范围内）。
 #
@@ -275,6 +276,11 @@
 # 计量与判定在 impl/session-traffic.mjs + impl/budget-policy.mjs；钩子在 hooks/budget-*.mjs。
 - id: budget
   name: './plugins/budget.mjs'
+
+# 思考强度调速器（`agent/request` 瀑布：预算过半后自动降档 high→low→off，任务结束还原；
+# **只降不升、看不懂就不动、任何异常都退回原配置**——详见 plugins/effort-governor.mjs 头部）
+- id: effort-governor
+  name: './plugins/effort-governor.mjs'
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
