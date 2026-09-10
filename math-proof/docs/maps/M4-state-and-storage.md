@@ -79,7 +79,7 @@ node scripts/state-gc.mjs --json                            # 机器可读
 tar czf math-proof-state-$(date +%F).tgz -C ~/.dsh/state math-proof
 
 # 只看某工作区的台账
-node -e "const m=await import(process.env.HOME+'/.dsh/.agent-presets/math-proof/plugins/proof-dag.mjs');console.log(m.ledgerPath('/data/work/discrete-mathematics'))" --input-type=module
+node -e "const m=await import(process.env.HOME+'/.dsh/.agent-presets/math-proof/plugins/proof-dag.mjs');console.log(m.ledgerPath('工作区（见 `impl/local-paths.json`）'))" --input-type=module
 
 # 恢复单条历史：见证仓库里每次关键变更都有一个 commit
 git -C ~/.dsh/state/math-proof/witness-<ws> log --oneline | head

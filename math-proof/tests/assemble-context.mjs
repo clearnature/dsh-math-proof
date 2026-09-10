@@ -83,7 +83,10 @@ export function stableStringify(value) {
 /** 装配常驻上下文（模型每个会话都会看到的文本）。 */
 export async function assemble() {
   const persona = personaText()
-  const disc = (await import(join(PRESET, 'plugins', 'proof-discipline.mjs'))).DISCIPLINE
+  // 装配时真实注入的是「纪律正文 + 本机路径真值小节」（见 proof-discipline.disciplineWithPaths），
+  // 统计必须按真实字节算，否则常驻大小会低报
+  const discMod = await import(join(PRESET, 'plugins', 'proof-discipline.mjs'))
+  const disc = discMod.disciplineWithPaths()
   const tools = await toolDescriptions()
   const sk = skills()
   const skillIndex = sk.map((s) => `- ${s.name}: ${s.description}${s.whenToUse === '' ? '' : `（何时用: ${s.whenToUse}）`}`).join('\n')

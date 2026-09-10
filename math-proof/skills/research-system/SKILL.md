@@ -149,7 +149,7 @@ Prove2me（`~/.dsh/prove2me_workspace`）把「大规模协作证明」工程化
 
 ## 12. 三方定位：Claude FLT / OpenAI NS / 大衍（我们）
 
-> 依据：`/home/yanli/文档/math/是的 Claude 形式化费马大定理 FLT.txt` 与
+> 依据：`类型论文档（`impl/local-paths.json` 的 `typeTheoryDocs`）/是的 Claude 形式化费马大定理 FLT.txt` 与
 > `Lean NSE库与FLT库缺口对比…评估报告1.txt`（本项目自己的对照分析）。
 > 本节回答「我们和别人到底差在哪」——**用于选路线与判边界，不用于比较谁更强**。
 

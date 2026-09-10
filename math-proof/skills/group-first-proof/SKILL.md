@@ -27,7 +27,7 @@ whenToUse: 当任务涉及在 Sovereign Agda 库中新增/修复证明、把某�
 然后写成依赖类型论里的 `record`：载体是字段，运算是字段，**定律也是字段**。
 定理的形态随之固定——要么是结构内部的等式（定律），要么是两个结构之间的交换图（同态）。
 
-> ⚠ 来源声明：`/home/yanli/文档/math/类型论/` 六份文档**没有**把「群」作为基本原理展开（无群作用、
+> ⚠ 来源声明：`类型论文档（`impl/local-paths.json` 的 `typeTheoryDocs`）` 六份文档**没有**把「群」作为基本原理展开（无群作用、
 > 群表示、∞-groupoid、一般商类型）。「群为第一原理」是本技能对文档的**综合与补充**，
 > 其合法性来自本项目 `src/Sovereign/Algebra/UniversalAlgebra.agda` 已有的结构层级与实例，
 > 而不是文档原话。引用时请区分「文档说过的」与「本技能主张的」。
@@ -137,6 +137,6 @@ whenToUse: 当任务涉及在 Sovereign Agda 库中新增/修复证明、把某�
 - 本技能自带：`references/type-theory-knowledge-base.md` —— 六份类型论文档的完整蒸馏
   （概念清单、术语对照表、金句、矛盾与推测性主张清单）。
 - 本地证明引擎：`agda-proof-engine` 技能（Agda 是唯一裁决；dype 为实验性内核，见其 references）。
-- 项目数学依据：`/data/work/docs/wiki/`。
-- 原始文档：`/home/yanli/文档/math/类型论/`。
+- 项目数学依据：`数学依据 wiki（`impl/local-paths.json` 的 `wiki`）`。
+- 原始文档：`类型论文档（`impl/local-paths.json` 的 `typeTheoryDocs`）`。
 - 编译与错误指纹：`proof-engineer` 技能（随本 preset 分发：`skills/proof-engineer/SKILL.md`）。

@@ -56,7 +56,15 @@ try {
     )
     ok('无密钥假阳性（跳过扫描器自身）', j.secretHits === 0, `hits=${j.secretHits}`)
     ok('绝对路径清单里没有扫描器自身', !j.absolutePathFiles.includes('scripts/publish.mjs'), j.absolutePathFiles.join(','))
-    ok('绝对路径清单含真实文件（refs-check / persona）', j.absolutePathFiles.includes('tests/refs-check.mjs') && j.absolutePathFiles.includes('agent.cordis.yml'), j.absolutePathFiles.join(','))
+    // 路径集中化之后：唯一配置处 + 历史/快照（不改写）之外，不应再有文件含机器绝对路径
+    const pathReal = j.absolutePathFiles.filter(
+      (f) => f === 'impl/local-paths.json' || f === 'AUDIT.md' || f === 'audit/rounds.md' || f.startsWith('docs/releases/'),
+    )
+    ok(
+      '绝对路径只出现在唯一配置处与历史记录里',
+      pathReal.length === j.absolutePathFiles.length && j.absolutePathFiles.includes('impl/local-paths.json'),
+      j.absolutePathFiles.join(','),
+    )
   }
 
   // ── 2) 真发布：布局与生成物 ─────────────────────────────────────────────

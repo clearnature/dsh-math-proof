@@ -152,7 +152,7 @@ postulate
 ### 6. 证明库位置
 
 ```
-/data/work/discrete-mathematics/src/Sovereign/
+本库工作区（`impl/local-paths.json` 的 `workspace`）/src/Sovereign/
   ├── RootMath/   — DigitalRoot, LengthLattice
   ├── Base/       — Trit, Invariants, Axioms
   ├── Algebra/    — GF9, Duodecimal, Jacobian
@@ -171,7 +171,7 @@ postulate
   └── All.agda    — 全量导入入口
 ```
 
-理论文档：`/data/work/docs/wiki/` — 可作为证明的数学依据引用
+理论文档：`数学依据 wiki（`impl/local-paths.json` 的 `wiki`）` — 可作为证明的数学依据引用
 
 ## GF(3) 语义优势
 
@@ -797,8 +797,8 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 ### 9.5 回归测试命令
 ```bash
-cd /data/work/discrete-mathematics
-/opt/agda/agda --guardedness src/Sovereign/Path/To/File.agda
+cd 本库工作区（`impl/local-paths.json` 的 `workspace`）
+项目补丁版 Agda（`impl/local-paths.json` 的 `agdaBin`） --guardedness src/Sovereign/Path/To/File.agda
 ```
 
 ### 9.6 已验证修复记录 (2026-07-27)

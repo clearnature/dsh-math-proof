@@ -22,7 +22,7 @@ graph TB
     A5["热读层 impl/<br/>ruleset · dsh-inventory · discipline.md"]
   end
 
-  subgraph WS["工作区平面（你的 Agda 库，例如 /data/work/discrete-mathematics）"]
+  subgraph WS["工作区平面（你的 Agda 库，例如 工作区（见 `impl/local-paths.json`））"]
     W1["src/**.agda（证明目标）"]
     W2["_build/ · *.agdai（编译产物，gitignored）"]
   end
@@ -112,13 +112,31 @@ graph LR
 | --- | --- |
 | frontmatter 换成 DSH 格式（`name` / `description` / `whenToUse` + **「不触发」清单**） | 技能靠描述路由，缺 `whenToUse` 会与相邻技能抢触发 |
 | harness 专有名词映射：`allowed-tools: read_file,…` → `read`/`edit`/`bash`/`grep`；`runAs: subagent` → 用 `subagent` 工具委派；`run_skill x "…"` → `subagent`；`EnterPlanMode` → 计划模式；`/memory` → 台账 `journal`/`brief` | 原写法在 DSH 里没有对应工具，照抄会让模型去调用不存在的工具 |
-| 删除/泛化**作者本机路径**（技能目录、`/data/work/...`） | 别人机器上不存在；需要保留语义的（如「技能文件不可变」）改成「任何技能根目录」 |
+| 删除/泛化**作者本机路径**（技能目录、`工作区（见 `impl/local-paths.json`）`） | 别人机器上不存在；需要保留语义的（如「技能文件不可变」）改成「任何技能根目录」 |
 | 与其它技能**重复的正文改成指针** | 两份副本必然漂移：`loop-engineer` 的「附录 A」原先与 `proof-engineer` §9 逐行重复 60 行，现只留挂载机制；`proof-engineer` 的「输出格式」原先与常驻纪律段 §8 重复，现指向 §8 |
 
 **机械保证**：`tests/skills-ref-check.mjs` 会抽取 preset 里所有技能引用，要求每个被引用的技能
 **要么在 `skills/` 里随包分发，要么在 `tests/fixtures/external-skills.json` 的显式白名单里**，
 并检查 frontmatter 规范、目录名与 `name` 一致、以及**提示词里不得出现本机技能目录路径**。
 本机没有的技能（例如用户自装的 `bug-fixer` / `doc-generator`）**不要引用**——要么打包，要么不写。
+
+## M1.7 本机路径：唯一配置处 + 指针
+
+```mermaid
+graph LR
+  CFG["impl/local-paths.json<br/>（唯一配置处；env 可覆盖）"] --> RES["impl/local-paths.mjs<br/>解析：env &gt; config"]
+  RES --> DISC["纪律段<br/>{{workspace}} / {{wiki}} …（装配时替换）"]
+  RES --> CODE["插件 / 脚本<br/>path('workspace')"]
+  RES --> PSEC["常驻「本机路径」小节<br/>（明列真值 + 来源标注）"]
+  SK["技能 / 架构文档 / README"] -.->|键名 + 指针| CFG
+  HIST["audit/rounds.md · AUDIT.md · docs/releases/**"] -.->|豁免：历史不改写| CFG
+```
+
+- **为什么**：散落的绝对路径是死链来源（别人 clone 后指向不存在的地方）；也不该让「换机器」变成全库搜索替换。
+- **怎么改**：只动 `impl/local-paths.json`，或用环境变量（`SOVEREIGN_REPO` / `SOVEREIGN_WIKI` / …）覆盖；env 优先。
+- **可见性**：纪律段末尾会自动追加「本机路径」小节，明列每个键的**真值**与来源（`config` 还是 `env`）——
+  模型看到的永远是本机实际值，而不是某个文件里的字符串。
+- **强制**：`tests/paths-check.mjs`。操作性文件出现机器绝对路径即失败；历史与发布快照豁免但计数上报。
 
 ## M1.5 设计约束（改架构时必须守住）
 

@@ -1,6 +1,7 @@
 // 数学证明模式 — 引用与数字审计（零依赖）
 //
-// 用法：node ~/.dsh/.agent-presets/math-proof/tests/refs-check.mjs [--repo /data/work/discrete-mathematics]
+// 用法：node ~/.dsh/.agent-presets/math-proof/tests/refs-check.mjs [--repo <工作区>]
+//      （默认仓库来自 `impl/local-paths.json` 的 `workspace`；换机器只改那一个文件或设 SOVEREIGN_REPO）
 // 期望最后一行：REFS_OK n/n（仓库不存在时输出 REFS_SKIP 并 exit 0）
 //
 // 为什么需要它：preset 里散着 40+ 处 `文件.agda:行号` 引用与一批「N/M 模块」数字。
@@ -15,11 +16,14 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync } from 'node:fs'
 import { dirname, join, basename } from 'node:path'
 
+import { path as localPath } from '../impl/local-paths.mjs'
+
 const HERE = new URL('.', import.meta.url).pathname.replace(/\/$/, '')
 const PRESET = dirname(HERE)
 const argv = process.argv.slice(2)
 const repoArg = argv.indexOf('--repo')
-const REPO = repoArg === -1 ? '/data/work/discrete-mathematics' : argv[repoArg + 1]
+// 默认仓库来自 `impl/local-paths.json` 的 `workspace`（可用 SOVEREIGN_REPO 覆盖）
+const REPO = repoArg === -1 ? localPath('workspace') : argv[repoArg + 1]
 
 if (!existsSync(join(REPO, 'src'))) {
   console.log(`REFS_SKIP 0/0（找不到仓库 ${REPO}）`)

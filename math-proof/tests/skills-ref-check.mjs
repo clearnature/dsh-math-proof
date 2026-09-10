@@ -4,7 +4,7 @@
 // 期望最后一行：SKILLS_REF_OK n/n
 //
 // 为什么要有它：**引用了一个没随包分发的技能 = 对用户死链**。
-// 真实事故（2026-09-10）：persona 让模型「开工先加载 `proof-engineer` 技能（`/home/yanli/.agents/skills/...`）」，
+// 真实事故（2026-09-10）：persona 让模型「开工先加载 `proof-engineer` 技能（``~/.agents/skills/`（用户级技能目录）`）」，
 // 但那个技能在**作者本机的用户级技能目录**里，别人 clone 仓库根本拿不到；同理
 // `loop-engineer` / `code-reviewer` 也是本机才有。用户点出来的原话：
 // 「你那些技能是依赖我们本地的技能但是没有打包到上游的」。

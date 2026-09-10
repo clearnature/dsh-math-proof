@@ -2190,3 +2190,47 @@ npm 路线**整体撤掉**（不是「以后再说」）：留着不能跑的发
 被 `Object.keys` 当成白名单条目。虽然不影响判定（不会有技能叫 `_comment`），但**计数是错的、
 而且真有条目混进来时也看不出来**。已改为过滤 `_` 开头的键 → 现在如实显示 **白名单 0 条**
 （即：所有被引用的技能**都已随包分发**，一个例外都没有）。
+
+## 五十八、第五十三轮：本机绝对路径集中到唯一配置处（2026-09-10）
+
+用户：**「本机绝对路径必须集中在可配置的一处，其余改指针」**。盘出来一共 **51 处 / 20 个文件**，
+散在 persona、纪律段、技能、插件、测试、文档里——每一条对 clone 仓库的人都是死链或误导。
+
+### 58.1 唯一配置处
+
+| 件 | 作用 |
+| --- | --- |
+| `impl/local-paths.json` | **唯一配置处**：8 个键（`workspace` / `wiki` / `typeTheoryDocs` / `dypeRoot` / `agdaBin` / `agdaStdlib` / `leanWorkspace` / `leanMathlib`），每个键带 `value`、`env`、`what` |
+| `impl/local-paths.mjs` | 解析器：**环境变量 > 配置文件**；`path(key)` 单键取值（未知键**报错**，不静默返回空串）；`renderTokens()` 替换 `{{key}}`；`renderPathSection()` 渲染给模型看的真值小节 |
+| 纪律段末尾 | 装配 prompt 时自动追加「本机路径」小节：**8 个键的真值 + 来源标注**（`config` / `env`）——模型永远看到本机实际值 |
+
+### 58.2 各处怎么写
+
+- **纪律段**：`{{wiki}}` 这类 token（装配时替换）；
+- **persona / 技能 / 架构文档**：键名 + 指针（「数学依据 wiki（`impl/local-paths.json` 的 `wiki`）」）；
+- **插件 / 脚本**：`import { path } from '../impl/local-paths.mjs'`（`agda-engine` 的 `DYPE_ROOT` 与 Agda 候选、`refs-check` 的默认工作区都改成了这条路）。
+
+### 58.3 门禁 `tests/paths-check.mjs`（第 17 个入口）
+
+1. **操作性文件**（persona / 纪律 / 技能 / 钩子 / 插件 / 脚本 / 测试 / 架构文档 / README / CACHE，共 68 个）
+   出现机器绝对路径（`/home/<用户>`、`/data`、`/opt`、`/Users`、`/mnt`、`/srv`）即失败；
+   边界敏感：dype 引用的**工具内部**路径 `/src/data/lib` 不算（它不是本机配置）；
+2. **历史与快照豁免**（`audit/rounds.md`、`AUDIT.md`、`docs/releases/**`）——记录过去发生的事，改写出处等于篡改历史；
+   门禁只**统计上报**（当前 5 + 3 处）；
+3. `{{token}}` 必须有定义；4. 配置**无死键**；5. 解析器行为（env 覆盖 / 未知键报错 / 未知 token 标出）可测。
+
+### 58.4 门禁当场抓到的三处
+
+`skills-ref-check.mjs` 里举例写法的 `/home/` 命中；**死键 `leanWorkspace`**（定义了没人用 → 顺手让
+`prove2me-method` 指向它）；README 缺「换机器只改一个文件」的说明。另外把 `publish-check` 的旧断言
+（「绝对路径清单里应有 refs-check/persona」）改成新事实：**绝对路径只该出现在唯一配置处与历史记录里**。
+
+### 58.5 代价（实测，顺带修了一处低报）
+
+常驻 **31.0k → 31.9k 字符**（+0.9k：纪律段末尾的「本机路径」真值小节，8 键 + 一行纪律）。
+顺带发现 `tests/assemble-context.mjs` 一直在读**纪律原文**而不是装配时真正注入的
+`disciplineWithPaths()` → **常驻大小被低报**；已改为按真实字节统计。
+
+### 58.6 复验
+
+`check-all` → **CHECK_ALL_OK 17/17**（新增 `paths-check` 11/11）；挂载校验 ✅。

@@ -53,21 +53,25 @@
 
 ```mermaid
 graph LR
+  plugins_agda-engine_mjs["plugins/agda-engine.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
   plugins_agda-engine_mjs["plugins/agda-engine.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> plugins_agda-engine_mjs["plugins/agda-engine.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> plugins_proof-graph_mjs["plugins/proof-graph.mjs"]
   plugins_proof-dag_mjs["plugins/proof-dag.mjs"] --> plugins_python-oracle_mjs["plugins/python-oracle.mjs"]
+  plugins_proof-discipline_mjs["plugins/proof-discipline.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
   plugins_proof-discipline_mjs["plugins/proof-discipline.mjs"] --> plugins_agda-engine_mjs["plugins/agda-engine.mjs"]
   scripts_market_mjs["scripts/market.mjs"] --> impl_dsh-inventory_mjs["impl/dsh-inventory.mjs"]
   scripts_plugins_mjs["scripts/plugins.mjs"] --> impl_dsh-inventory_mjs["impl/dsh-inventory.mjs"]
   tests_cache-check_mjs["tests/cache-check.mjs"] --> tests_assemble-context_mjs["tests/assemble-context.mjs"]
   tests_dup-check_mjs["tests/dup-check.mjs"] --> tests_assemble-context_mjs["tests/assemble-context.mjs"]
   tests_knowledge-check_mjs["tests/knowledge-check.mjs"] --> tests_assemble-context_mjs["tests/assemble-context.mjs"]
+  tests_paths-check_mjs["tests/paths-check.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
+  tests_refs-check_mjs["tests/refs-check.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
 ```
 
-- 有出边的模块（**核心层**）：`plugins/agda-engine.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`
-- 无出边的模块（**叶子/独立**）：`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`tests/benchmark.mjs`、`tests/cache-check.mjs`、`tests/docs-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/plugins-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`
+- 有出边的模块（**核心层**）：`plugins/agda-engine.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
+- 无出边的模块（**叶子/独立**）：`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`tests/benchmark.mjs`、`tests/cache-check.mjs`、`tests/docs-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plugins-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`
 
 > 依赖方向即「谁可以 import 谁」：`plugins/` 是注册层（薄），`impl/` 是可热读共享层，
 > `tests/` 与 `scripts/` 只消费、不被消费（所以它们不会出现在别人的 import 里）。
@@ -77,6 +81,7 @@ graph LR
 | 模块 | node 内建 | 外部包 |
 | --- | --- | --- |
 | `impl/dsh-inventory.mjs` | `node:fs` `node:child_process` `node:path` `node:os` | — |
+| `impl/local-paths.mjs` | `node:fs` `node:path` `node:url` | — |
 | `impl/ruleset.mjs` | `node:crypto` `node:fs` `node:url` | — |
 | `plugins/agda-engine.mjs` | `node:crypto` `node:fs` `node:os` `node:path` | — |
 | `plugins/proof-dag.mjs` | `node:crypto` `node:fs` `node:url` `node:os` `node:path` | — |
@@ -102,6 +107,7 @@ graph LR
 | `tests/hooks-check.mjs` | `node:child_process` `node:fs` `node:os` `node:path` `node:crypto` | — |
 | `tests/knowledge-check.mjs` | `node:fs` `node:path` | — |
 | `tests/market-check.mjs` | `node:child_process` `node:fs` `node:os` `node:path` | — |
+| `tests/paths-check.mjs` | `node:fs` `node:path` | — |
 | `tests/plugins-check.mjs` | `node:child_process` `node:fs` `node:path` | — |
 | `tests/publish-check.mjs` | `node:child_process` `node:fs` `node:os` `node:path` | — |
 | `tests/refs-check.mjs` | `node:fs` `node:path` | — |

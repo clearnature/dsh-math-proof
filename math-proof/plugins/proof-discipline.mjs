@@ -18,6 +18,7 @@
 //
 import { readFile } from 'node:fs/promises'
 import { readFileSync, statSync } from 'node:fs'
+import { renderPathSection, renderTokens } from '../impl/local-paths.mjs'
 import { isAbsolute, resolve } from 'node:path'
 import { compileHistory } from './agda-engine.mjs'
 
@@ -41,6 +42,17 @@ export function disciplineText() {
   } catch {
     return disciplineCache.text
   }
+}
+
+/**
+ * 纪律正文 + **本机路径小节**：路径只在 `impl/local-paths.json` 里写一次，
+ * 纪律段里用 `{{key}}` 引用（装配时替换）；小节把解析后的真值明列出来（含 env 覆盖标记），
+ * 这样模型永远看到的是**本机实际值**，而不是某个文件里的字符串。
+ */
+export function disciplineWithPaths() {
+  const { text, missing } = renderTokens(disciplineText())
+  const warn = missing.length === 0 ? '' : `\n\n> ⚠ 未定义的路径键：${missing.join(', ')}（检查 impl/local-paths.json）`
+  return `${text}${warn}\n\n${renderPathSection()}`
 }
 
 /** 模块加载时的纪律文本（供测试/审计使用；运行时以 `disciplineText()` 为准）。 */
@@ -238,7 +250,7 @@ export function auditModule(path, source) {
  */
 export function apply(ctx) {
   ctx.effect(
-    () => ctx.systemPrompt.section({ name: 'math-proof:discipline', order: 100, text: () => disciplineText() }),
+    () => ctx.systemPrompt.section({ name: 'math-proof:discipline', order: 100, text: () => disciplineWithPaths() }),
     'math-proof.discipline',
   )
 

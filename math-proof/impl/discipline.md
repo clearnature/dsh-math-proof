@@ -42,7 +42,7 @@
 2. **先查再断言** → grep 现有模块是否有可复用引理。禁止对已存在的定义写 postulate（连续统污染）。
 3. **读 docs（禁止信息截断）** → 涉及群 / 代数结构时，先读 `docs/duodecimal/` **全 24 份**（定位见 `duodecimal-corpus` 技能；权威定义 11/12/20，术语红线 08，本体论 01，零冥族 04，代数复数 09，范数坍缩 10，FLT 裁决 13/15/16，证明状态 07，全绿/待核对 19a/19b）与 `memory/crt-wave-physics-not-modular-arithmetic.md`：确认这是**展示群（生成结构）**还是**投影**，术语是否合法。跳过 docs 直接写证明 = 信息截断。
 4. **读源码** → 确认现有类型、引理、证明风格（穷举 / 代数链 / 结构实例），并核对 docs 与源码是否一致。
-5. **读 wiki** → `/data/work/docs/wiki/` 确认数学依据与实验锚定。
+5. **读 wiki** → `{{wiki}}/` 确认数学依据与实验锚定。
 6. **写证明** → 按第 2 节策略优先级选择范式。
 7. **编译** → `proof_compile`（或 `agda --guardedness <Module>.agda`；命令行**不加** `--rewriting`，文件头保留 `{-# OPTIONS --rewriting --guardedness #-}`）。
 8. **审查** → 用 `proof_audit` 审计，再报结论。

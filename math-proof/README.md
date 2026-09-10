@@ -10,7 +10,7 @@
 
 | 件 | 内容 |
 | --- | --- |
-| `agent.cordis.yml` | 组合：persona（13.4k）+ 纪律段（10.6k）+ 6 个工具行 + 13 个技能索引（常驻合计 31k 字符） |
+| `agent.cordis.yml` | 组合：persona（13.4k）+ 纪律段（10.6k）+ 6 个工具行 + 13 个技能索引（常驻合计 31.9k 字符；含自动追加的「本机路径」真值小节） |
 | `plugins/*.mjs` | 工具实现（零依赖，只 import `node:` 内建模块） |
 | `skills/*/SKILL.md` | 按需加载的领域知识（13 个技能，正文 ≈113k 字符，不进常驻；其中 `proof-engineer` / `fable5-thinking` / `loop-engineer` / `code-reviewer` 四个随 preset 分发——不再依赖各自机器上的用户级技能目录） |
 | `oracle-kit/oracle_kit.py` | 先算后验证的共享 Python 库（GF(3)/T⁶/δ 基/CRT/manifest） |
@@ -236,6 +236,35 @@ test "$n" -eq 0 || exit 1     # 有人（或选择器模板）加进发布步骤
 若将来 npm 侧放开，只需三处小改：去掉 `private`、加回 `publishConfig`、
 新增一个带 Trusted Publishing 的发布工作流（`audit/rounds.md` §五十二 记了完整判据）。
 
+## 一.15 本机路径集中化（换机器只改一个文件）
+
+散在各处的绝对路径是**死链的来源**（别人 clone 后指向不存在的地方）。所以规矩是：
+**唯一配置处 `impl/local-paths.json`，其余一律指针。**
+
+| 位置 | 怎么写 |
+| --- | --- |
+| 纪律段（`impl/discipline.md`） | 写 token：`{{workspace}}` / `{{wiki}}` / `{{agdaBin}}` …（装配 prompt 时替换成真值） |
+| persona / 技能 / 架构文档 | 写**键名 + 指向配置文件**：如「数学依据 wiki（`impl/local-paths.json` 的 `wiki`）」 |
+| 插件与脚本 | `import { path } from '../impl/local-paths.mjs'` 取真值，**不写死字符串** |
+
+**换机器 / 换目录**：改 `impl/local-paths.json`，或用环境变量覆盖（**env 优先于配置文件**）：
+
+```bash
+SOVEREIGN_REPO=/your/math/repo SOVEREIGN_WIKI=/your/wiki dsh web
+```
+
+键与对应环境变量：`workspace`→`SOVEREIGN_REPO`｜`wiki`→`SOVEREIGN_WIKI`｜`typeTheoryDocs`→`SOVEREIGN_TT_DOCS`｜
+`dypeRoot`→`SOVEREIGN_DYPE`｜`agdaBin`→`SOVEREIGN_AGDA`｜`agdaStdlib`→`SOVEREIGN_STDLIB`｜
+`leanWorkspace`→`SOVEREIGN_LEAN_WS`｜`leanMathlib`→`SOVEREIGN_MATHLIB`。
+
+**机械保证**：`tests/paths-check.mjs` —— 操作性文件（persona / 纪律 / 技能 / 插件 / 脚本 / 测试 / 架构文档 / README）
+里出现机器绝对路径就失败；`audit/rounds.md`、`AUDIT.md`、`docs/releases/**` **豁免**
+（记录过去发生的事，改写出处等于篡改历史）；并检查 token 有定义、配置无死键、env 覆盖与未知键行为。
+
+```bash
+node tests/paths-check.mjs   # PATHS_OK
+```
+
 ## 二、怎么跑
 
 ```bash
@@ -275,7 +304,7 @@ node scripts/market.mjs              # 插件市场（注册源侧）
 ## 三、信什么、不信什么
 
 **信**：
-- Agda 内核（项目补丁版 `/opt/agda/agda`）的 exit 0 + 0 postulate/hole —— 唯一裁决。
+- Agda 内核（项目补丁版 `项目补丁版 Agda（见 `impl/local-paths.json` 的 `agdaBin`）`）的 exit 0 + 0 postulate/hole —— 唯一裁决。
 - `proof_compile` 签发的**回执**（源文件哈希绑定，改文件即失效）。
 - `proof_oracle` 签发的 **oracle 回执**（工具亲自跑脚本 + 覆盖清单）。
 

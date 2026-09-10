@@ -77,7 +77,7 @@ Prove2me 把「几万个 agent 共同写一个大证明」变成可管理的流�
 ## 6. 边界（诚实）
 
 - **不注册、不提交、不发凭据**；平台端点仅作方法论参考（见工作区 `references/`）。
-- Lean 侧本地环境是**可选**的：`~/.dsh/prove2me_workspace`（`lean-toolchain` = v4.34.0-rc1，复用 `/data/work/leanprover/mathlib4`，smoke test 已过）。做 Lean 工作时再用；Agda 轨道不依赖它。
+- Lean 侧本地环境是**可选**的：Lean 工作区（`impl/local-paths.json` 的 `leanWorkspace`，或环境变量 `SOVEREIGN_LEAN_WS`）（`lean-toolchain` = v4.34.0-rc1，复用 mathlib4（`impl/local-paths.json` 的 `leanMathlib`），smoke test 已过）。做 Lean 工作时再用；Agda 轨道不依赖它。
 - **Agda 证明与 Lean 证明不可互推**：两条轨道各自取证。
 
 ## 7. 参考

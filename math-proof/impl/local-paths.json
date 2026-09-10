@@ -1,0 +1,46 @@
+{
+  "_comment": "本机绝对路径的**唯一配置处**。别的文件（persona / 纪律段 / 技能 / 插件 / 脚本）一律用键名（纪律段里写成 {{key}} token）引用，不得写死路径——`tests/paths-check.mjs` 会强制这条。换机器/换目录只改这里，或用环境变量覆盖（env 优先）。",
+  "_envPrefix": "SOVEREIGN_",
+  "paths": {
+    "workspace": {
+      "value": "/data/work/discrete-mathematics",
+      "env": "SOVEREIGN_REPO",
+      "what": "数学证明库（工作区）：Agda 源码、engineering/ python 轨道、memory/ 都在这里"
+    },
+    "wiki": {
+      "value": "/data/work/docs/wiki",
+      "env": "SOVEREIGN_WIKI",
+      "what": "数学依据 wiki（REWRITE 合法性论述 C.3.1 等）"
+    },
+    "typeTheoryDocs": {
+      "value": "/home/yanli/文档/math/类型论",
+      "env": "SOVEREIGN_TT_DOCS",
+      "what": "依赖类型论原始文档（展示群、术语与结构讨论的来源）"
+    },
+    "dypeRoot": {
+      "value": "/data/work/functional-programming/dype",
+      "env": "SOVEREIGN_DYPE",
+      "what": "dype 源码（实验性内核；**不作裁决权威**，裁决用 Agda）"
+    },
+    "agdaBin": {
+      "value": "/opt/agda/agda",
+      "env": "SOVEREIGN_AGDA",
+      "what": "Agda 二进制（优先尝试；不可用时回落 PATH 上的 agda）"
+    },
+    "agdaStdlib": {
+      "value": "/data/work/functional-programming/agda-stdlib",
+      "env": "SOVEREIGN_STDLIB",
+      "what": "standard-library-2.4 源码（_build 接口目录；沙箱下可能只读）"
+    },
+    "leanWorkspace": {
+      "value": "/home/yanli/.dsh/prove2me_workspace",
+      "env": "SOVEREIGN_LEAN_WS",
+      "what": "Lean 侧可选工作区（方法参考用，不作为本项目裁决器）"
+    },
+    "leanMathlib": {
+      "value": "/data/work/leanprover/mathlib4",
+      "env": "SOVEREIGN_MATHLIB",
+      "what": "mathlib4 检出（Lean 参考轨复用）"
+    }
+  }
+}

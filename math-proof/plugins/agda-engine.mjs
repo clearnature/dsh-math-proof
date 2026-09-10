@@ -2,7 +2,7 @@
 //
 // 注册 `proof_compile` 工具：为单个 Agda 模块做「编译 + 六类指纹分诊」。
 //
-// **裁决权在 Agda**：Agda（项目补丁版 `/opt/agda/agda`）是本项目的唯一裁决器；
+// **裁决权在 Agda**：Agda（项目补丁版，路径见 `impl/local-paths.json` 的 `agdaBin`）是本项目的唯一裁决器；
 // dype 是项目自研的**实验性内核**（大衍 DY-PE，尚不完善），当前只作生成/加速通道，
 // **不能替代 Agda 的地位**。因此检查器优先级是 **agda 优先**；dype 只在调用方显式
 // 传 `checker:"dype"` 时才使用，且报告会标注「非权威，需 Agda 复核」。
@@ -22,13 +22,15 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { RESULT_TRIAGE, loadRules } from '../impl/ruleset.mjs'
+import { path as localPath } from '../impl/local-paths.mjs'
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
 
 export const name = 'agda-engine'
 export const inject = ['shell', 'tools']
 
 /** 大衍引擎源码根（本地数学证明软件）。 */
-export const DYPE_ROOT = '/data/work/functional-programming/dype'
+// 路径**不写死**：唯一配置处是 `impl/local-paths.json`（可用 `SOVEREIGN_DYPE` 覆盖）
+export const DYPE_ROOT = localPath('dypeRoot')
 
 /** 单引号安全引用一个 shell 片段。 */
 export function shellQuote(value) {
@@ -78,7 +80,7 @@ export function discoverCandidates() {
     push('dype', join(dir, 'dype'), 'PATH')
   }
   // 2. 已知绝对路径（agda 用项目补丁版）
-  push('agda', '/opt/agda/agda', 'known')
+  push('agda', localPath('agdaBin'), 'known')
   push('agda', join(home, '.local/bin/agda'), 'known')
   push('dype', join(home, '.local/bin/dype'), 'known')
   push('dype', join(home, '.cabal/bin/dype'), 'known')
@@ -648,7 +650,7 @@ export function apply(ctx) {
   ctx.tools.register({
     name: 'proof_compile',
     description:
-      '编译单个 Agda 模块并做六类指纹分诊。**Agda 是唯一裁决器**（项目补丁版 `/opt/agda/agda` 优先）；dype 是项目自研实验性内核，仅在显式 `checker:"dype"` 时使用且结论非权威。自动发现可用检查器、验证其 data dir，以 `--guardedness` 执行（绝不加 --rewriting），把 `error: [ClassName]` 归类为 A–F 指纹 + 性能/规则类并给出修复提示；成功时签发**回执**（供 proof_dag 记证据）。经 ctx.shell 运行，套用当前 session 的 sandbox 策略。',
+      '编译单个 Agda 模块并做六类指纹分诊。**Agda 是唯一裁决器**（项目补丁版优先，路径在 `impl/local-paths.json` 的 `agdaBin`）；dype 是项目自研实验性内核，仅在显式 `checker:"dype"` 时使用且结论非权威。自动发现可用检查器、验证其 data dir，以 `--guardedness` 执行（绝不加 --rewriting），把 `error: [ClassName]` 归类为 A–F 指纹 + 性能/规则类并给出修复提示；成功时签发**回执**（供 proof_dag 记证据）。经 ctx.shell 运行，套用当前 session 的 sandbox 策略。',
     parameters: {
       type: 'object',
       additionalProperties: false,

@@ -16,7 +16,7 @@ whenToUse: 交付前审查、或对被 20+ 模块依赖的底层模块动手之�
 ## 审查维度
 
 ### 1. Agda 证明库对齐
-- 实现是否与 `/data/work/discrete-mathematics/src/Sovereign/` 中已验证的证明一致？
+- 实现是否与 `本库工作区（`impl/local-paths.json` 的 `workspace`）/src/Sovereign/` 中已验证的证明一致？
 - dype 编码 vs Agda gf3Toℕ：排序编码，非位置编码
 - dype GF9 vs Agda GF9.agda：Frobenius σ，非 ω/ω²
 - dype zhonglvSync vs Closure.agda：polar=0, toroidal+=1

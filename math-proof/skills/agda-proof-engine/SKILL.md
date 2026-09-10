@@ -1,6 +1,6 @@
 ---
 name: agda-proof-engine
-description: Agda 验证纪律与工具链 — **Agda 是唯一裁决器**（项目补丁版 /opt/agda/agda）；含 proof_compile 检查器优先级（agda 优先）、--guardedness 旗标纪律、六类错误指纹分诊与经验库联动、回执签发与证据、沙箱/堆限制陷阱；dype（项目自研实验性内核，尚不完善，不能替代 Agda）的源码地图见 references/dype-experimental.md。 不触发（Do NOT trigger for）: 工具链固有限制的判定（用 prover_limits query）、证明架构与阶段设计（用 long-horizon-discipline）。
+description: Agda 验证纪律与工具链 — **Agda 是唯一裁决器**（项目补丁版 项目补丁版 Agda（`impl/local-paths.json` 的 `agdaBin`））；含 proof_compile 检查器优先级（agda 优先）、--guardedness 旗标纪律、六类错误指纹分诊与经验库联动、回执签发与证据、沙箱/堆限制陷阱；dype（项目自研实验性内核，尚不完善，不能替代 Agda）的源码地图见 references/dype-experimental.md。 不触发（Do NOT trigger for）: 工具链固有限制的判定（用 prover_limits query）、证明架构与阶段设计（用 long-horizon-discipline）。
 whenToUse: 需要编译验证 Agda 证明、修编译错误、选择检查器、理解回执与证据、或遇到 --rewriting/沙箱/堆限制等工具链问题时加载；涉及 dype 源码/构建时先读 references/dype-experimental.md。
 ---
 
@@ -13,7 +13,7 @@ dype 是项目自研的**实验性内核**（尚不完善），当前只作生�
 
 ## 1. 检查器与旗标（硬纪律）
 
-- **优先级**：`agda`（`/opt/agda/agda`，项目补丁版）→ 仅当 Agda 不可用时才回退 dype；
+- **优先级**：`agda`（`项目补丁版 Agda（`impl/local-paths.json` 的 `agdaBin`）`，项目补丁版）→ 仅当 Agda 不可用时才回退 dype；
   dype 只在你**显式**传 `checker:"dype"` 时使用，且报告会标「非权威，需 Agda 复核」。
 - 命令行**只加 `--guardedness`**，**绝不加 `--rewriting`**（重写规则由文件头 pragma 承载）。
 - 编译验证用 `proof_compile`（自动发现 + data-dir 校验 + 指纹分诊 + 签发回执）；

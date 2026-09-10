@@ -4,8 +4,8 @@
 > 本文件是它的源码地图与阻塞现状，供需要了解/调试 dype 时查阅；
 > **验证与裁决一律以 Agda 为准**（见 `agda-proof-engine/SKILL.md`）。
 >
-> **源码根：`/data/work/functional-programming/dype`**（Haskell，cabal 包名 `dype` + `dype-core`）。
-> 与 `/data/work/discrete-mathematics` 是双轨关系：dype 生成并检查证明项，**Agda 库是证明目标与裁决器**。
+> **源码根：`dype 源码（`impl/local-paths.json` 的 `dypeRoot`）`**（Haskell，cabal 包名 `dype` + `dype-core`）。
+> 与 `本库工作区（`impl/local-paths.json` 的 `workspace`）` 是双轨关系：dype 生成并检查证明项，**Agda 库是证明目标与裁决器**。
 
 ## 0. 一句话定位
 
@@ -42,7 +42,7 @@ dype = **Agda 内核替换**（`dype-core`，可执行文件 `dype`，`--version
 ```haskell
 runPipeline          :: Text -> IO (Text, Text, VerifyResult)
 runPipelineWithInclude :: [FilePath] -> Text -> IO (Text, Text, VerifyResult)
-agdaStdLibPath       :: FilePath   -- "/data/work/functional-programming/agda/std-lib/src"
+agdaStdLibPath       :: FilePath   -- "stdlib 源码（`impl/local-paths.json` 的 `agdaStdlib`）"
 report               :: Text -> Text -> VerifyResult -> Text
 ```
 
@@ -60,7 +60,7 @@ report               :: Text -> Text -> VerifyResult -> Text
 ## 3. 构建与测试
 
 ```bash
-cd /data/work/functional-programming/dype
+cd dype 源码（`impl/local-paths.json` 的 `dypeRoot`）
 cabal build all            # 或 stack build（GHC 9.14.1）
 make build                 # = cabal build all
 make dev-link              # 链接 ~/.local/bin/dype → dist-newstyle 产物
@@ -85,8 +85,8 @@ make test                  # 全量串行（CI 等价，耗时长）
 
 **绕行方案（按代价排序）**
 
-1. **用 `proof_compile` 工具**：它自动探测并跳过不可用的 dype，回退到 `/opt/agda/agda`（项目补丁版，实测可用），报告里列出被跳过的原因。日常编译验证走这条。
-2. 以 root 建软链：`sudo ln -s /data/work/functional-programming/dype/src /src`（最省事，但改系统根目录）。
+1. **用 `proof_compile` 工具**：它自动探测并跳过不可用的 dype，回退到 `项目补丁版 Agda（`impl/local-paths.json` 的 `agdaBin`）`（项目补丁版，实测可用），报告里列出被跳过的原因。日常编译验证走这条。
+2. 以 root 建软链：`sudo ln -s dype 源码（`impl/local-paths.json` 的 `dypeRoot`）/src /src`（最省事，但改系统根目录）。
 3. 重建并重新链接：`make build && make dev-link`（会重新烙入本地 data-dir，需联网取 `regex-tdfa`）。
    *已备好一半*：`~/.cabal/share/x86_64-linux-ghc-9.14.1-inplace/dype-core-2.9.0/lib` 已软链到
    `dype/src/data/lib`，因此**重建后**的新二进制若沿用该 data-dir 即可直接找到 `lib/prim`。

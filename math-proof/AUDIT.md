@@ -192,6 +192,7 @@ orbitStabilizer      : Orbit x ≃ A4/Stab x            -- :1068
 | 四十四 | DSH 插件盘点 | `scripts/plugins.mjs`；相关插件宿主多已挂载；唯一待定 `schedule`（+前缀成本） |
 | 四十五 | 插件市场 | `scripts/market.mjs`：市场 272 / 已装 214 / 可装未装 58（同版本线 28）；版本线陷阱（latest 停在 0.0.1-rc.1）；相关 18 条均带前置条件 |
 | 四十六 | 升级后插件对账 | 三平面 provenance：宿主 117 启用/25 禁用、preset 37 行（接管 22 行）、双份 0、真缺口 0；改正「禁用=已挂」的分类错误；宿主平面本就无我们的改动，重置没丢东西 |
+| 五十八 | 本机路径集中化 | 51 处/20 文件 → **唯一配置处 `impl/local-paths.json`**（8 键，env 可覆盖）+ token/键名指针；解析器 `impl/local-paths.mjs`；纪律段自动附「本机路径」真值小节；新增 `paths-check` 门禁（操作性文件禁绝对路径、历史豁免但计数、token 有定义、无死键、解析器行为），当场修 3 处 |
 | 五十七 | 技能引用完整性 | 用户指出「引用的技能依赖本机没打包」→ 打包 `loop-engineer`/`code-reviewer`，重复 60 行改指针，新增 `skills-ref-check` 门禁（引用必须随包分发或在白名单 / frontmatter 规范 / 提示词无本机路径 / 评测覆盖），当场修掉 3 处死链 |
 | 五十六 | 打包两个技能进 preset | `fable5-thinking`（九条原则）+ `proof-engineer`（1289 行库规范）随仓库分发；原文不动、只加 harness 适配层；修掉 persona 里的本机绝对路径死链；dup-check 抓到重复输出格式并改为指针；常驻 +1.3k 字符 |
 | 五十五 | 取消 npm 发布 → Release 离线包 | npm 账号受限：删 publish.yml、改 release.yml（打 tgz+sha256 附 Release）、`package.json` 置 `private: true`、加「禁止 npm publish」反向检查；分发改为 clone+roots / 离线包 / 拷贝三条 |
