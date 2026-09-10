@@ -1,0 +1,45 @@
+# 发布 GitHub Release 时：先跑门禁，再打**离线包**附到 Release（**不发布到 npm**）
+#
+# 为什么不发 npm：本项目的 npm 账号受限，无法建立/维护发布凭据。用户侧三种装法见 README：
+#   ① clone + roots（推荐）② 解离线包再拷贝 ③ 从 Release 里下载 tgz 直接解到用户目录。
+#
+# 本工作流**故意不带任何 npm 发布步骤**；下面的「不得出现 npm publish」检查会在
+# 有人（或 GitHub 选择器模板）加进发布步骤时直接失败——避免发不出去的包留下误导性红叉。
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 往 Release 附产物
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: 门禁必须全绿
+        run: node math-proof/scripts/check-all.mjs
+      - name: 不得出现未授权的 npm 发布
+        run: |
+          n=$(grep -rl 'npm publish' .github/workflows/*.yml | wc -l)
+          echo "含 npm publish 的工作流数量: $n"
+          test "$n" -eq 0 || { echo '::error::检测到 npm publish；本项目不发布 npm（账号受限）。真要启用：先配好 Trusted Publisher，再删掉本检查。'; exit 1; }
+      - name: 打离线包 + 校验和
+        run: |
+          tag="${{ github.event.release.tag_name || github.ref_name }}"
+          tar czf "dsh-math-proof-$tag.tgz" math-proof README.md LICENSE
+          sha256sum "dsh-math-proof-$tag.tgz" > "dsh-math-proof-$tag.tgz.sha256"
+          ls -lh dsh-math-proof-$tag.tgz
+      - name: 附到 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.event.release.tag_name || github.ref_name }}"
+          gh release upload "$tag" dsh-math-proof-$tag.tgz dsh-math-proof-$tag.tgz.sha256 --clobber
+

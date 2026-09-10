@@ -205,58 +205,33 @@ node scripts/publish.mjs --out ~/src/dsh-math-proof             # 生成仓库�
 不会误报 `test/_test_*.agda` 这类有意保留的真实模块）。
 细节复盘见 `skills/agda-proof-engine/references/bounded-instantiation-and-postulates.md`，逐轮记录见 `audit/rounds.md` §四十八。
 
-## 一.14 npm 发布：选哪个工作流、为什么
+## 一.14 分发：不走 npm，三种装法 + Release 离线包
 
-GitHub 的 Actions 选择器里与 npm 相关的有四个，结论很明确：**选 “Publish Node.js Package”（npm）**，
-其余三个都不该用，理由如下：
+**结论先说：本项目不发布 npm 包**（npm 账号受限，无法建立/维护发布凭据）。
+所以「让用户自己装」的路径必须是**不依赖 npm** 的，共三条：
 
-| 选项 | 该不该选 | 理由 |
+| 装法 | 命令 | 适用 |
 | --- | --- | --- |
-| **Publish Node.js Package**（npm 官方源） | ✅ **选它**，但要改三处 | 见下 |
-| Publish Node.js Package to GitHub Packages | ❌ | 发到 `npm.pkg.github.com`，**消费者必须配 `.npmrc` + GitHub token 才能装**——开源项目里这是反向体验；只有纯内部使用时才值得 |
-| SLSA Generic generator（OpenSSF） | ❌ | 它不是发布器，是给「**已有构建产物**」补 SLSA3 证明的工具。npm 自带的 `--provenance`（配 GitHub OIDC）已经产出可验证来源证明（npmjs 页面会显示 “Built and signed on GitHub Actions”），**两套并存只会让审计更乱**；真要更强隔离构建再说 |
-| Node.js / Webpack / Azure / Frogbot | ❌ | 前两个只是 build/test 模板（我们的 `gates.yml` 已是自写 15 门禁，更贴合）；Azure 是部署；Frogbot 是依赖扫描（需 JFrog 订阅，将来可作可选加分项） |
+| **A. clone + roots（推荐）** | `git clone … ~/src/dsh-math-proof` + 在 `~/.dsh/profiles/web/cordis.patch.yml` 配 `roots` | 有 git/网络；`git pull` 即更新 |
+| **B. Release 离线包** | 下载 `dsh-math-proof-<tag>.tgz` → `sha256sum -c` → 解到 `~/src/dsh-math-proof`（再按 A 配 roots）或直接 `cp -r math-proof ~/.dsh/.agent-presets/` | 不用 git / 内网传输 / 想固定版本 |
+| **C. 拷贝** | `cp -r dsh-math-proof/math-proof ~/.dsh/.agent-presets/math-proof` | 一次性快照，最简单 |
 
-**选定的模板要改三处**（`scripts/publish.mjs` 已生成可用的 `.github/workflows/publish.yml`）：
+三条都需要**重启/重挂 dsh**，新建会话时选 `math-proof`。
 
-1. **触发条件**：只在 `release: published` 或手工 `workflow_dispatch`（默认 `dry-run: true`）时跑，**不要每次 push 都发**；
-2. **认证**：用 **npm Trusted Publishing（OIDC）**——`permissions: id-token: write`，在 npmjs 包设置里登记本仓库 + 工作流名，**不需要长期 `NPM_TOKEN`**（回退方案才是 `NODE_AUTH_TOKEN`）；
-3. **`--provenance --access public`**，并且**先跑门禁再发**（工作流里 `check-all` 全绿才继续）。
-
-**⚠ 不要在 GitHub 的 Actions 选择器里再生成一个发布工作流**：仓库里已经有 `publish.yml`（由本 preset 生成，
-含「先跑 15 门禁 + OIDC trusted publishing + 默认 dry-run」）。选择器生成的模板会变成**第二个发布者**
-（同样是 `release: published` 触发）→ 两边同时往同一个版本号发，后到的必然 `EPUBLISHCONFLICT` 失败。
-选择器只在**没有** `publish.yml` 时才需要；要换成模板的，先删掉本仓库那份。
-
-**GitHub Packages 与 npm 的区别（为什么只选 npm）**：
-
-| 维度 | npm（registry.npmjs.org） | GitHub Packages（npm.pkg.github.com） |
-| --- | --- | --- |
-| 安装是否需要认证 | 公开包**不需要** | **公开包也要**（必须配 `.npmrc` + PAT/GITHUB_TOKEN） |
-| `dsh plugin add` 能否直接用 | ✅（走用户 `~/.npmrc`，如 npmmirror 镜像） | ❌ 还要额外加 scoped registry + token，体验倒退 |
-| 国内镜像（npmmirror） | ✅ 会同步 | ❌ 不同步（本机 `~/.npmrc` 就在 npmmirror 上） |
-| 来源证明 provenance | ✅ 原生 `--provenance`（Trusted Publishing/OIDC） | ⚠️ 需自建 attestation，不是 npm 那套 UX |
-| 配额 | 公开包免费且不限量 | 占用账号存储/流量配额 |
-| 适用场景 | **公开、给所有人装** ← 我们 | 私有 / 组织内部 / 必须留在 GitHub 边界内 |
-
-> 想两处都发也可以（在 `publish.yml` 里加一个 mirror job 指向 `https://npm.pkg.github.com`，
-> `permissions: packages: write`），但对一个公开 MIT 的 preset 只是徒增认证面，**现在不必**。
-
-**包名用 scoped**：`@clearnature/dsh-math-proof`（实测该名与无 scope 的 `dsh-math-proof` 都还空着）。
-scoped 的好处：不与官方 `@deepseek-ai/dsh-*` 混淆，也不担心被人抢注。
-
-**装法（第三路，发 npm 之后可用）**：
+**`release.yml` 做什么**：发布 GitHub Release 时 → 先跑门禁 → 打 `dsh-math-proof-<tag>.tgz` + `.sha256`
+→ 附到该 Release。**不含任何 npm 步骤**，而且带一条反向检查：
 
 ```bash
-dsh plugin --profile web add @clearnature/dsh-math-proof@0.1.0
-# 然后 roots 指向装进来的目录（dsh 的 roots 支持任意路径）
-#   - path: ~/.dsh/profiles/web/node_modules/@clearnature/dsh-math-proof/math-proof
+n=$(grep -rl 'npm publish' .github/workflows/*.yml | wc -l)
+test "$n" -eq 0 || exit 1     # 有人（或选择器模板）加进发布步骤 → 直接失败
 ```
 
-**发布前必须知道的三件事**（诚实边界）：
-1. **npm 版本不可撤回**——发出去的版本永久存在，只能 `deprecate`；所以先 dry-run（工作流默认就是 dry-run）；
-2. 包内容由 `files` 白名单 + `.npmignore` 双保险（实测：73 个文件 / 355 kB，`state/`、`__pycache__`、`.github/` 都不进包）；
-3. 本包**没有 npm 运行时依赖**（插件只 import `node:` 内建；24 个 `@deepseek-ai/dsh-*` 行是**宿主**提供的，不随包安装）——真正的前置是 dsh 版本线 `0.1.2-rc.1` + Agda + Python。
+这条检查是**真事故的产物**：GitHub 的 Actions 选择器生成过 `npm-publish.yml`，
+模板里 `npm ci`（我们零依赖、没有 lockfile）与 `npm test`（没有该脚本）都会失败，还与已有工作流重复触发。
+
+**`package.json` 的定位**：只作元数据与离线打包用，**`private: true`**——任何 `npm publish` 直接失败，
+避免误发一个没人能维护的包。若将来 npm 侧放开，只需三处小改：去掉 `private`、加回 `publishConfig`、
+新增一个带 Trusted Publishing 的发布工作流（`audit/rounds.md` §五十二 记了完整判据）。
 
 ## 二、怎么跑
 

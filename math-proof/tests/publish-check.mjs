@@ -71,13 +71,19 @@ try {
   ok('布局：preset 目录在仓库根之下（根不是 preset 目录）', !existsSync(join(out, 'agent.cordis.yml')))
 
   const gates = existsSync(join(out, '.github', 'workflows', 'gates.yml')) ? readFileSync(join(out, '.github', 'workflows', 'gates.yml'), 'utf8') : ''
-  ok('工作流不依赖已弃用的 action 主版本（v4 目标 Node 20）', !/@v4\b/.test(gates) && !/@v4\b/.test(readFileSync(join(out, '.github', 'workflows', 'publish.yml'), 'utf8')), (gates.match(/actions\/[a-z-]+@v\d+/g) ?? []).join(' '))
+  const wfAll = ['gates.yml', 'release.yml'].map((f) => (existsSync(join(out, '.github', 'workflows', f)) ? readFileSync(join(out, '.github', 'workflows', f), 'utf8') : '')).join('\n')
+  ok('工作流不依赖已弃用的 action 主版本（v4 目标 Node 20）', !/@v4\b/.test(wfAll), (wfAll.match(/actions\/[a-z-]+@v\d+/g) ?? []).join(' '))
   ok('生成 CI 工作流（仓库骨架可复现）', existsSync(join(out, '.github', 'workflows', 'gates.yml')) && readFileSync(join(out, '.github', 'workflows', 'gates.yml'), 'utf8').includes('check-all.mjs'))
   const pkg = existsSync(join(out, 'package.json')) ? JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')) : null
   ok('生成 package.json（scoped 名 + files 白名单）', pkg !== null && pkg.name.startsWith('@') && Array.isArray(pkg.files) && pkg.files.includes(`${ID}/`), JSON.stringify(pkg?.name))
   ok('package.json 声明零运行时依赖', pkg !== null && Object.keys(pkg.dependencies).length === 0)
-  ok('发布工作流自带「唯一发布者」检查', readFileSync(join(out, '.github', 'workflows', 'publish.yml'), 'utf8').includes('发布工作流数量'))
-  ok('生成 npm 发布工作流', existsSync(join(out, '.github', 'workflows', 'publish.yml')) && readFileSync(join(out, '.github', 'workflows', 'publish.yml'), 'utf8').includes('--provenance'))
+  ok('package.json 为 private（禁止误发 npm）', pkg?.private === true && pkg?.publishConfig === undefined, JSON.stringify({ private: pkg?.private, publishConfig: pkg?.publishConfig }))
+  // npm 账号受限 → 不发 npm：工作流里不得有 npm publish，且 package.json 必须 private
+  const relWf = existsSync(join(out, '.github', 'workflows', 'release.yml')) ? readFileSync(join(out, '.github', 'workflows', 'release.yml'), 'utf8') : ''
+  ok('生成 release 工作流（打离线包附 Release）', relWf.includes('gh release upload') && relWf.includes('sha256sum'))
+  ok('release 工作流不含 npm publish', !/^\s*run:.*npm publish/m.test(relWf))
+  ok('release 工作流自带「禁止 npm publish」检查', relWf.includes('不得出现未授权的 npm 发布'))
+  ok('不再生成 publish.yml', !existsSync(join(out, '.github', 'workflows', 'publish.yml')))
   ok('生成 .npmignore（挡住 state/ 与机器生成物）', existsSync(join(out, '.npmignore')) && readFileSync(join(out, '.npmignore'), 'utf8').includes('state/'))
   ok('生成 .gitignore', existsSync(join(out, '.gitignore')) && readFileSync(join(out, '.gitignore'), 'utf8').includes('state/'))
   const lic = existsSync(join(out, 'LICENSE')) ? readFileSync(join(out, 'LICENSE'), 'utf8') : ''

@@ -174,13 +174,20 @@ git clone https://github.com/${HOLDER}/dsh-math-proof.git ~/src/dsh-math-proof
         trust: user
 \`\`\`
 
-**B. 拷进用户目录**（一次性快照，升级要手动重拷）
+**B. 离线包（不用 git / 内网传输）**
 
 \`\`\`bash
-cp -r dsh-math-proof/${PRESET_ID} ~/.dsh/.agent-presets/${PRESET_ID}
+curl -LO https://github.com/${HOLDER}/dsh-math-proof/releases/latest/download/dsh-math-proof-<tag>.tgz
+sha256sum -c dsh-math-proof-<tag>.tgz.sha256      # 先校验
+tar xzf dsh-math-proof-<tag>.tgz -C ~/src/dsh-math-proof   # 解出 ${PRESET_ID}/ 与 README/LICENSE
+# 然后把 roots 指向 ~/src/dsh-math-proof（同 A），或：
+cp -r ${PRESET_ID} ~/.dsh/.agent-presets/${PRESET_ID}
 \`\`\`
 
 两条路都需要**重启/重挂 dsh**，然后新建会话时选 \`${PRESET_ID}\`。
+
+> **不走 npm**：本项目不发布 npm 包（账号受限）。\`package.json\` 里 \`private: true\`，
+> 任何 \`npm publish\` 会直接失败；\`release\` 工作流只把离线包附到 GitHub Release。
 
 > 为什么仓库根不是 preset 目录：dsh 的 \`scanRoot\` 只认「root 下、名字匹配 \`[a-z0-9][a-z0-9-]*\`
 > 的子目录」，且子目录里必须有 \`agent.cordis.yml\`。
@@ -271,59 +278,57 @@ const PACKAGE_JSON = {
   // 真正的外部依赖是宿主的 dsh 版本线与 Agda / Python，见 README。
   dependencies: {},
   peerDependencies: {},
-  publishConfig: { access: 'public' },
+  // **不发布到 npm**（账号受限）：private 让任何 `npm publish` 直接失败，
+  // package.json 只作为元数据 / 供 `npm pack` 打离线包用。
+  private: true,
 }
 
-const PUBLISH_WORKFLOW = `# npm 发布（Tag / Release 触发；**先跑门禁再发**）
+const RELEASE_WORKFLOW = `# 发布 GitHub Release 时：先跑门禁，再打**离线包**附到 Release（**不发布到 npm**）
 #
-# 认证用 **npm Trusted Publishing（OIDC）**：在 npmjs.com 的包设置里登记本仓库与本工作流后，
-# 不需要长期 NPM_TOKEN 秘密。若尚未配置 trusted publisher，可退回 NPM_TOKEN：
-#   - env: { NODE_AUTH_TOKEN: \${{ secrets.NPM_TOKEN }} }
+# 为什么不发 npm：本项目的 npm 账号受限，无法建立/维护发布凭据。用户侧三种装法见 README：
+#   ① clone + roots（推荐）② 解离线包再拷贝 ③ 从 Release 里下载 tgz 直接解到用户目录。
 #
-# provenance：\`--provenance\` 让 npm 生成可验证的来源证明（等价 SLSA v3），
-# 因此**不要**再加 "SLSA Generic generator"（那是另一套，重复且更弱）。
-name: publish
+# 本工作流**故意不带任何 npm 发布步骤**；下面的「不得出现 npm publish」检查会在
+# 有人（或 GitHub 选择器模板）加进发布步骤时直接失败——避免发不出去的包留下误导性红叉。
+name: release
 
 on:
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      dry-run:
-        description: 只做 npm publish --dry-run（不真的发布）
-        type: boolean
-        default: true
 
 permissions:
-  contents: read
-  id-token: write   # Trusted Publishing / provenance 需要
+  contents: write   # 往 Release 附产物
 
 jobs:
-  publish:
+  attach:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
-      - name: 只能有一个发布工作流（防选择器再生成一个重复发布者）
-        run: |
-          n=$(grep -l 'npm publish' .github/workflows/*.yml | wc -l)
-          echo "发布工作流数量: $n"
-          test "$n" -eq 1 || { echo '::error::检测到多个发布工作流；release 触发会重复发布并 EPUBLISHCONFLICT'; exit 1; }
-      - name: 门禁必须全绿才允许发布
+      - name: 门禁必须全绿
         run: node ${PRESET_ID}/scripts/check-all.mjs
-      - name: 检查将要发布的文件清单
-        run: npm pack --dry-run
-      - name: 发布（Trusted Publishing + provenance）
-        if: \${{ github.event_name == 'release' || inputs.dry-run == false }}
-        run: npm publish --provenance --access public
-      - name: 干跑（手工触发且勾选 dry-run）
-        if: \${{ github.event_name == 'workflow_dispatch' && inputs.dry-run != false }}
-        run: npm publish --provenance --access public --dry-run
-`
+      - name: 不得出现未授权的 npm 发布
+        run: |
+          n=$(grep -rl 'npm publish' .github/workflows/*.yml | wc -l)
+          echo "含 npm publish 的工作流数量: $n"
+          test "$n" -eq 0 || { echo '::error::检测到 npm publish；本项目不发布 npm（账号受限）。真要启用：先配好 Trusted Publisher，再删掉本检查。'; exit 1; }
+      - name: 打离线包 + 校验和
+        run: |
+          tag="\${{ github.event.release.tag_name || github.ref_name }}"
+          tar czf "dsh-math-proof-\$tag.tgz" ${PRESET_ID} README.md LICENSE
+          sha256sum "dsh-math-proof-\$tag.tgz" > "dsh-math-proof-\$tag.tgz.sha256"
+          ls -lh dsh-math-proof-\$tag.tgz
+      - name: 附到 Release
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          tag="\${{ github.event.release.tag_name || github.ref_name }}"
+          gh release upload "\$tag" dsh-math-proof-\$tag.tgz dsh-math-proof-\$tag.tgz.sha256 --clobber
 
+`
 const target = OUT === undefined ? null : join(OUT, PRESET_ID)
 let written = 0
 if (!DRY && target !== null) {
@@ -343,7 +348,7 @@ if (!DRY && target !== null) {
   writeFileSync(join(OUT, 'README.md'), ROOT_README)
   mkdirSync(join(OUT, '.github', 'workflows'), { recursive: true })
   writeFileSync(join(OUT, '.github', 'workflows', 'gates.yml'), GATES_WORKFLOW)
-  writeFileSync(join(OUT, '.github', 'workflows', 'publish.yml'), PUBLISH_WORKFLOW)
+  writeFileSync(join(OUT, '.github', 'workflows', 'release.yml'), RELEASE_WORKFLOW)
   writeFileSync(join(OUT, 'package.json'), `${JSON.stringify(PACKAGE_JSON, null, 2)}\n`)
   // npm 打包白名单（双保险：即便有人改了 package.json，npmignore 仍挡住机器状态）
   writeFileSync(join(OUT, '.npmignore'), 'state/\n__pycache__/\n*.pyc\n*.agdai\n.github/\n')

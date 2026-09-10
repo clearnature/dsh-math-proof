@@ -31,7 +31,5 @@
   },
   "dependencies": {},
   "peerDependencies": {},
-  "publishConfig": {
-    "access": "public"
-  }
+  "private": true
 }

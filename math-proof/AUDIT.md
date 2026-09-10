@@ -192,6 +192,7 @@ orbitStabilizer      : Orbit x ≃ A4/Stab x            -- :1068
 | 四十四 | DSH 插件盘点 | `scripts/plugins.mjs`；相关插件宿主多已挂载；唯一待定 `schedule`（+前缀成本） |
 | 四十五 | 插件市场 | `scripts/market.mjs`：市场 272 / 已装 214 / 可装未装 58（同版本线 28）；版本线陷阱（latest 停在 0.0.1-rc.1）；相关 18 条均带前置条件 |
 | 四十六 | 升级后插件对账 | 三平面 provenance：宿主 117 启用/25 禁用、preset 37 行（接管 22 行）、双份 0、真缺口 0；改正「禁用=已挂」的分类错误；宿主平面本就无我们的改动，重置没丢东西 |
+| 五十五 | 取消 npm 发布 → Release 离线包 | npm 账号受限：删 publish.yml、改 release.yml（打 tgz+sha256 附 Release）、`package.json` 置 `private: true`、加「禁止 npm publish」反向检查；分发改为 clone+roots / 离线包 / 拷贝三条 |
 | 五十四 | 更正堆爆归因 + 历史按规则集切开 | 否证「字面量界触发 any? 枚举」：真凶是**含具体数字递归的定义体被展开**（探针 P1/P2/P3：3s vs >75s vs 339s）；只封界不够，须把定义**连同体**封进同一 `abstract` 块；分诊加 `notThis` 反例与 stdlib/环境双规则；`history` 带 `ruleset` 戳，跨规则集不再误报「回退」 |
 | 五十三 | v0.1.0 Release 文案 | `docs/releases/v0.1.0.md`（数字现场取后冻结：15 门禁 / 784 断言 / 74 文件）；四条诚实边界；docs-check 扩扫 releases |
 | 五十二b | 选择器重复生成发布工作流（真事故） | 用户点模板生成 `npm-publish.yml`：`npm ci` 无 lockfile 必失败、`npm test` 无脚本、需长期 token 且与 `publish.yml` 重复触发；已删模板 + 把「唯一发布者」写成机器检查 |

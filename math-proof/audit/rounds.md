@@ -2071,3 +2071,38 @@ P1 快而 P3 慢 ⇒ 代价在**编码的定义体**。
 
 `ruleset-check` 扩到 **50 断言**（归因文本 / `notThis` / stdlib 规则的双向触发 / 跨规则集与 legacy 判定）；
 `check-all` → **CHECK_ALL_OK 15/15**。
+
+## 五十五、第五十轮：取消 npm 发布，改走 Release 离线包（2026-09-10）
+
+用户：**「npm 账号我们受到限制无法建立，只能在说明里面，让他们自己安装。」**
+
+### 55.1 判断
+
+npm 路线**整体撤掉**（不是「以后再说」）：留着不能跑的发布工作流与一个永远不存在的包名，
+比没有更糟——它会让人以为 `npm install` 可行。但「让用户自己装」必须有**不依赖 npm** 的可行路径，
+所以分发改成三条 + 一个离线包工作流：
+
+| 装法 | 依赖 | 说明 |
+| --- | --- | --- |
+| A. clone + roots（推荐） | git + 网络 | `git pull` 即更新 |
+| B. **Release 离线包** | 只要 HTTP | `dsh-math-proof-<tag>.tgz` + `.sha256`，附在 GitHub Release 上 |
+| C. 拷贝 | 无 | `cp -r math-proof ~/.dsh/.agent-presets/` |
+
+### 55.2 落点
+
+| 改动 | 内容 |
+| --- | --- |
+| `publish.yml` → **`release.yml`** | 触发仍是 `release: published`；动作改为「先跑门禁 → 打 tgz + sha256 → `gh release upload` 附到 Release」；**不含任何 npm 步骤** |
+| 反向检查 | `release.yml` 里 `grep -rl 'npm publish' .github/workflows/*.yml` 必须为 0，否则失败——防止选择器模板再塞一个发布步骤（§52.7 真事故的产物） |
+| `package.json` | `private: true`、去掉 `publishConfig`：**任何 `npm publish` 直接失败**；只作元数据与离线打包用 |
+| 文案 | README §一.14 重写为「分发：不走 npm」；`docs/releases/v0.1.0.md` 的装法 C 由 npm 改为离线包；诚实边界补第 5 条 |
+| 回归 | `publish-check` 改为断言：有 `release.yml`、**无** `publish.yml`、release 工作流不含 `npm publish` 且自带该检查、`package.json` 为 private（**36/36**） |
+
+### 55.3 留的后门（将来 npm 放开时）
+
+只需三处：去掉 `private`、加回 `publishConfig`、新增一个带 Trusted Publishing + `--provenance` 的发布工作流；
+`audit/rounds.md` §五十二 已完整记录选型判据（npm vs GitHub Packages、SLSA generator 为何不用），不用重新调研。
+
+### 55.4 复验
+
+`check-all` → **CHECK_ALL_OK 15/15**。
