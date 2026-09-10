@@ -2987,3 +2987,52 @@ compaction 管的是**上下文压力**（不是累计花费）；`tokenUsage` �
 **钩子端到端**（fixture 全量折叠得 2140 → 推高到线 → exit 2 → 白名单仍放行）、静态断言 SESSION 真被用上）。
 文档：`docs/maps/M7-budget.md` 新增 §M7.7（含实测表、口径、滞后说明、9 条监控接口表），README/discipline 各一段；
 `SESSION.env` 与 `budget action:"session"` 进开关表。
+
+## 七十三、额度监控：先纠三处接口事实，再写代码（2026-09-10）
+
+**用户转来**：Python + Node 两版「熔断 + 额度监控」实现，以及一个 TS 包（`dsh-quota-guard`）的完整计划。
+
+### 73.1 逐条核对后：一半不用加，一半的接口假设是错的
+
+| 转来的说法 | 核实结果 |
+| --- | --- |
+| 「客户端熔断（三态 + 退避 + 错误分类 + 并发闸）」 | **DSH 已有更完整的**：`maxRetries` 默认 5（按 step 重置）、`localDelay` 指数退避 500ms→10s + jitter 0.1、`retryableCodes` 分类（429→RATE_LIMIT、≥500→SERVER、401/403→AUTH、余额→QUOTA，**AUTH/INVALID/QUOTA 不重试**）、**遵循 `Retry-After`**（超 10s 上限则放弃重试）、耗尽即抛错终止回合。且用户上轮已决定**不加**熔断器 |
+| 「用 `client.ts` 替换现有的 fetch 封装」 | **不适用**：DSH 的传输层归 harness（适配器、流式、工具调用、图片 offload、Files API、缓存计费都在里面），换掉等于把这一层全丢 |
+| 「`npm install dsh-quota-guard`，tsup + vitest + TS」 | **与项目约束冲突**：本仓库是**零依赖纯 JS**（只用 `node:`），`publish.mjs` 生成 `private: true`、不发布 npm（账号受限），且有多条门禁断言「零外部依赖」 |
+| `remainingQuota()` 打 `/v1/user/info`（Python）/ `/user/info`（TS），解析 `total_quota/remaining_quota/used_quota` | **都不存在**。官方是 **`GET /user/balance`**，返回 `{is_available, balance_infos:[{currency,total_balance,granted_balance,topped_up_balance}]}`，**金额是字符串、没有总量字段** |
+| 「剩余/总量 = 百分比」+ warning 50% / danger 20% / stop 5% | **算不出来**（没有总量）→ 那套阈值只能改成「自定基线」或「历史最高余额」下的百分比，并标明来源 |
+
+### 73.2 于是只做站得住的那部分：`impl/quota.mjs`
+
+- **采样**：`budget action:"quota" refresh:true` / `node scripts/quota.mjs --refresh`（可挂 cron）→
+  `quota-samples.json`（上限 500 条，损坏则备份后当空的）；
+- **燃烧速率**：金额/小时，**只看最近一段单调下降区间**（充值让余额上升 → 从那点重新起算，不会算成负消耗），
+  样本不足返回 `null`（**不编数字**）；
+- **ETA**：按当前速率还能撑多久；
+- **百分比**：只在你自定基线（`baseline:N`）或「历史最高余额（≈上次充值后）」时给，并写明来源；
+- **默认不联网**：回合中途的网络 I/O 会让工具调用变慢且不可预期 → 默认只读本机缓存，`refresh:true` 才拉；
+  同步入口遇到 `refresh:true` 直接报错（避免同步/异步混合返回），工具走异步入口；
+- **凭据不落地**：`ctx.get('credentials').resolve('DEEPSEEK_API_KEY')`（拿不到才回退环境变量），
+  **不解析 `~/.dsh/.credentials.yaml`**、不打印密钥；CLI 支持 `--key-stdin`；
+- **错误如实报**：401→「API key 无效」、402→「余额不足」、形状不符→报**顶层键名**（不回显响应体）。
+
+### 73.3 顺带修掉一个被这次改动暴露的门禁缺陷
+
+新增的取凭据代码触发了 `publish.mjs` 的密钥扫描器 **17 处假阳性**——它的正则
+`api[_-]?key\s*[:=]\s*\S+` 把 `apiKey = String(process.env.X ?? '')` 也当成硬编码密钥。
+**假阳性会让门禁变成噪音，比没有门禁更危险**，所以：
+
+- 收紧为「右侧必须是**带引号的字面量且 ≥12 字符**」（`sk-` 前缀规则保留）；
+- 扫描器抽到 `impl/secret-scan.mjs` 共用（`publish.mjs` 与门禁同一实现），并跳过扫描器自身；
+- `publish-check` 新增 4 条断言**证明它仍会咬**：真 `sk-…` 形状报、引号字面量赋值报、
+  「取环境变量」不报、命中带行号。夹具用**拼接**构造，免得测试文件自己在整树扫描里被当成泄漏；
+- 同时修掉上一轮引入的另一个缺陷：`--json` 模式下把「本地树里有 N 个 0600 文件」的提示打到了 **stdout**，
+  污染 JSON → 改到 **stderr**（被 publish-check 当场抓到）。
+
+### 73.4 回归与复验
+
+`budget-check` 256→**289/289**（+33 条：官方形状解析 / 明确拒绝社区流传的错误形状 / 金额与显示 /
+燃烧速率与充值分段 / ETA / 基线两种来源 / 采样上限与损坏隔离 / `fetchBalance` 注入 fetch 的 401、402、
+形状不符、无 key 四种 / 工具默认不联网与 refresh 需异步 / CLI 三条路径 / 静态断言「没有臆造端点」）；
+`publish-check` 38→**41/41**；`CHECK_ALL_OK 22/22`（Node 24 + Node 22）。
+文档：M7 新增 §M7.7b（含官方接口事实表与「能做/不能做」两栏）+ 开关表 + 状态文件表；README 一段。

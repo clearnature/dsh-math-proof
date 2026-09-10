@@ -325,6 +325,12 @@ node tests/paths-check.mjs   # PATHS_OK
 所以「100 万 token 一次会话」会死在第一次调用上。改：`MATH_PROOF_SESSION_BUDGET=1B` 或 `budget action:"session" tokens:"1B"`。
 监控数据从官方缝来（`tokenUsage` 投影 / `tokenMeter` / `sessionQuery` / 会话日志），详见 [M7.7](docs/maps/M7-budget.md)。
 
+**额度（余额）监控**：官方接口是 **`GET /user/balance`**，返回的是**钱**（金额字符串）且**没有「总量」字段**
+——社区流传的 `/v1/user/info` 与 `total_quota/remaining_quota/used_quota`、以及「剩余/总量=百分比」都不成立。
+本 preset 只做站得住的：**采样 → 燃烧速率（¥/小时，充值不算负消耗）→ ETA**；百分比仅在你自定基线时给。
+`budget action:"quota"`（默认不联网）｜`refresh:true` 拉一次（凭据走 harness 的 `credentials`，不碰密钥文件）｜
+`node scripts/quota.mjs --refresh`（可挂 cron）。
+
 **开关**：`MATH_PROOF_BUDGET=off` 全关｜`=warn` 只提醒不拦（且**不调速**）｜`budget action:"off"` 等同 warn｜
 `budget action:"status"` 看本回合实况（含当前思考档位与下一步计划）｜`budget action:"calibrate"` 用真实日志标定各类预算。
 

@@ -12,7 +12,7 @@
 //      本地构建的分发包会「只有属主可读」（用户 2026-09-10 提醒的正是这一类）。
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 
@@ -57,7 +57,24 @@ try {
       String(j.excludedStateFiles),
     )
     ok('无密钥假阳性（跳过扫描器自身）', j.secretHits === 0, `hits=${j.secretHits}`)
-    ok('绝对路径清单里没有扫描器自身', !j.absolutePathFiles.includes('scripts/publish.mjs'), j.absolutePathFiles.join(','))
+    // 扫描器必须**仍然会咬**（收紧后不能变松）：两种真形状都要报，取环境变量的**不**报。
+    // 夹具用**拼接**构造，免得测试文件本身在整树扫描时被当成泄漏。
+    {
+      const scanner = await import(join(PRESET, 'impl', 'secret-scan.mjs'))
+      const realKey = 'sk-' + 'abcdefghijklmnop123456'
+      const quoted = 'hardcoded-value-1234'
+      const planted = [
+        `const a = "${realKey}" // 真密钥形状`,
+        `const b = { apiKey: "${quoted}" } // 引号字面量赋值`,
+        "const c = process.env.DEEPSEEK_API_KEY ?? '' // 取环境变量：不该被当成密钥",
+      ].join('\n')
+      const hits = scanner.scanSecretLines(planted)
+      ok('扫描器：真密钥形状（sk-…）被报出', hits.some((h) => h.hit.includes('sk-')), JSON.stringify(hits))
+      ok('扫描器：引号字面量赋值被报出', hits.some((h) => h.hit.includes('apiKey')), JSON.stringify(hits))
+      ok('扫描器：`apiKey = process.env.X` 这类取凭据代码**不再误报**', !hits.some((h) => h.hit.includes('process.env')))
+      ok('扫描器：命中带行号（便于定位）', hits.every((h) => Number.isInteger(h.line) && h.line >= 1), JSON.stringify(hits.map((h) => h.line)))
+    }
+
     // 路径集中化之后：唯一配置处 + 历史/快照（不改写）之外，不应再有文件含机器绝对路径
     const pathReal = j.absolutePathFiles.filter(
       (f) =>

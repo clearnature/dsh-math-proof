@@ -24,6 +24,8 @@
 // 根 `README.md`（给人看的：这是什么 / 怎么装 / 依赖什么 / 怎么自检）。
 
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+
+import { scanSecretText } from '../impl/secret-scan.mjs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -81,15 +83,15 @@ const excluded = existsSync(join(PRESET_DIR, 'state')) ? collect(join(PRESET_DIR
 // ── 2) 体检：绝对路径 / 疑似密钥 ───────────────────────────────────────────
 
 const ABS_PATH = /(?:\/home\/[A-Za-z0-9._-]+|\/data\/work|\/Users\/[A-Za-z0-9._-]+|\/opt\/[A-Za-z0-9._-]+)/g
-const SECRET = /(sk-[A-Za-z0-9]{10,}|api[_-]?key\s*[:=]\s*\S+|secret\s*[:=]\s*\S+|password\s*[:=]\s*\S+)/gi
 const TEXT = /\.(md|mjs|js|json|yml|yaml|py|sh|txt|agda)$/
 
-// 扫描器自身内嵌了这些模式（正则字面量），跳过它——否则报告永远是「有密钥」的假阳性
+// 扫描器自身的模式在 `impl/secret-scan.mjs` 里；那份文件含正则字面量，跳过它（否则永远是假阳性）
 const SELF = relative(PRESET_DIR, fileURLToPath(import.meta.url))
+const SECRET_SCANNER = 'impl/secret-scan.mjs'
 const absHits = []
 const secretHits = []
 for (const rel of files) {
-  if (!TEXT.test(rel) || rel === SELF) continue
+  if (!TEXT.test(rel) || rel === SELF || rel === SECRET_SCANNER) continue
   let text = ''
   try {
     text = readFileSync(join(PRESET_DIR, rel), 'utf8')
@@ -99,7 +101,7 @@ for (const rel of files) {
   if (text.includes('\u0000')) continue
   text.split('\n').forEach((line, i) => {
     for (const m of line.matchAll(ABS_PATH)) absHits.push({ file: rel, line: i + 1, hit: m[0] })
-    for (const m of line.matchAll(SECRET)) secretHits.push({ file: rel, line: i + 1, hit: m[0].slice(0, 40) })
+    for (const hit of scanSecretText(line, 5)) secretHits.push({ file: rel, line: i + 1, hit })
   })
 }
 const absFiles = [...new Set(absHits.map((h) => h.file))].sort()
@@ -379,8 +381,9 @@ const ownerOnly = files.filter((rel) => {
 })
 
 if (ownerOnly.length > 0) {
-  console.log(
-    `\n⚠ 本地树里有 ${ownerOnly.length} 个文件只有属主可读（0600）——分发包会被 chmod 归一化，\n` +
+  // ⚠ 走 **stderr**：`--json` 的 stdout 必须保持是纯 JSON（否则机器读不了）
+  console.error(
+    `⚠ 本地树里有 ${ownerOnly.length} 个文件只有属主可读（0600）——分发包会被 chmod 归一化，\n` +
       '  但共享安装/直接拷贝工作树时会读不了。修法：`find . -type f -exec chmod 664 {} +`\n' +
       `  例如：${ownerOnly.slice(0, 3).join('、')}`,
   )

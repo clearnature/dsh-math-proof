@@ -16,6 +16,7 @@
 // 本行不 provide 任何 service，可裸露在 preset 里；只 import `node:` 内建与 preset 内模块。
 
 import { BUDGET, EFFORT, SESSION } from '../impl/ruleset.mjs'
+import { appendQuotaSample, fetchBalance, loadQuota, renderQuotaReport, saveQuota } from '../impl/quota.mjs'
 import {
   budgetMode,
   effectiveCalls,
@@ -48,7 +49,7 @@ import {
 export const name = 'budget'
 export const inject = ['tools']
 
-export const ACTIONS = ['status', 'report', 'classes', 'topup', 'calibrate', 'history', 'session', 'explain', 'on', 'off']
+export const ACTIONS = ['status', 'report', 'classes', 'topup', 'calibrate', 'history', 'session', 'quota', 'explain', 'on', 'off']
 
 /** 一行表格。 */
 function table(headers, rows) {
@@ -393,6 +394,70 @@ function runSession(args, profile) {
     .join('\n')
 }
 
+/**
+ * `quota`：DeepSeek **余额**（钱）采样与趋势。
+ *
+ * 设计取向：**默认不联网**（只读本机采样缓存）——回合中途做网络 I/O 会让工具调用变慢且不可预期；
+ * 要拉新数据必须显式 `refresh:true`。
+ * 凭据走 harness 自己的解析（`ctx.credentials.resolve`），本工具**不碰**密钥文件；
+ * 只有在 harness 里拿不到时才回退到 `DEEPSEEK_API_KEY` 环境变量。
+ */
+function runQuota(args, ctx) {
+  if (args?.refresh === true) {
+    // 联网拉取是**异步**的：同步入口不接这条路（避免同步/异步混合返回）
+    throw new Error('budget quota: refresh:true 需要异步入口（工具内部会 await；测试用 runBudgetAsync）')
+  }
+  return renderQuotaCache(args)
+}
+
+/** 只读本机采样缓存渲染（不联网、可同步调用）。 */
+function renderQuotaCache(args) {
+  const parts = []
+  const state = loadQuota()
+  if (typeof args?.baseline === 'number' && args.baseline > 0) {
+    saveQuota({ ...state, baseline: args.baseline, baselineSource: `budget action:"quota" baseline=${args.baseline}` })
+    parts.push(`基线已设为 ${args.baseline}（百分比将按它算；官方接口没有「总量」字段）`)
+  }
+  const fresh = loadQuota()
+  const head = renderQuotaReport(fresh, { available: fresh.samples.at(-1)?.available })
+  if (parts.length === 0) return head
+  return [head, '', '## 本次动作', ...parts.map((x) => `- ${x}`)].join('\n')
+}
+
+/**
+ * `quota` 的**异步**路径：允许 `refresh:true` 去拉官方余额。
+ * `deps.fetchImpl` 是**测试注入**用的（生产走全局 fetch），不暴露给模型。
+ */
+export async function runQuotaAsync(args, ctx, deps = {}) {
+  const notes = []
+  // `deps.apiKey` 是**测试/高级用法**的显式注入；生产按「harness 凭据 → 环境变量」解析
+  let apiKey = String(deps.apiKey ?? process.env.DEEPSEEK_API_KEY ?? '')
+  let source = apiKey === '' ? null : deps.apiKey !== undefined ? '注入' : 'env DEEPSEEK_API_KEY'
+  const credentials = ctx !== null && typeof ctx?.get === 'function' ? ctx.get('credentials') : undefined
+  if (credentials !== undefined && typeof credentials.resolve === 'function') {
+    try {
+      const resolved = await credentials.resolve('DEEPSEEK_API_KEY')
+      if (resolved !== undefined && typeof resolved.value === 'string' && resolved.value !== '') {
+        apiKey = resolved.value
+        source = `credentials(${resolved.source})`
+      }
+    } catch (e) {
+      notes.push(`⚠ 凭据解析失败（回退环境变量）：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  const result = await fetchBalance({ apiKey, fetchImpl: deps.fetchImpl })
+  if (!result.ok) {
+    notes.push(`❌ 拉取失败：${result.why}${result.keys === undefined ? '' : `｜响应顶层键：${result.keys.join(',')}`}`)
+  } else {
+    const p = result.primary
+    appendQuotaSample({ currency: p.currency, total: p.total, granted: p.granted, toppedUp: p.toppedUp, source: source ?? 'unknown', available: result.available })
+    notes.push(`✅ 已采样：${p.currency} ${p.total.toFixed(2)}（来源 ${source ?? 'unknown'}）`)
+    if (result.available === false) notes.push('⚠ 官方 is_available=false：当前账户不能调用（先充值）')
+  }
+  const head = renderQuotaCache({ ...(args ?? {}), refresh: false })
+  return [head, '', '## 本次动作', ...notes.map((x) => `- ${x}`)].join('\n')
+}
+
 /** `explain`：口径与机制（回答「用什么评价」「能不能自己加」）。 */
 function renderExplain() {
   return [
@@ -420,6 +485,13 @@ function renderExplain() {
     '  看不见档位（部署关了思考/换适配器）或档位未知 → **不动**；任何异常 → 退回原配置（绝不因为调速让请求失败）。',
     '- 效果可审计：每次配置变化都会落 `request/header`（里面有 `config.reasoningEffort`）。',
     '',
+    '## 额度（余额）监控：`GET /user/balance`',
+    '- 官方接口给的是**钱**（`{is_available, balance_infos:[{currency,total_balance,granted_balance,topped_up_balance}]}`，金额是**字符串**），',
+    '  **没有「总量」字段** ⇒ 「剩余/总量=百分比」在官方接口上算不出来（社区流传的 `total_quota/remaining_quota/used_quota` 并不存在）。',
+    '- 能做且做了：**采样 → 燃烧速率（¥/小时，只看最近单调下降区间，充值不算负消耗）→ ETA**；百分比只在**自定基线**（`baseline:`）或历史最高余额时给，并标注来源。',
+    '- 命令：`budget action:"quota"`（默认**不联网**，读本机采样）｜`refresh:true` 拉一次（凭据走 harness 的 `credentials`，本工具不碰密钥文件）｜`node scripts/quota.mjs --refresh`（可挂 cron）。',
+    '- token 侧的额度由 `SESSION` 管（用官方 usage，精确且免费）；余额这边是**钱**的维度，两者互补。',
+    '',
     '## 会话 token 预算（跨回合的总闸；`SESSION` 表）',
     `- 默认 **${fmtTok(SESSION.defaultTokens)}**，可用 \`${SESSION.env}=500M\` 或 \`budget action:"session" tokens:"1B"\` 覆盖；提醒 ${Math.round(SESSION.warnAt * 100)}%、硬线 ${Math.round(SESSION.hardAt * 100)}%（到线只留收尾白名单）。`,
     '- 实测（26 个会话）：单会话累计 tok 中位 **1.25M**、p90 **89M**、max **832M**；**单个中位回合 6.61M**。',
@@ -439,7 +511,7 @@ function renderExplain() {
 }
 
 /** 执行一次预算操作。 */
-export function runBudget(args) {
+export function runBudget(args, ctx) {
   const input = args === null || typeof args !== 'object' ? {} : args
   const action = typeof input.action === 'string' && input.action !== '' ? input.action : 'status'
   if (!ACTIONS.includes(action)) throw new Error(`budget: unknown action "${action}" (expected ${ACTIONS.join(' | ')})`)
@@ -453,6 +525,7 @@ export function runBudget(args) {
   if (action === 'calibrate') return runCalibrate(input, cwd)
   if (action === 'history') return renderHistory(input)
   if (action === 'session') return runSession(input, loadProfile())
+  if (action === 'quota') return runQuota(input, ctx)
   if (action === 'explain') return renderExplain()
 
   // on / off
@@ -466,6 +539,15 @@ export function runBudget(args) {
     `- 账本开关: enabled=${profile.enabled}｜当前生效模式: **${mode}**（${why}）`,
     action === 'off' ? '- 已改为**只提醒不拦**（仍会记账、仍会标定——想完全不记请用 `MATH_PROOF_BUDGET=off` 重启）' : '- 已恢复两级刹车。',
   ].join('\n')
+}
+
+/**
+ * 异步入口（工具执行用这个）：只有 `quota refresh:true` 需要联网，其余走同步实现。
+ */
+export async function runBudgetAsync(args, ctx) {
+  const input = args === null || typeof args !== 'object' ? {} : args
+  if (input.action === 'quota' && input.refresh === true) return runQuotaAsync(input, ctx)
+  return runBudget(input, ctx)
 }
 
 /** 注册 `budget` 工具。 */
@@ -483,11 +565,13 @@ export function apply(ctx) {
         action: {
           type: 'string',
           enum: ACTIONS,
-          description: 'status 本回合实况（含会话预算）/ report 按类基线 / classes 分类表 / topup 申请追加（需 reason）/ calibrate 标定（可 dryRun）/ history 历史样本 / session 看设会话 token 预算 / explain 口径与开关 / on,off 切刹车。',
+          description: 'status 本回合实况（含会话预算）/ report 按类基线 / classes 分类表 / topup 申请追加（需 reason）/ calibrate 标定（可 dryRun）/ history 历史样本 / session 看设会话 token 预算 / quota 余额采样与趋势（默认不联网，refresh:true 才拉）/ explain 口径与开关 / on,off 切刹车。',
         },
         reason: { type: 'string', description: `topup 用：追加理由（≥${BUDGET.topup.minReasonChars} 字，写清还缺哪一件关键证据、拿到就能收工）。` },
         limit: { type: 'number', description: 'history 用：返回多少条（1–60，默认 12）。' },
         tokens: { type: 'string', description: 'session 用：会话 token 预算（如 "1B" / "500M" / 纯数字）；留空=查看，reset=恢复默认。' },
+        refresh: { type: 'boolean', description: 'quota 用：真的去拉一次官方 GET /user/balance（默认 false，只读本机采样缓存，不联网）。' },
+        baseline: { type: 'number', description: 'quota 用：自定百分比基线（官方接口没有「总量」字段）。' },
         dryRun: { type: 'boolean', description: 'calibrate 用：只算不写盘。' },
         scan: { type: 'boolean', description: 'report 用：顺带重扫全部会话日志现算一遍（慢，几秒到几十秒）。' },
         cwd: { type: 'string', description: '可选：覆盖工作区路径（默认取本会话 cwd）。' },

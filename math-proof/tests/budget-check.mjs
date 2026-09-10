@@ -449,6 +449,81 @@ section('会话 token 预算（SESSION / 总闸）')
   ok('公告与播报都带会话进度', /会话预算/.test(polSrc) && /会话 \$\{fmtTok/.test(polSrc))
 }
 
+// ── 4.9) 额度（余额）监控：官方接口是「钱」不是「token 配额」───────────────
+section('额度监控（quota：余额采样与趋势）')
+{
+  const quota = await import(join(PRESET, 'impl', 'quota.mjs'))
+  const official = { is_available: true, balance_infos: [{ currency: 'CNY', total_balance: '110.00', granted_balance: '10.00', topped_up_balance: '100.00' }] }
+  const p1 = quota.parseBalance(official)
+  ok('解析官方形状（金额是**字符串**）', p1.ok && p1.primary.currency === 'CNY' && p1.primary.total === 110 && p1.primary.granted === 10 && p1.primary.toppedUp === 100, JSON.stringify(p1).slice(0, 120))
+  ok('官方 `is_available` 被带上', p1.available === true)
+  const p2 = quota.parseBalance({ total_quota: 100, remaining_quota: 60, used_quota: 40 })
+  ok('**社区流传的错误形状被明确拒绝**（不猜字段）', p2.ok === false && p2.keys.includes('total_quota'), JSON.stringify(p2))
+  ok('多币种时优先 CNY', quota.parseBalance({ balance_infos: [{ currency: 'USD', total_balance: '1.00' }, { currency: 'CNY', total_balance: '7.00' }] }).primary.currency === 'CNY')
+  ok('parseAmount：只认十进制数字串（不认科学计数法）', quota.parseAmount('110.00') === 110 && quota.parseAmount('0') === 0 && quota.parseAmount('1e3') === null && quota.parseAmount('abc') === null && quota.parseAmount('') === null)
+  ok('fmtMoney 带币种符号', quota.fmtMoney(110, 'CNY') === '¥110.00' && quota.fmtMoney(3.5, 'USD') === '$3.50' && quota.fmtMoney(null, 'CNY') === '—')
+  ok('端点常量是官方 `/user/balance`（不是 /v1/user/info）', quota.BALANCE_PATH === '/user/balance')
+  const quotaSrc = readFileSync(join(PRESET, 'impl', 'quota.mjs'), 'utf8')
+  // 剥注释再查：注释里**故意**列出了那两个错端点作为警告（与前面几处同一手法）
+  ok('额度模块里没有出现 /v1/user/info 之类臆造端点（剥注释后）', !/\/v1\/user\/info|user\/info/.test(stripComments(quotaSrc)), (stripComments(quotaSrc).match(/[^\n]*user\/info[^\n]*/) ?? [''])[0])
+
+  // 燃烧速率与 ETA（纯函数，用合成样本）
+  const at = (h) => new Date(Date.UTC(2026, 8, 10, 0, h * 60)).toISOString()
+  const series = [{ at: at(0), currency: 'CNY', total: 30 }, { at: at(1), currency: 'CNY', total: 27 }, { at: at(2), currency: 'CNY', total: 24 }]
+  const rate = quota.burnRatePerHour(series, 'CNY')
+  ok('燃烧速率：2 小时花 6 → 3.00/小时', rate !== null && Math.abs(rate.perHour - 3) < 1e-9, JSON.stringify(rate))
+  ok('ETA：剩 24 / 3 每小时 → 8 小时', Math.abs(quota.etaHours(series, 'CNY') - 8) < 1e-9, String(quota.etaHours(series, 'CNY')))
+  const topped = [...series, { at: at(3), currency: 'CNY', total: 100 }, { at: at(4), currency: 'CNY', total: 98 }]
+  const rate2 = quota.burnRatePerHour(topped, 'CNY')
+  ok('充值后**只算最近的单调下降段**（充值不会被算成负消耗）', rate2 !== null && Math.abs(rate2.perHour - 2) < 1e-9 && rate2.samples === 2, JSON.stringify(rate2))
+  ok('样本不足（<2）→ 速率 null（不编数字）', quota.burnRatePerHour([{ at: at(0), currency: 'CNY', total: 30 }], 'CNY') === null)
+  ok('余额没下降 → 速率 null', quota.burnRatePerHour([{ at: at(0), currency: 'CNY', total: 30 }, { at: at(1), currency: 'CNY', total: 30 }], 'CNY') === null)
+
+  // 基线与落盘
+  ok('基线：用户声明优先', quota.quotaBaseline({ baseline: 50, baselineSource: 'x', samples: [{ total: 100 }] }).value === 50)
+  ok('基线：否则用历史最高余额（≈上次充值后）', quota.quotaBaseline({ baseline: null, samples: [{ total: 30 }, { total: 100 }, { total: 80 }] }).value === 100)
+  resetState()
+  for (let i = 0; i < 5; i++) quota.appendQuotaSample({ currency: 'CNY', total: 100 - i, source: 'test' })
+  ok('采样落盘并读回', quota.loadQuota().samples.length === 5 && quota.loadQuota().samples[0].total === 100, String(quota.loadQuota().samples.length))
+  ok('采样上限生效（数据管理：文件有界）', (() => { const many = { version: 1, baseline: null, samples: Array.from({ length: quota.SAMPLES_MAX + 20 }, (_, i) => ({ at: at(0), currency: 'CNY', total: i })) }; quota.saveQuota(many); return quota.loadQuota().samples.length === quota.SAMPLES_MAX })())
+  writeFileSync(quota.quotaSamplesPath(), '{坏 JSON')
+  ok('采样文件损坏 → 备份后当空的（不静默丢证据）', quota.loadQuota().samples.length === 0 && readdirSync(STATE).some((f) => f.includes('corrupt-')))
+
+  // fetchBalance（注入 fetch，不联网）
+  const okFetch = async () => ({ ok: true, status: 200, json: async () => official })
+  const r1 = await quota.fetchBalance({ apiKey: 'sk-test', fetchImpl: okFetch })
+  ok('fetchBalance：官方响应 → ok', r1.ok === true && r1.primary.total === 110)
+  const r401 = await quota.fetchBalance({ apiKey: 'sk-test', fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({}) }) })
+  ok('fetchBalance：401 → 明确「API key 无效」（不回显响应体）', r401.ok === false && r401.why.includes('401') && r401.why.includes('API key 无效'), r401.why)
+  const r402 = await quota.fetchBalance({ apiKey: 'sk-test', fetchImpl: async () => ({ ok: false, status: 402, json: async () => ({}) }) })
+  ok('fetchBalance：402 → 明确「余额不足」', r402.ok === false && r402.why.includes('余额不足'), r402.why)
+  const rShape = await quota.fetchBalance({ apiKey: 'sk-test', fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ total_quota: 1 }) }) })
+  ok('fetchBalance：形状不符 → 报出顶层键而不是硬解', rShape.ok === false && rShape.keys.includes('total_quota'), JSON.stringify(rShape))
+  const rNoKey = await quota.fetchBalance({ apiKey: '' })
+  ok('fetchBalance：没有 key → 不请求、直接说清', rNoKey.ok === false && rNoKey.why.includes('没有可用的 API key'))
+
+  // 工具：默认不联网；refresh 需异步；异步路径可注入 fetch
+  resetState()
+  const offline = budgetPlugin.runBudget({ action: 'quota' }, { get: () => undefined })
+  ok('quota 动作：默认**不联网**（无采样时给出采样命令）', offline.includes('还没有采样') && offline.includes('/user/balance'), offline.split('\n')[2] ?? '')
+  ok('quota 动作：同步入口拒绝 refresh（避免同步/异步混合）', (() => { try { budgetPlugin.runBudget({ action: 'quota', refresh: true }); return false } catch (e) { return String(e.message).includes('异步入口') } })())
+  const refreshed = await budgetPlugin.runQuotaAsync({ refresh: true }, { get: () => undefined }, { apiKey: 'sk-test', fetchImpl: async () => ({ ok: true, status: 200, json: async () => official }) })
+  ok('quota 异步路径：拉到并落盘一条采样', refreshed.includes('已采样') && quota.loadQuota().samples.length === 1, refreshed.split('\n').slice(-2).join(' '))
+  ok('quota 报告：有采样后给出余额与燃烧速率说明', refreshed.includes('最新余额') && (refreshed.includes('样本不足') || refreshed.includes('小时')), refreshed.split('\n')[2] ?? '')
+  ok('quota 报告：明说百分比需要自定基线（官方没有总量字段）', refreshed.includes('没有总量字段') || refreshed.includes('基线'), refreshed.split('\n').find((l) => l.includes('基线')) ?? '')
+  ok('quota：设基线后百分比按基线算', (() => { const out = budgetPlugin.runBudget({ action: 'quota', baseline: 200 }, { get: () => undefined }); return out.includes('基线') && quota.loadQuota().baseline === 200 })())
+
+  // CLI
+  const cli = spawnSync(process.execPath, [join(PRESET, 'scripts', 'quota.mjs')], { encoding: 'utf8', env: { ...process.env, MATH_PROOF_STATE_DIR: STATE } })
+  ok('CLI：无采样时 exit 0 并说明官方端点', cli.status === 0 && (cli.stdout ?? '').includes('/user/balance'), (cli.stdout ?? '').slice(0, 80))
+  const cliRefresh = spawnSync(process.execPath, [join(PRESET, 'scripts', 'quota.mjs'), '--refresh'], { encoding: 'utf8', env: { ...process.env, MATH_PROOF_STATE_DIR: STATE, DEEPSEEK_API_KEY: '' } })
+  ok('CLI：无凭据 refresh → exit 1 且提示以官方文档为准', cliRefresh.status === 1 && (cliRefresh.stderr ?? '').includes('官方'), (cliRefresh.stderr ?? '').slice(0, 80))
+  const cliJson = spawnSync(process.execPath, [join(PRESET, 'scripts', 'quota.mjs'), '--json'], { encoding: 'utf8', env: { ...process.env, MATH_PROOF_STATE_DIR: STATE } })
+  ok('CLI：--json 输出带 caveat（免得别人误以为有「总量」）', cliJson.status === 0 && JSON.parse(cliJson.stdout).caveat.includes('没有「总量」字段'), cliJson.stdout.slice(0, 60))
+  const cliSrc = stripComments(readFileSync(join(PRESET, 'scripts', 'quota.mjs'), 'utf8'))
+  ok('CLI：脚本不解析 harness 的凭据文件（不复制凭据模型，剥注释后）', !cliSrc.includes('.credentials.yaml') && !/readFileSync\([^)]*credentials/.test(cliSrc))
+}
+
 // ── 5) 过程播报 ───────────────────────────────────────────────────────────
 section('过程播报（shouldTick / tickText）')
 {

@@ -265,6 +265,42 @@ flowchart LR
 **⚠ 但「测」不等于「限」**：以上除本 preset 自己加的预算外，**没有任何一个是硬上限**——harness 里没有会话级 token 封顶
 （`maxTokens` 是**单次请求的输出上限**，compaction 的是**上下文压力**，都不是「本次会话总共能花多少」）。
 
+## M7.7b 额度（余额）监控：官方给的是**钱**，不是 token 配额
+
+社区流传的「额度监控」写法（含 `/v1/user/info`、`total_quota/remaining_quota/used_quota`、
+以及「剩余/总量 = 百分比」那套阈值）**在官方接口上不成立**。核对官方文档后的事实：
+
+| 项目 | 官方实际（2026-09-10 核对） |
+| --- | --- |
+| 端点 | **`GET /user/balance`**（**不是** `/v1/user/info`，也不是 `/user/info`） |
+| 响应 | `{ "is_available": bool, "balance_infos": [ { "currency": "CNY", "total_balance": "110.00", "granted_balance": "10.00", "topped_up_balance": "100.00" } ] }` |
+| 数据性质 | **金额字符串**（钱），**没有「总量」字段** ⇒ 「剩余/总量」算不出来 |
+
+所以本 preset 只做**能站住**的三件事，并把不能站住的明确标出：
+
+| 能做 | 做法 |
+| --- | --- |
+| **采样** | `budget action:"quota" refresh:true`（或 `node scripts/quota.mjs --refresh`，可挂 cron）→ 落 `quota-samples.json`（上限 500 条） |
+| **燃烧速率** | 金额/小时，**只看最近一段单调下降区间**（充值会让余额上升 → 从那里重新起算，不会算成负消耗）；样本不足返回 `null`（不编数字） |
+| **ETA** | 按当前速率估算还能撑多少小时 |
+
+| 不能做（如实标注） | 原因 |
+| --- | --- |
+| 「剩余 5%」这类**百分比** | 官方没有总量字段 → 百分比只在**你自己声明基线**（`budget action:"quota" baseline:100`）或「历史最高余额（≈上次充值后）」时给，并标明来源 |
+| 用余额推 **token 配额** | 两者不是一回事；token 侧由 `SESSION` 管（用官方 usage，精确且免费） |
+
+工程细节（几条刻意的取舍）：
+
+- **默认不联网**：`budget action:"quota"` 只读本机采样缓存——回合中途做网络 I/O 会让工具调用变慢且不可预期；要拉新数据必须显式 `refresh:true`（工具内部 `await`，同步入口直接拒绝，避免同步/异步混合返回）。
+- **凭据不落地**：工具侧走 harness 自己的 `ctx.get('credentials').resolve('DEEPSEEK_API_KEY')`（拿不到才回退环境变量），**不解析 `~/.dsh/.credentials.yaml`**、不打印密钥；`scripts/quota.mjs` 同理（支持 `--key-stdin` 避免进 shell 历史）。
+- **错误如实报**：401 → 「API key 无效」、402 → 「余额不足」、形状不符 → 报出**响应顶层键名**（不回显响应体，可能含账号信息）。
+
+顺带修了一个被这次改动**暴露出来的门禁缺陷**：`publish.mjs` 的密钥扫描正则
+`api[_-]?key\s*[:=]\s*\S+` 会把 `apiKey = String(process.env.X ?? '')` 这类**取凭据的代码**
+当成硬编码密钥（这次一次报 17 处假阳性）。已改为「右侧必须是**带引号的字面量且 ≥12 字符**」，
+并把扫描器抽到 `impl/secret-scan.mjs` 共用；`publish-check` 新增 4 条断言证明它**仍然会咬**
+（真 `sk-…` 形状 / 引号字面量赋值都报，「取环境变量」不报）。**假阳性会把门禁变成噪音，比没有门禁更危险。**
+
 ## M7.8 状态文件与数据管理
 
 | 文件（`~/.dsh/state/math-proof/`） | 内容 | 生命周期 | 清理 |
@@ -272,6 +308,7 @@ flowchart LR
 | `budget-profile.json` | 学习账本：各类预算、最近样本（上限 400）、待结算、债务、开关、标定出处 | 跨天/跨会话/跨进程 | **不清理**（清了等于把学到的忘掉） |
 | `budget-turn-<会话>.json` | 本回合实况：类、预算、已用、被拦次数、重复指纹表、墙钟起点 | 每回合覆盖重写 | 可安全删除 |
 | `carryover-<workspace>.json` | 收工信箱：Stop 写入、下轮开局取空 | 取空即清 | 可安全删除 |
+| `quota-samples.json` | 余额采样（上限 500 条；只有钱的变化，不含密钥） | 跨会话保留 | 可删（删了就没有速率/ETA） |
 | `receipts/` `oracle-receipts/` | 回执（**强证据**） | 由 `proof_compile`/`proof_oracle` 签发 | 见 `state-gc.mjs` |
 
 数据卫生：账本样本上限 `historyMax=400`（超出丢最旧）；重复指纹表上限 400 个键；
@@ -290,6 +327,8 @@ flowchart LR
 | `budget action:"report"` | 按类基线 + 最近结算（`scan:true` 顺带重扫全部日志现算） |
 | `budget action:"calibrate"` | 用本机真实日志标定各类预算（`dryRun:true` 只算不写） |
 | `SESSION.env`（默认 `MATH_PROOF_SESSION_BUDGET`） | 会话 token 预算（`1M` / `500M` / `1B` / 纯数字），**下一回合生效** |
+| `budget action:"quota"` / `refresh:true` / `baseline:N` | 余额报告（默认不联网）/ 拉一次 / 设百分比基线 |
+| `node scripts/quota.mjs [--refresh] [--json] [--baseline N]` | 同上，命令行版（适合 cron 与告警） |
 | `budget action:"session" tokens:"1B"` | 同上，写进账本（`reset` 恢复默认） |
 | `impl/ruleset.mjs` 的 `SESSION` | 默认预算 / 提醒线 / 硬线（冷档） |
 | `impl/ruleset.mjs` 的 `EFFORT` | 调速梯子与阈值（`ladder` / `rungs` / `classDefault`；冷档） |
