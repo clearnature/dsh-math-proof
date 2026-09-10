@@ -42,3 +42,4 @@
 | [`../audit/rounds.md`](../audit/rounds.md) | 逐轮记录：现场证据、修法、**被否证的判断** |
 | [`../schema/knowledge-graph.schema.json`](../schema/knowledge-graph.schema.json) | 知识图谱的发布 schema（消费者可校验） |
 | [`../examples/objects.json`](../examples/objects.json) | 信息完整对象层的示例（GF(3) / GF(9) / DC / T⁶ / A₄） |
+| [`releases/`](releases/v0.1.0.md) | 版本说明（每个 tag 一份，冻结的快照文案） |

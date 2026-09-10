@@ -2000,3 +2000,25 @@ gh repo edit --description … --add-topic dsh --add-topic agda …（9 个 topi
 手工触发默认 dry-run），并把「**只能有一个发布工作流**」从 README 警告变成**机器检查**：
 `publish.yml` 第一步 `grep -l 'npm publish' .github/workflows/*.yml | wc -l` 必须等于 1，否则直接失败。
 `publish-check` 增加断言（33/33）。
+
+## 五十三、第四十八轮：v0.1.0 Release 文案（2026-09-10）
+
+用户：**「写 v0.1.0 的 Release 说明文案」**。
+
+新增 `docs/releases/v0.1.0.md`（冻结快照文案，不随后续改动漂移），结构：
+一句话定位 → 三个真问题与对应机器闸门 → 七个亮点 → 三种装法 → 前置 → **可复现验证数字** →
+**诚实边界** → 数据与隐私 → 许可 → 英文摘要（便于国际检索）。
+
+**数字全部现场取后写死（发布文案是快照，允许写死）**：15 个门禁入口 / **784 条断言**、
+npm 包 **74 文件 / 362.5 kB**、宿主启用 117 行 / preset 接管 22 行 / 双份 0 / 真缺口 0。
+
+**诚实边界写了四条**（这是本项目的风格，Release 也不吹）：
+① 仓库不含任何数学定理；② 本地见证是**防篡改痕迹**不是不可篡改；
+③ 工具链限制只记录不豁免；④ 分数不能通过改记录提高；另注明本包无运行时依赖、无生命周期脚本。
+
+**顺带加固**：`tests/docs-check.mjs` 现在也扫 `docs/releases/*.md`（链接完整性 + 至少一份版本说明），
+`docs/README.md` 增加「版本记录」索引行。DOCS_OK 72/72；`check-all` → **CHECK_ALL_OK 15/15**。
+
+**发布操作提醒（写在这里，避免误触发）**：`publish.yml` 的触发是 `release: types: [published]`，
+所以 `gh release create` **默认会直接触发 npm 发布**。npm 侧还没配 Trusted Publisher 时，
+正确顺序是：先 `--draft` 建 Release → 在 npmjs 配好 trusted publisher → 再发布该 Release。

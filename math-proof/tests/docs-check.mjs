@@ -64,7 +64,10 @@ for (const f of maps) {
 }
 
 // ── 4) 文档里的相对文件链接都存在 ─────────────────────────────────────────
-const docFiles = [join(DOCS, 'README.md'), ...maps.map((f) => join(MAPS, f))]
+const releasesDir = join(DOCS, 'releases')
+const releases = existsSync(releasesDir) ? readdirSync(releasesDir).filter((f) => f.endsWith('.md')).sort().map((f) => join(releasesDir, f)) : []
+ok('docs/releases 至少一份版本说明', releases.length >= 1, releases.map((f) => f.split('/').pop()).join(','))
+const docFiles = [join(DOCS, 'README.md'), ...maps.map((f) => join(MAPS, f)), ...releases]
 let links = 0
 for (const file of docFiles) {
   const text = readFileSync(file, 'utf8')
