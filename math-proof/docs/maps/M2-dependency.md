@@ -71,7 +71,7 @@ graph LR
 ```
 
 - 有出边的模块（**核心层**）：`plugins/agda-engine.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
-- 无出边的模块（**叶子/独立**）：`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`tests/benchmark.mjs`、`tests/cache-check.mjs`、`tests/docs-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/inject-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plugins-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`
+- 无出边的模块（**叶子/独立**）：`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`tests/benchmark.mjs`、`tests/cache-check.mjs`、`tests/docs-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/inject-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plugins-check.mjs`、`tests/prompt-vars-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`
 
 > 依赖方向即「谁可以 import 谁」：`plugins/` 是注册层（薄），`impl/` 是可热读共享层，
 > `tests/` 与 `scripts/` 只消费、不被消费（所以它们不会出现在别人的 import 里）。
@@ -110,6 +110,7 @@ graph LR
 | `tests/market-check.mjs` | `node:child_process` `node:fs` `node:os` `node:path` | — |
 | `tests/paths-check.mjs` | `node:fs` `node:path` | — |
 | `tests/plugins-check.mjs` | `node:child_process` `node:fs` `node:path` | — |
+| `tests/prompt-vars-check.mjs` | `node:fs` `node:path` | — |
 | `tests/publish-check.mjs` | `node:child_process` `node:fs` `node:os` `node:path` | — |
 | `tests/refs-check.mjs` | `node:fs` `node:path` | — |
 | `tests/routing-check.mjs` | `node:fs` `node:path` | — |

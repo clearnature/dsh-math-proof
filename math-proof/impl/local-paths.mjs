@@ -122,7 +122,10 @@ export function renderPathSection(env = process.env, heading = '### 本机路径
     lines.push(`- **${key}** = \`${v.value}\`${src} —— ${v.what}`)
   }
   lines.push('')
-  lines.push('> 这些值只写在 `impl/local-paths.json`；别处一律引用键名（纪律段里写作 `{{key}}`）。改机器/改目录只动那一个文件，或用环境变量覆盖。')
+  // ⚠ 这一行**不能出现花括号**：`systemPrompt.section` 的 text 由 dsh-system-prompt 做**严格插值**，
+  // 任何「双花括号 + 名字」的片段都会被当成变量引用；未注册的名字会让**整轮运行失败**
+  // （真实事故：unknown prompt variable "{{key}}" in section "math-proof:discipline"）。
+  lines.push('> 这些值只写在 `impl/local-paths.json`；别处一律引用键名（纪律段里用双花括号包住键名书写）。改机器/改目录只动那一个文件，或用环境变量覆盖。')
   return lines.join('\n')
 }
 

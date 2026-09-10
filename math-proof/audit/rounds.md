@@ -2498,3 +2498,38 @@ inject=['tools','systemPrompt'] → ✅ 挂载成功（注册 proof_audit + 纪�
 ### 63.5 复验
 
 `check-all` → **CHECK_ALL_OK 18/18**（新增 `inject-check` 20/20；`paths-check` 13/13；`publish-check` 36/36）。
+
+## 六十四、第五十九轮：**本轮运行失败的第二个真根因**——提示段里的字面 `{{key}}`（2026-09-10）
+
+用户报错原文：**`unknown prompt variable "{{key}}" in section "math-proof:discipline"; registered variables: provider, model, cwd`**
+→ **本轮运行失败**（不是某一行挂不上，是整个 prompt 装配失败）。
+
+### 64.1 根因
+
+`dsh-system-prompt` 对每个 section 的 text 做**严格插值**：文本里任何 `{{名字}}` 都被当成变量引用，
+而部署注册的变量只有 **`provider` / `model` / `cwd`**；未注册 → **抛错 → 整轮运行失败**。
+
+我在「本机路径」小节末尾为了说明 token 写法，写了示例文字 **``（纪律段里写作 `{{key}}`）``** ——
+**文档示例被当成了真变量**。这是上一轮路径集中化时我自己埋的雷。
+
+### 64.2 修复
+
+把该行改成**不含花括号**的表述（「纪律段里用双花括号包住键名书写」），并在代码里留下警示注释。
+修复后实测：注入文本里 `{{...}}` 残留 **[]**、含裸 `{{` **false**。
+
+### 64.3 新增门禁 `tests/prompt-vars-check.mjs`（第 19 个入口，PROMPT_VARS_OK 10/10）
+
+| 检查 | 说明 |
+| --- | --- |
+| 抽三段提示文本 | ① persona（从 composition 的 `text: \|-` 块）② composition 里所有 `section:` 块（如 plan-mode）③ **本 preset 装配注入的纪律段**（`disciplineWithPaths()`） |
+| 未注册变量 | 任何 `{{名字}}` 必须在注册集合内（默认 `provider,model,cwd`，可用 `DSH_PROMPT_VARIABLES` 覆盖） |
+| **裸 `{{`** | 一律判失败——即使没配对，拼接后也可能变成 malformed reference 炸整轮 |
+| 具体回归 | 纪律段注入文本**不得再有任何花括号**（token 必须已被替换）+ 「本机路径」小节在场 |
+| 静态提醒 | 插件源码里不得出现「`section(` + `{{`」的危险写法 |
+
+**证明它能拦住**：把 `{{key}}` 故意放回去 → 门禁立刻红，报出的正是
+`未注册 {{key}}（注册集合：provider, model, cwd）`；恢复后 10/10。
+
+### 64.4 复验
+
+`check-all` → **CHECK_ALL_OK 19/19**；挂载校验 ✅。
