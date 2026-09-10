@@ -1947,3 +1947,22 @@ gh repo edit --description … --add-topic dsh --add-topic agda …（9 个 topi
 ### 52.4 复验
 
 `check-all` → **CHECK_ALL_OK 15/15**（publish-check 31/31）。
+
+### 52.5 补记：选择器里只剩两个（npm vs GitHub Packages）时的判据
+
+用户追问「怎么还有 2 个」。两者只是**目标 registry 不同**，机制一样；对一个公开 MIT 的 preset，
+判据是「**别人能不能不加认证就装上**」：
+
+| 维度 | npm | GitHub Packages |
+| --- | --- | --- |
+| 公开包安装是否要认证 | 不需要 | **要**（`.npmrc` + token） |
+| `dsh plugin add` 直接可用 | ✅ | ❌（需额外 scoped registry + token） |
+| npmmirror 是否同步 | ✅ | ❌（本机就在 npmmirror 上） |
+| provenance | 原生 `--provenance` | 需自建 |
+
+→ 继续选 **npm**；GitHub Packages 只在「私有 / 组织内部 / 必须留在 GitHub 边界内」时才选。
+
+**顺带记一个真陷阱**：仓库里已经有 `publish.yml`（本 preset 生成），
+**不要在 Actions 选择器里再生成一个发布工作流**——那会变成第二个发布者，
+同样 `release: published` 触发，两边发同一个版本号 → 后到的 `EPUBLISHCONFLICT`。
+已写进 README §一.14 的显式警告。

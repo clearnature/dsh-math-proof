@@ -223,6 +223,25 @@ GitHub 的 Actions 选择器里与 npm 相关的有四个，结论很明确：**
 2. **认证**：用 **npm Trusted Publishing（OIDC）**——`permissions: id-token: write`，在 npmjs 包设置里登记本仓库 + 工作流名，**不需要长期 `NPM_TOKEN`**（回退方案才是 `NODE_AUTH_TOKEN`）；
 3. **`--provenance --access public`**，并且**先跑门禁再发**（工作流里 `check-all` 全绿才继续）。
 
+**⚠ 不要在 GitHub 的 Actions 选择器里再生成一个发布工作流**：仓库里已经有 `publish.yml`（由本 preset 生成，
+含「先跑 15 门禁 + OIDC trusted publishing + 默认 dry-run」）。选择器生成的模板会变成**第二个发布者**
+（同样是 `release: published` 触发）→ 两边同时往同一个版本号发，后到的必然 `EPUBLISHCONFLICT` 失败。
+选择器只在**没有** `publish.yml` 时才需要；要换成模板的，先删掉本仓库那份。
+
+**GitHub Packages 与 npm 的区别（为什么只选 npm）**：
+
+| 维度 | npm（registry.npmjs.org） | GitHub Packages（npm.pkg.github.com） |
+| --- | --- | --- |
+| 安装是否需要认证 | 公开包**不需要** | **公开包也要**（必须配 `.npmrc` + PAT/GITHUB_TOKEN） |
+| `dsh plugin add` 能否直接用 | ✅（走用户 `~/.npmrc`，如 npmmirror 镜像） | ❌ 还要额外加 scoped registry + token，体验倒退 |
+| 国内镜像（npmmirror） | ✅ 会同步 | ❌ 不同步（本机 `~/.npmrc` 就在 npmmirror 上） |
+| 来源证明 provenance | ✅ 原生 `--provenance`（Trusted Publishing/OIDC） | ⚠️ 需自建 attestation，不是 npm 那套 UX |
+| 配额 | 公开包免费且不限量 | 占用账号存储/流量配额 |
+| 适用场景 | **公开、给所有人装** ← 我们 | 私有 / 组织内部 / 必须留在 GitHub 边界内 |
+
+> 想两处都发也可以（在 `publish.yml` 里加一个 mirror job 指向 `https://npm.pkg.github.com`，
+> `permissions: packages: write`），但对一个公开 MIT 的 preset 只是徒增认证面，**现在不必**。
+
 **包名用 scoped**：`@clearnature/dsh-math-proof`（实测该名与无 scope 的 `dsh-math-proof` 都还空着）。
 scoped 的好处：不与官方 `@deepseek-ai/dsh-*` 混淆，也不担心被人抢注。
 
