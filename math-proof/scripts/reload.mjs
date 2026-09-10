@@ -101,7 +101,8 @@ console.log('> 所以：改 `plugins/**`、`hooks/**`、`hooks.json` 的**代码
 console.log('> 只有「每次用时读文件」的内容（`impl/discipline.md`、`impl/ruleset.mjs`、`impl/local-paths.json` 的值）才是真热。')
 console.log('')
 
-add('🔥 热', '`impl/discipline.md`（纪律文本）', '直接编辑即可；每次装配 prompt 重读（按 mtime 失效缓存）。**无需新会话、不丢进度**')
+add('🔥 热', '`impl/discipline.md`（纪律文本）', '直接编辑即可；每次装配 prompt 重读（按 mtime 失效缓存）。**无需重启、不丢进度**')
+add('🔥 热', '`impl/path-section.md`（「本机路径」小节的**文字模板**）', '每次装配同步读盘 + mtime 缓存 → **改这段文字不用重启进程**（真实事故：这段文字曾写在代码里，一个 `{{key}}` 示例让整轮运行失败，且因 ESM 缓存必须重启才能修；搬到模板文件后同类问题改文件即生效）。占位符 `{paths}` 展开成键值清单；模板里也可用 `{{键名}}` 引用真值')
 add('🔥 热', '任何「每次使用时读文件」的实现', '把易变内容放 `impl/` 下，运行时读取（见本 preset 的 `disciplineText()`）')
 add('🔥 热', '**判定规则**：`impl/ruleset.mjs`（断链豁免 / 评分权重 / postulate 口径 / 编译爆炸分诊 / 草稿文件模式）', '工具每次调用带 `?v=<mtime>` 动态 import → **改规则立即生效，不重挂载、缓存不失效**；输出里带 `规则集 rN/hash` 戳，改规则请同时 bump `RULESET_VERSION`（否则两次不同规则的分数会被当成同一条曲线）')
 add('🟡 可热', '工具**执行逻辑**（结构已抽出规则的部分）', '规则已抽到 `impl/ruleset.mjs`；**剩余结构改动**（新 action、字段语义、输出格式）仍属冷档，但 `proof_dag action:"doctor"` 会明确报「插件本体落后于磁盘」，不再靠人肉 diff')

@@ -8,7 +8,7 @@
 // 覆盖顺序：**环境变量 > JSON 里的 value**（换机器不用改仓库，`SOVEREIGN_REPO=... ` 即可）。
 // 门禁 `tests/paths-check.mjs` 强制「操作性文件里不得出现机器绝对路径」，本文件是唯一例外。
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -105,28 +105,59 @@ export function renderTokens(text, env = process.env) {
 }
 
 /**
- * 渲染成给模型看的「本机路径」小节（进常驻前缀，所以极简：键 → 值 + 来源标注）。
- * 变化频率低、内容短，且**只在路径真的变了**才改字节 → 对缓存前缀友好。
+ * 「本机路径」小节的**文本模板**：真身在 `impl/path-section.md`，**每次装配重读**（按 mtime 缓存）。
+ *
+ * 为什么放文件而不是写在代码里：Cordis 的 section text 走**同步**调用，没法用 `?v=` 动态 import；
+ * 所以「文字」必须落在**每次读盘**的文件里，才能做到「改了文字不用重启进程」。
+ * 真实事故（2026-09-10）：这段文字里的示例 `{{key}}` 被当成未注册变量，导致整轮运行失败——
+ * 修好磁盘后**因为 ESM 缓存仍要重启进程**；把文字搬到这里之后，同类问题改文件即可生效。
  */
-export function renderPathSection(env = process.env, heading = '### 本机路径（唯一配置处：`impl/local-paths.json`）') {
+export const PATH_SECTION_FILE = process.env.MATH_PROOF_PATH_SECTION ?? join(HERE, 'path-section.md')
+
+const sectionCache = { mtimeMs: 0, text: '' }
+
+/** 读模板（按 mtime 缓存；读不到就用内置兜底模板）。 */
+function sectionTemplate() {
+  try {
+    const { mtimeMs } = statSync(PATH_SECTION_FILE)
+    if (mtimeMs !== sectionCache.mtimeMs) {
+      sectionCache.text = readFileSync(PATH_SECTION_FILE, 'utf8').trimEnd()
+      sectionCache.mtimeMs = mtimeMs
+    }
+    return sectionCache.text
+  } catch {
+    return [
+      '### 本机路径（唯一配置处：`impl/local-paths.json`）',
+      '',
+      '{paths}',
+      '',
+      '> 改机器/改目录只动那一个文件，或用环境变量覆盖。',
+    ].join('\n')
+  }
+}
+
+/**
+ * 渲染成给模型看的「本机路径」小节。
+ * 内容来自三处，**都在每次装配时重读**：模板（本文件同级 `path-section.md`）、值（`local-paths.json`）、
+ * env 覆盖。所以文字、值、覆盖任何一处改动**都不需要重启进程**。
+ */
+export function renderPathSection(env = process.env, heading = null) {
   const table = resolvePaths(env)
   const { error } = readPathConfig()
-  const lines = [heading, '']
+  const rows = []
   if (error !== null) {
-    lines.push(`> ⚠ **配置文件读取失败，正在使用内置兜底值**：${error}`)
-    lines.push(`> 修好 \`impl/local-paths.json\`（或用 \`SOVEREIGN_*\` 环境变量覆盖）即可恢复；本 preset 不会因为配置文件坏掉而挂不上。`)
-    lines.push('')
+    rows.push(`> ⚠ **配置文件读取失败，正在使用内置兜底值**：${error}`)
+    rows.push('> 修好 `impl/local-paths.json`（或用 `SOVEREIGN_*` 环境变量覆盖）即可恢复；本 preset 不会因为配置文件坏掉而挂不上。')
+    rows.push('')
   }
   for (const [key, v] of Object.entries(table)) {
     const src = v.source === 'env' ? `（env \`${v.env}\` 覆盖）` : ''
-    lines.push(`- **${key}** = \`${v.value}\`${src} —— ${v.what}`)
+    rows.push(`- **${key}** = \`${v.value}\`${src} —— ${v.what}`)
   }
-  lines.push('')
-  // ⚠ 这一行**不能出现花括号**：`systemPrompt.section` 的 text 由 dsh-system-prompt 做**严格插值**，
-  // 任何「双花括号 + 名字」的片段都会被当成变量引用；未注册的名字会让**整轮运行失败**
-  // （真实事故：unknown prompt variable "{{key}}" in section "math-proof:discipline"）。
-  lines.push('> 这些值只写在 `impl/local-paths.json`；别处一律引用键名（纪律段里用双花括号包住键名书写）。改机器/改目录只动那一个文件，或用环境变量覆盖。')
-  return lines.join('\n')
+  let out = sectionTemplate().replace(/\{paths\}/g, rows.join('\n'))
+  if (heading !== null) out = out.replace(/^### .*$/m, heading)
+  // 模板里也可以用 {{key}} 引用真值；未知键会被标成 «未知路径键 x»（绝不残留花括号，否则整轮装配会失败）
+  return renderTokens(out, env).text
 }
 
 /** 内置兜底表（供门禁核对「兜底与 JSON 必须一致」，防止两处漂移）。 */
