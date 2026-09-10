@@ -353,6 +353,20 @@ node tests/paths-check.mjs   # PATHS_OK
 
 回归：`node tests/budget-check.mjs` → `BUDGET_OK`。
 
+**npm 格式包（**不发布**，但可以打）**：`private: true` 只挡 `npm publish`，**不挡 `npm pack`**（已实测）——
+所以云端/本地都能产出**标准 npm 包**，附到 Release 即可，永远不碰 registry：
+
+```bash
+node math-proof/scripts/publish.mjs --out .release --force --npm-pack   # 产出 <name>-<version>.tgz + .sha256
+npm i -g ./.release/clearnature-dsh-math-proof-0.1.0.tgz && dsh-math-proof install   # 一条命令装进 agent-presets/
+dsh-math-proof verify                                                   # 在安装目标上跑本包自带门禁
+```
+
+- 包内权限由 npm 统一成 **0644**（bin 是 0755）→ 这条路径上不存在「别人读不了」；
+- 包内**不含** `state/`、`__pycache__`、`.pyc`、`.github/`；含 `agent.cordis.yml` / `plugins/` / `hooks/` / `skills/` / `bin/`；
+- 安装器默认**拒绝覆盖**已有同名 preset（要覆盖加 `--force`），避免悄悄盖掉你改过的副本；
+- CI：`release.yml` 在打 Release 时用 `npm pack` 出包并附上 `.sha256`（仍带「不得出现 npm publish」的检查）。
+
 **文件权限提醒**：dsh 的**文件工具给新建文件落 0600**（原子写暂存文件的权限，只有覆盖既有文件时才还原）——
 所以 agent 写过的新文件在本机常常「只有属主可读」。对 git / CI **没有影响**（git 只记可执行位，提交后是 100644），
 但**共享安装或直接拷贝工作树**会读不了。分发包已由 `publish.mjs` 归一化成 0644（`publish-check` 有断言钉死），

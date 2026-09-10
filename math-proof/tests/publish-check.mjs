@@ -156,6 +156,56 @@ try {
   ok('发布树里没有机器生成物（__pycache__ / .pyc / .agdai）', !all.some((f) => /__pycache__|\.pyc$|\.agdai$/.test(f)), all.filter((f) => /__pycache__|\.pyc$/.test(f)).join(','))
   ok('.gitignore 挡住机器生成物', readFileSync(join(out, '.gitignore'), 'utf8').includes('__pycache__'))
   ok('发布树里有 check-all（用户可自检）', all.some((f) => f.endsWith('scripts/check-all.mjs')))
+  // ── npm 格式包（不发布，但必须**标准、完整、可安装**）────────────────────
+  // 用户问「云端能不能打 npm 格式」：能——`private: true` 只挡 `npm publish`，不挡 `npm pack`（已实测）。
+  {
+    const pkg = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
+    ok('package.json 仍是 private（挡住误发布）', pkg.private === true, String(pkg.private))
+    ok('package.json 具备打 npm 包所需的元数据', Boolean(pkg.name && pkg.version && pkg.license && pkg.description), `${pkg.name}@${pkg.version}`)
+    ok('声明了 bin 安装器', Boolean(pkg.bin && pkg.bin['dsh-math-proof']), JSON.stringify(pkg.bin))
+    ok('生成物里有安装器且可执行', existsSync(join(out, 'bin', 'dsh-math-proof.mjs')) && (statSync(join(out, 'bin', 'dsh-math-proof.mjs')).mode & 0o111) !== 0, 'bin/dsh-math-proof.mjs')
+    const npmOk = spawnSync('npm', ['--version'], { encoding: 'utf8' }).status === 0
+    if (!npmOk) {
+      skip('npm 格式包相关断言', '本机没有 npm')
+    } else {
+      const packed = spawnSync('npm', ['pack', '--json'], { cwd: out, encoding: 'utf8' })
+      ok('npm pack 退出 0', packed.status === 0, (packed.stderr ?? '').slice(0, 120))
+      const info = (() => {
+        try {
+          return JSON.parse(packed.stdout ?? '[]')[0]
+        } catch {
+          return null
+        }
+      })()
+      ok('npm pack 产出标准包信息（filename / shasum / integrity）', info !== null && Boolean(info.filename && info.shasum && info.integrity), JSON.stringify(info ?? {}).slice(0, 120))
+      const paths = (info?.files ?? []).map((f) => f.path)
+      ok('包内含预设入口 agent.cordis.yml', paths.some((x) => x.endsWith('agent.cordis.yml')), String(paths.length))
+      ok('包内含插件 / 钩子 / 技能 / 安装器', paths.some((x) => x.includes('/plugins/')) && paths.some((x) => x.includes('/hooks/hooks.json')) && paths.some((x) => x.includes('/skills/')) && paths.some((x) => x.startsWith('bin/')), paths.slice(0, 3).join(','))
+      ok('包内**不含** state / __pycache__ / .pyc / .github', !paths.some((x) => x.includes('state/') || x.includes('__pycache__') || x.endsWith('.pyc') || x.startsWith('.github/')), paths.filter((x) => x.includes('state') || x.includes('pycache') || x.endsWith('.pyc')).slice(0, 3).join(','))
+      // 权限：普通文件 0644、可执行的 bin 0755 —— 关键是**组/其他人可读**（0o044 必须置位），
+      // 绝不能出现 0600（那正是「别人读不了」的来源）
+      const modes = (info?.files ?? []).map((f) => (f.mode ?? 0) & 0o777)
+      const unreadable = (info?.files ?? []).filter((f) => ((f.mode ?? 0) & 0o044) !== 0o044)
+      ok('包内每个文件都对组/其他人可读（无 0600）', unreadable.length === 0, unreadable.slice(0, 3).map((f) => `${f.path}(${(f.mode & 0o777).toString(8)})`).join(','))
+      ok('包内权限只有 0644 与可执行 0755 两种（bin 必须可执行）', [...new Set(modes)].every((m) => m === 0o644 || m === 0o755), [...new Set(modes)].map((m) => m.toString(8)).join(','))
+      const prefix = join(tmp, 'npm-prefix')
+      const inst = spawnSync('npm', ['i', '-g', '--prefix', prefix, join(out, info.filename)], { encoding: 'utf8' })
+      ok('npm i -g <tgz> 成功', inst.status === 0, (inst.stderr ?? '').slice(0, 120))
+      const installedPreset = join(prefix, 'lib', 'node_modules', pkg.name, 'math-proof')
+      const lint = spawnSync(process.execPath, [join(installedPreset, 'scripts', 'lint-schemas.mjs')], { encoding: 'utf8' })
+      ok('装出来的副本能跑自身门禁（lint 通过）', lint.status === 0 && (lint.stdout ?? '').includes('SCHEMA_LINT_OK'), (lint.stdout ?? '').slice(-80))
+      const bin = join(prefix, 'bin', 'dsh-math-proof')
+      const fakeHome = join(tmp, 'fake-dsh-home')
+      const run = spawnSync(bin, ['install'], { encoding: 'utf8', env: { ...process.env, DSH_HOME: fakeHome } })
+      ok('安装器一条命令把 preset 装进 agent-presets 目录', run.status === 0 && existsSync(join(fakeHome, '.agent-presets', 'math-proof', 'agent.cordis.yml')), (run.stdout ?? '').split('\n')[0])
+      const again2 = spawnSync(bin, ['install'], { encoding: 'utf8', env: { ...process.env, DSH_HOME: fakeHome } })
+      ok('重复安装默认**拒绝覆盖**（保护用户改过的副本）', again2.status === 3, `exit ${again2.status}`)
+      const forced2 = spawnSync(bin, ['install', '--force'], { encoding: 'utf8', env: { ...process.env, DSH_HOME: fakeHome } })
+      ok('--force 才覆盖', forced2.status === 0, `exit ${forced2.status}`)
+      const printed = spawnSync(bin, ['print-root'], { encoding: 'utf8', env: { ...process.env, DSH_HOME: fakeHome } })
+      ok('print-root 输出可直接写进 settings.yaml 的路径', (printed.stdout ?? '').trim().endsWith('/.agent-presets/math-proof'), (printed.stdout ?? '').trim())
+    }
+  }
 
   // ── 4) 非空目录必须拒绝覆盖 ─────────────────────────────────────────────
   const again = run(['--out', out])

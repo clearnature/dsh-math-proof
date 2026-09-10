@@ -120,7 +120,7 @@ graph LR
 | `scripts/lint-schemas.mjs` | `node:fs` `node:url` `node:path` | — |
 | `scripts/market.mjs` | `node:fs` `node:path` `node:os` `node:url` | — |
 | `scripts/plugins.mjs` | `node:fs` `node:path` `node:url` | — |
-| `scripts/publish.mjs` | `node:fs` `node:path` `node:url` | — |
+| `scripts/publish.mjs` | `node:child_process` `node:fs` `node:path` `node:url` `node:os` | — |
 | `scripts/quota.mjs` | `node:fs` | — |
 | `scripts/reload.mjs` | `node:fs` `node:child_process` `node:path` | — |
 | `scripts/state-gc.mjs` | `node:child_process` `node:fs` `node:os` `node:path` `node:crypto` | — |

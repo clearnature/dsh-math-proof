@@ -23,6 +23,7 @@
 // 发布树里还会生成：`.gitignore`（挡住 state/）、`LICENSE`（MIT，与 Agda 库和 dsh 本体一致）、
 // 根 `README.md`（给人看的：这是什么 / 怎么装 / 依赖什么 / 怎么自检）。
 
+import { spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 
 import { scanSecretText } from '../impl/secret-scan.mjs'
@@ -45,6 +46,8 @@ const HOLDER = opt('--holder') ?? 'clearnature'
 const DRY = has('--dry-run')
 const FORCE = has('--force')
 const AS_JSON = has('--json')
+/** `--npm-pack`：生成布局后**打标准 npm 包**（`npm pack`，不需要 registry、不需要发布）。 */
+const NPM_PACK = has('--npm-pack')
 
 if (OUT === undefined && !AS_JSON) {
   console.error('用法：node scripts/publish.mjs --out <目标仓库目录> [--id math-proof] [--holder <版权人>] [--dry-run] [--force] [--json]')
@@ -274,7 +277,9 @@ const PACKAGE_JSON = {
   homepage: `https://github.com/${HOLDER}/dsh-math-proof#readme`,
   bugs: { url: `https://github.com/${HOLDER}/dsh-math-proof/issues` },
   // 只发 preset 目录 + 两个根文件：state/、__pycache__ 等由 .gitignore/.npmignore 语义排除
-  files: [`${PRESET_ID}/`, 'README.md', 'LICENSE'],
+  files: [`${PRESET_ID}/`, 'bin/', 'README.md', 'LICENSE'],
+  // 一条命令装进 agent presets 目录（`npm i -g ./<tgz>` 之后即可 `dsh-math-proof install`）
+  bin: { 'dsh-math-proof': 'bin/dsh-math-proof.mjs' },
   engines: { node: '>=20' },
   // 显式说明：本包**不依赖**任何 npm 运行时依赖（插件只 import node: 内建模块）；
   // 真正的外部依赖是宿主的 dsh 版本线与 Agda / Python，见 README。
@@ -287,8 +292,10 @@ const PACKAGE_JSON = {
 
 const RELEASE_WORKFLOW = `# 发布 GitHub Release 时：先跑门禁，再打**离线包**附到 Release（**不发布到 npm**）
 #
-# 为什么不发 npm：本项目的 npm 账号受限，无法建立/维护发布凭据。用户侧三种装法见 README：
-#   ① clone + roots（推荐）② 解离线包再拷贝 ③ 从 Release 里下载 tgz 直接解到用户目录。
+# 为什么**不发布** npm：本项目的 npm 账号受限，无法建立/维护发布凭据。
+# 但**打包**成 npm 格式完全没问题：npm pack 不需要 registry（private: true 只挡 publish，不挡 pack）。
+# 产物是标准 npm 包，用户三种装法：① npm i -g ./<tgz> && dsh-math-proof install
+# ② tar xzf <tgz> && cp -r package/<preset> ~/.dsh/.agent-presets/  ③ clone + roots。
 #
 # 本工作流**故意不带任何 npm 发布步骤**；下面的「不得出现 npm publish」检查会在
 # 有人（或 GitHub 选择器模板）加进发布步骤时直接失败——避免发不出去的包留下误导性红叉。
@@ -317,19 +324,123 @@ jobs:
           n=$(grep -rl 'npm publish' .github/workflows/*.yml | wc -l)
           echo "含 npm publish 的工作流数量: $n"
           test "$n" -eq 0 || { echo '::error::检测到 npm publish；本项目不发布 npm（账号受限）。真要启用：先配好 Trusted Publisher，再删掉本检查。'; exit 1; }
-      - name: 打离线包 + 校验和
+      - name: 打 npm 格式包 + 校验和（**不发布**）
         run: |
-          tag="\${{ github.event.release.tag_name || github.ref_name }}"
-          tar czf "dsh-math-proof-\$tag.tgz" ${PRESET_ID} README.md LICENSE
-          sha256sum "dsh-math-proof-\$tag.tgz" > "dsh-math-proof-\$tag.tgz.sha256"
-          ls -lh dsh-math-proof-\$tag.tgz
+          # npm pack 不需要 registry（private:true 只挡 publish，不挡 pack）；产物是标准 npm 包
+          node ${PRESET_ID}/scripts/publish.mjs --out .release --force --npm-pack
+          tgz=$(ls .release/*.tgz | head -1)
+          cp "$tgz" .
+          base=$(basename "$tgz")
+          sha256sum "$base" > "$base.sha256"
+          echo "产物：$base"
+          ls -lh "$base"
+          tar tzf "$base" | head -5
       - name: 附到 Release
         env:
           GH_TOKEN: \${{ github.token }}
         run: |
           tag="\${{ github.event.release.tag_name || github.ref_name }}"
-          gh release upload "\$tag" dsh-math-proof-\$tag.tgz dsh-math-proof-\$tag.tgz.sha256 --clobber
+          tgz=$(ls *.tgz | head -1)
+          gh release upload "\$tag" "$tgz" "$tgz.sha256" --clobber
 
+`
+/**
+ * 安装器（随包分发）：把 preset 装进 `${DSH_HOME:-~/.dsh}/.agent-presets/<id>`。
+ *
+ * 为什么值得有：`npm i -g ./x.tgz` 之后用户还得知道「把 package 里的 math-proof/ 拷到哪」——
+ * 这一步最容易出错（拷错目录 = dsh 根本看不到 preset）。安装器把这件事变成一条命令，
+ * 并默认**拒绝覆盖已存在的 preset**（要 `--force`），避免悄悄覆盖用户改过的副本。
+ */
+const BIN_INSTALLER = `#!/usr/bin/env node
+// dsh-math-proof：把随包分发的 preset 安装到 dsh 的 agent presets 目录。
+//
+//   dsh-math-proof install [--dir <presetsRoot>] [--id <presetId>] [--force]
+//   dsh-math-proof print-root           # 打印 preset 路径（供 settings.yaml 的 roots: 用）
+//   dsh-math-proof verify               # 在安装目标上跑本包自带的全部门禁
+//
+// 目标目录解析顺序：--dir > DSH_PRESETS_DIR > \${DSH_HOME:-~/.dsh}/.agent-presets
+// 默认 **不覆盖**已有同名 preset（要覆盖请显式 --force）。
+
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const PKG_ROOT = resolve(HERE, '..')
+const SOURCE = join(PKG_ROOT, '${PRESET_ID}')
+
+const argv = process.argv.slice(2)
+const cmd = argv.find((a) => !a.startsWith('-')) ?? 'install'
+const optOf = (n, d) => {
+  const i = argv.indexOf(\`--\${n}\`)
+  return i === -1 ? d : argv[i + 1]
+}
+const has = (n) => argv.includes(\`--\${n}\`)
+
+const presetId = optOf('id', '${PRESET_ID}')
+const presetsRoot = resolve(optOf('dir', process.env.DSH_PRESETS_DIR ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), '.agent-presets')))
+const target = join(presetsRoot, presetId)
+
+if (has('help') || cmd === 'help') {
+  console.log('用法：dsh-math-proof install [--dir <presetsRoot>] [--id <presetId>] [--force]')
+  console.log('      dsh-math-proof print-root | verify')
+  process.exit(0)
+}
+
+if (!existsSync(SOURCE)) {
+  console.error(\`包损坏：找不到 \${SOURCE}\`)
+  process.exit(2)
+}
+
+if (cmd === 'print-root') {
+  console.log(target)
+  process.exit(0)
+}
+
+if (cmd === 'verify') {
+  const r = spawnSync(process.execPath, [join(SOURCE, 'scripts', 'check-all.mjs')], { stdio: 'inherit' })
+  process.exit(r.status ?? 1)
+}
+
+if (cmd !== 'install') {
+  console.error(\`未知命令 "\${cmd}"（可用：install / print-root / verify）\`)
+  process.exit(2)
+}
+
+if (existsSync(target) && !has('force')) {
+  const entries = readdirSync(target).length
+  console.error(\`目标已存在：\${target}（\${entries} 项）\`)
+  console.error('为避免覆盖你改过的副本，默认不动手。要覆盖请加 --force（会先整目录删除）。')
+  process.exit(3)
+}
+
+mkdirSync(presetsRoot, { recursive: true })
+if (existsSync(target)) rmSync(target, { recursive: true, force: true })
+cpSync(SOURCE, target, { recursive: true })
+// 权限归一化：dsh 的文件工具给新文件落 0600，而 cpSync 会保留——分发出去别人读不了
+const chmodTree = (dir) => {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name)
+    if (e.isDirectory()) chmodTree(p)
+  }
+}
+chmodTree(target)
+try {
+  spawnSync('find', [target, '-type', 'f', '-exec', 'chmod', '664', '{}', '+'], { stdio: 'ignore' })
+} catch {
+  /* 非 POSIX 就跳过（权限归一化只是尽力而为） */
+}
+
+const comp = join(target, 'agent.cordis.yml')
+console.log(\`✅ 已安装 preset "\${presetId}"\`)
+console.log(\`   位置：\${target}\`)
+console.log(\`   组合：\${statSync(comp).size} 字节 \${existsSync(comp) ? '（agent.cordis.yml 就位）' : '（⚠ 缺 agent.cordis.yml）'}\`)
+console.log('')
+console.log('下一步：在 dsh 里选中该 preset，或把它写进 settings.yaml 的 roots：')
+console.log(\`  - path: \${target}\`)
+console.log('自检：dsh-math-proof verify')
 `
 const target = OUT === undefined ? null : join(OUT, PRESET_ID)
 let written = 0
@@ -360,9 +471,46 @@ if (!DRY && target !== null) {
   writeFileSync(join(OUT, 'package.json'), `${JSON.stringify(PACKAGE_JSON, null, 2)}\n`)
   // npm 打包白名单（双保险：即便有人改了 package.json，npmignore 仍挡住机器状态）
   writeFileSync(join(OUT, '.npmignore'), 'state/\n__pycache__/\n*.pyc\n*.agdai\n.github/\n')
+  mkdirSync(join(OUT, 'bin'), { recursive: true })
+  writeFileSync(join(OUT, 'bin', 'dsh-math-proof.mjs'), BIN_INSTALLER)
+  try {
+    spawnSync('chmod', ['755', join(OUT, 'bin', 'dsh-math-proof.mjs')])
+  } catch {
+    /* 非 POSIX 忽略 */
+  }
 }
 
 const bytes = files.reduce((sum, rel) => sum + statSync(join(PRESET_DIR, rel)).size, 0)
+
+// ── npm 格式包（`npm pack`；**不发布**，也不碰 registry）─────────────────────
+// 为什么值得做：`npm pack` 产出**标准 npm 包**（`package/…` 布局 + 完整性哈希），
+// 可以 `npm i -g ./x.tgz` 直接装、也可以 `tar xzf` 解开 —— 比裸 `tar czf` 多一层标准与校验。
+// `private: true` 只挡 `npm publish`，**不挡 `npm pack`**（已实测）。
+let packResult = null
+if (NPM_PACK && !DRY && OUT !== undefined) {
+  const which = spawnSync('npm', ['--version'], { encoding: 'utf8' })
+  if (which.status !== 0) {
+    console.error('⚠ 本机没有 npm，跳过 --npm-pack（离线包仍可用 tar 方式）')
+  } else {
+    const packed = spawnSync('npm', ['pack', '--json'], { cwd: OUT, encoding: 'utf8' })
+    if (packed.status !== 0) {
+      console.error(`⚠ npm pack 失败：${(packed.stderr ?? '').trim().slice(0, 200)}`)
+    } else {
+      try {
+        const info = JSON.parse(packed.stdout)[0]
+        const tgz = info.filename
+        const tgzPath = join(OUT, tgz)
+        const sha = spawnSync('sha256sum', [tgzPath], { encoding: 'utf8' })
+        const line = (sha.stdout ?? '').split(' ')[0]
+        writeFileSync(`${tgzPath}.sha256`, `${line}  ${tgz}\n`)
+        // npm 会把包内文件的权限统一成 0644（实测 107/107），所以「别人读不了」在这条路径上不存在
+        packResult = { file: tgz, path: tgzPath, bytes: info.size, unpacked: info.unpackedSize, entries: info.entryCount ?? info.files?.length ?? 0, shasum: info.shasum, integrity: info.integrity, sha256: line }
+      } catch (e) {
+        console.error(`⚠ 解析 npm pack 输出失败：${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+  }
+}
 
 /**
  * 本地树里「只有属主可读」的文件（0600）。
@@ -379,6 +527,19 @@ const ownerOnly = files.filter((rel) => {
     return false
   }
 })
+
+if (packResult !== null) {
+  console.log(`\n## npm 格式包（**未发布**，只在本地产出 / 附到 Release）`)
+  console.log(`- 文件：\`${packResult.file}\`（${(packResult.bytes / 1024).toFixed(0)} KB 压缩 / ${(packResult.unpacked / 1024 / 1024).toFixed(2)} MB 解压，${packResult.entries} 个文件）`)
+  console.log(`- 校验：sha256 \`${packResult.sha256.slice(0, 16)}…\`（同时写了 \`${packResult.file}.sha256\`）｜npm shasum \`${packResult.shasum}\``)
+  console.log('- 包内权限：npm 统一成 **0644**（实测全量），所以「别人读不了」在这条路径上不存在')
+  console.log('- 装法（任选）：')
+  console.log(`  \`\`\`bash`)
+  console.log(`  npm i -g ./${packResult.file} && dsh-math-proof install   # 一条命令装进 agent presets 目录`)
+  console.log(`  tar xzf ${packResult.file} && cp -r package/${PRESET_ID} ~/.dsh/.agent-presets/   # 手动`)
+  console.log(`  \`\`\``)
+  console.log(`- 也可以先看内容：\`tar tzf ${packResult.file} | head\``)
+}
 
 if (ownerOnly.length > 0) {
   // ⚠ 走 **stderr**：`--json` 的 stdout 必须保持是纯 JSON（否则机器读不了）
@@ -404,6 +565,7 @@ if (AS_JSON) {
         absolutePathFiles: absFiles,
         absolutePathHits: absHits.length,
         secretHits: secretHits.length,
+        npmPack: packResult,
       },
       null,
       2,

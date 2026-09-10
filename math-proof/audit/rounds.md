@@ -3291,3 +3291,39 @@ compaction 管的是**上下文压力**（不是累计花费）；`tokenUsage` �
 `STATE_OK 34/34`；`CHECK_ALL_OK 23/23`（新增一套件后总入口 23）；测试全程用 `MATH_PROOF_STATE_DIR`
 临时目录，**真实状态目录的 124 个流程标记一个没动**。
 文档：M4 §M4.5d（保留策略表 + 补洞表 + 「覆盖 vs 环形 vs 追加」口径）。
+
+## 八十、npm 格式包：不发布也能打（2026-09-10）
+
+**用户问**：「云端，我们可以打包 npm 格式吗？不一定要发布啊。」
+
+### 80.1 先实测一个关键前提
+
+`private: true` **只挡 `npm publish`，不挡 `npm pack`**（实测：private 包 `npm pack --dry-run` 正常产出 tgz）。
+所以「不发布」与「能打 npm 格式」并不冲突——之前的取舍（账号受限 → 只发裸 tar）可以升级。
+
+### 80.2 实现
+
+| 改动 | 内容 |
+| --- | --- |
+| `publish.mjs --npm-pack` | 生成布局后 `npm pack`，报告 filename / size / unpacked / entries / shasum / **integrity**，并写 `.sha256`；输出里给出消费命令 |
+| **bin 安装器** | 生成 `bin/dsh-math-proof.mjs`（`install` / `print-root` / `verify`）：`npm i -g ./x.tgz && dsh-math-proof install` 一条命令装进 `${DSH_HOME:-~/.dsh}/.agent-presets/<id>`；**默认拒绝覆盖**已有 preset（`--force` 才盖），并做权限归一化 |
+| `release.yml` | 打 Release 时改用 `npm pack` 出**标准 npm 包**（不再是裸 tar），附 `.sha256`；保留「不得出现 npm publish」的反向检查 |
+| `package.json` | 增加 `files: [preset/, bin/, README, LICENSE]` 与 `bin` 映射；`private: true` 保留（挡误发） |
+
+### 80.3 端到端实测（不是「应该能」）
+
+- `npm pack` → **108 个文件 / 602 KB 压缩 / 1.57 MB 解压**；含 `agent.cordis.yml`、`plugins/`、`hooks/hooks.json`、`skills/`、`bin/`；**不含** `state/`、`__pycache__`、`.pyc`、`.github/`；
+- **包内权限：npm 统一成 0644（bin 0755）** —— 之前那类「别人读不了」在这条路径上根本不存在；
+- `npm i -g <tgz>` → 从**装出来的副本**跑自身门禁：**CHECK_ALL_OK 23/23**；
+- 安装器：`install` ✅ / 再装一次 **exit 3 拒绝覆盖** ✅ / `--force` 覆盖 ✅ / `print-root` ✅ / `verify` ✅。
+
+**`verify` 当场抓到一个真问题**：我改过 `publish.mjs` 之后 **M2 依赖图变旧**（生成物与源码不一致），
+`verify` 在安装副本上直接报 `DOCS_M2_STALE` —— 重新生成后 23/23。这正好说明「装出来的副本能自检」有价值。
+
+### 80.4 回归
+
+`publish-check` 41→**58/58**（+17：private 与元数据、bin 声明与可执行、`npm pack` 标准信息、
+包内容清单、**不含机器生成物**、**权限对组/其他人可读**、`npm i -g` 成功、装出来能跑自身门禁、
+安装器 install/拒绝覆盖/--force/print-root）；`CHECK_ALL_OK 23/23`。
+文档：README 分发一节新增「npm 格式包（不发布但可以打）」+ 四条命令；`release.yml` 注释改为解释
+「为什么不发布、但为什么可以打包」。
