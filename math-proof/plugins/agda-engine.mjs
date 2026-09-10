@@ -159,10 +159,16 @@ export const FINGERPRINTS = [
  * 规则表在 `impl/ruleset.mjs`（热读）。
  * @returns {{limit:string, prescription:string}|null}
  */
-export function triageResult(result, output = '', table = RESULT_TRIAGE) {
+export function triageResult(result, output = '', table = RESULT_TRIAGE, options = {}) {
   const text = `${output}\n${result?.timedOut === true ? 'timed out' : ''}\nexit code ${String(result?.exitCode ?? '')}`
+  const hasDiagnostics = options.hasDiagnostics === true
   for (const rule of table) {
-    if (rule.test.test(text)) return { limit: rule.limit, prescription: rule.prescription }
+    // 「只有失败且没有诊断行」才成立的规则（如「大量 Checking Data.*」= 环境问题）：
+    // 有诊断行说明是普通类型错误，别拿环境问题去解释它
+    if (rule.onlyWithoutDiagnostics === true && hasDiagnostics) continue
+    if (rule.test.test(text)) {
+      return { limit: rule.limit, prescription: rule.prescription, notThis: rule.notThis ?? null }
+    }
   }
   return null
 }
@@ -545,7 +551,7 @@ export async function compileModule(ctx, args, exec) {
       ts: new Date().toISOString(),
       sandbox: result.sandbox?.mode ?? null,
       // 结果级失败指纹（堆爆/被杀/超时）：失败回执也要能说清是哪种失败
-      resultLimit: passed ? null : (triageResult(result, output, triageTable)?.limit ?? null),
+      resultLimit: passed ? null : (triageResult(result, output, triageTable, { hasDiagnostics: errors.length > 0 })?.limit ?? null),
     })
   } catch {
     /* 回执失败不影响编译结论，但报告里会显示「无回执」 */
@@ -581,9 +587,10 @@ export async function compileModule(ctx, args, exec) {
   }
   if (result.timedOut) lines.push(`- ⚠️ 超过 ${timeoutMs} ms 被终止：疑似归一化爆炸（大 Fin 递归 / mod-helper 展开）`)
   // 结果级分诊：堆爆 / 被杀 / 超时 没有诊断行，只有处方能救
-  const triage = passed ? null : triageResult(result, output, triageTable)
+  const triage = passed ? null : triageResult(result, output, triageTable, { hasDiagnostics: errors.length > 0 })
   if (triage !== null) {
     lines.push(`- 🧭 **结果级分诊 \`${triage.limit}\`**：${triage.prescription}`)
+    if (triage.notThis !== null) lines.push(`  - ⚠ 不是这条的情形：${triage.notThis}`)
     lines.push(`  - 记录用：把它写进 \`proof_dag journal\`（kind: limit, source: ${requested}）或 \`prover_limits\` 经验库，别让下一个人再撞一次`)
   }
   const skipped = probed.filter((p) => !p.usable)

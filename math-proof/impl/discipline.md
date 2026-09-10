@@ -84,7 +84,8 @@
 
 ### 4.5 陈述层自检 / 有界实例化 / postulate 口径（三条硬判据）
 **写进模块之前先问**：① 陈述里有「函数相等」吗？无 `funext` 只能写**逐点**形式 `∀ x → f x ≡ g x`，从逐点推整体**正是 funext**（真实事故：NSE.T15「任意 step」版不可证）。② 假设删到不能再删还成立吗？③ 边界点（`n=0` / 空类型 / 最大元）用 oracle 先打一遍。陈述有误 → `diagnosis: statement_wrong` 改形式化，不要硬证。
-**界先符号化**：引理写 `∀ k …`，具体实例化推到使用点；确需具体值用 `opaque` 阻断归约；先在小界（k=1,2,3）探针上确认。真实事故：同一引理符号版 3.4s 通过，写死 `12 ^ 729` 的版本 346s 后 **heap exhausted（exit 251）**——证明项在具体界上被求值（鸽巢/`any?` 真去枚举）。失败先看 `proof_compile` 的**结果级分诊**（`agda-concrete-instantiation-eval` / `agda-oom-killed` / `agda-timeout`），它直接给处方，别靠加内存硬顶。
+**界先符号化，且**：真凶不是「界是字面量」，而是**含具体数字递归的「定义体」被展开**——实测 `proj₁ (pigeonhole-fin (12 ^ 729) f)` 单独编译 **3.2s exit 0**（字面量界不爆），但 `stateEnc` 的定义体（含 `enc12 729`）一展开就是 729 层 → 346s 堆爆；**只封界（`abstract N729`）仍 339s 堆爆**。修法：把界与**所有相关定义连同它们的体**封进**同一个 `abstract` 块**，只对外暴露类型，块内 `refl` 证 `N729 ≡ 12 ^ 729` 供块外 `subst`。**抬 `+RTS -M` 是歧路**（不是 OOM，是求值）。
+**超时分两类，别混**：① **stdlib 接口重建**（日志尾部在 `Checking Data.*`、`_build` 下大量 `.agdai` 被重写 → 沙箱写不了 stdlib 目录）——**环境问题**，记 `prover_limits: sandbox-stdlib-write`；② **定义体展开**（日志干净、直奔你的模块）——真问题，按上面封装。`proof_compile` 的**结果级分诊**会给出对应处方与「**不是这条**」的反例。
 **postulate 口径**：`proven` 不要求「0 postulate」，要求「**0 未声明**」。标 proven 前用 `postulates:[{name,kind,reason}]` 逐个声明：`rewrite`（项目已论证的 REWRITE 语义设计，如 `div3k`/`mod3k`/`gf3Toℕ-A4-inv`）/ `unreachable`（已知无害项）/ `gap`（**真缺口 → 不能 proven，标 blocked + diagnosis**）。工具按源码核对名字：未声明直接拒收，声明不存在的名字报「记录不实」。`rewrite`/`unreachable` 还要**一条人类裁决流水**（`journal` 的 decision，node 指向该节点）——豁免不能自己发给自己。
 探针/草稿文件（`_Probe*.agda` / `_test_*.agda` / `*.bak`）**用完删除**，`check` 会列出来；确有用途就在 `journal` 说明。
 > 三次事故的完整复盘与处方清单：`skills/agda-proof-engine/references/bounded-instantiation-and-postulates.md`

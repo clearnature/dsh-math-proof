@@ -2022,3 +2022,52 @@ npm 包 **74 文件 / 362.5 kB**、宿主启用 117 行 / preset 接管 22 行 /
 **发布操作提醒（写在这里，避免误触发）**：`publish.yml` 的触发是 `release: types: [published]`，
 所以 `gh release create` **默认会直接触发 npm 发布**。npm 侧还没配 Trusted Publisher 时，
 正确顺序是：先 `--draft` 建 Release → 在 npmjs 配好 trusted publisher → 再发布该 Release。
+
+## 五十四、第四十九轮：更正「堆爆」归因 + 历史曲线按规则集切开（2026-09-10）
+
+用户转来另一会话的诊断报告，明确要求：**修的是这个 preset 与流程**（数学工作由其他会话做）。
+报告给出的关键证据推翻了我上一轮的归因。
+
+### 54.1 被否证的两个判断（我上一轮写错的）
+
+| 我写的 | 实测 |
+| --- | --- |
+| 「字面量界让 Agda 展开 `pigeonhole` 的 `any?` 枚举」→ 所以界要保持符号化 | **错**：`proj₁ (pigeonhole-fin (12 ^ 729) f)` 单独编译 **3.2s exit 0**——字面量界本身不爆（Agda 不强制它）。stdlib 的 `any?` 确实存在，但不是当次成因 |
+| 「界保持符号化 / 具体实例化推到使用点」就够了 | **不够**：只封界（`abstract N729`）+ 未封装编码 **仍 339s 堆爆** |
+
+**真凶**：**含具体数字递归的定义体被展开**——`stateEnc` 的体里 `enc12 729` 一展开就是 729 层。
+探针链（P1/P2/P3）：字面量界+未封装 346s 堆爆｜只封界+未封装 **339s 堆爆**｜
+abstract 界+postulate 玩具编码 **3s**｜abstract 界+真实 `stateEnc`（注入 postulate）**>75s**。
+P1 快而 P3 慢 ⇒ 代价在**编码的定义体**。
+
+**两条歧路**：抬 `+RTS -M12G`（不是 OOM，是求值；机器 61G 也没用）｜只封界。
+
+### 54.2 另一条被分开的东西：两个「超时」不是一回事
+
+| 来源 | 证据 | 性质 |
+| --- | --- | --- |
+| stdlib 接口重建 | 日志尾部在 `Checking Data.Unit/Data.List.Properties`；`_build` 下 20 分钟 174 个 `.agdai` 被重写 | **环境**（沙箱 workspace-write 写不了 stdlib 目录）→ `sandbox-stdlib-write` |
+| 编码体 729 层展开 | 日志干净、直奔模块，仍 339s 堆爆 | **真问题** → abstract-体 封装 |
+
+### 54.3 preset 侧的四处修复
+
+| 修法 | 落点 |
+| --- | --- |
+| **结果级分诊归因改写**：`Heap exhausted` → `agda-abstract-body-729-unfold`，处方 = 「界+所有相关定义**连同体**封进同一个 `abstract` 块，只暴露类型，块内 `refl` 证等式供块外 `subst`」，并明写「抬 `+RTS -M` 是歧路」 | `impl/ruleset.mjs`（**热读**，bump 到 **r6**） |
+| **每条处方带 `notThis`（不是这条）**：防止过度归因（如「postulate 占位或体不含具体数字递归时本来就快」） | 同上 + `plugins/agda-engine.mjs` 渲染 |
+| **「stdlib 重建」只在没有诊断行时才算**：否则普通类型错误会被归因成环境问题 | `triageResult(..., { hasDiagnostics })` + `onlyWithoutDiagnostics` 规则 + 回归断言 |
+| **历史曲线按规则集切开**：`history` 每条记录带 `ruleset: rN/hash`；`trendLine` 跨规则集报「不可比」而非回退；`check` 的「⚠ 回退」只在同一规则集下才出现；旧记录（无戳）标 `legacy` | `plugins/proof-dag.mjs` |
+
+最后一条正是报告里点出的真事故：另一会话跑的是**旧规则**，`check` 报 85/100、断链 25，
+并在历史里记了一次「回退（上次 100）」——**那是换规则，不是退步**。
+
+### 54.4 文档与经验库同步
+
+- `impl/discipline.md` §4.6 与 `skills/agda-proof-engine/references/bounded-instantiation-and-postulates.md`
+  整节重写为探针链结论（含 P1/P2/P3 表、两条歧路、两类超时对照表）；
+- 生产台账**追加**一条 `lesson` **更正**上一轮写错的机制（历史不覆盖，只追加——这是台账的设计）。
+
+### 54.5 复验
+
+`ruleset-check` 扩到 **50 断言**（归因文本 / `notThis` / stdlib 规则的双向触发 / 跨规则集与 legacy 判定）；
+`check-all` → **CHECK_ALL_OK 15/15**。

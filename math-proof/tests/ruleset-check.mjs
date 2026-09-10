@@ -147,7 +147,7 @@ const engine = await import(join(PRESET, 'plugins', 'agda-engine.mjs'))
     mkdirSync(join(ws, 'src'), { recursive: true })
     writeFileSync(join(ws, 'src', '_ProbeX.agda'), 'module _ProbeX where\n')
     const out = await dag.runDag(ws, { action: 'check' }, null, null)
-    ok('check 输出带规则集戳', /规则集: `r\d+\/[0-9a-f]+`/.test(out), out.split('\n').filter((l) => l.includes('规则集')).join('|'))
+    ok('check 输出带规则集戳（历史也带，便于按规则集切开）', /规则集: `r\d+\/[0-9a-f]+`/.test(out), out.split('\n').filter((l) => l.includes('规则集')).join('|'))
     ok('check 报 postulate 分类行', out.includes('postulate 分类'))
     ok('check 报 postulate 豁免裁决行', out.includes('postulate 豁免裁决'))
     ok('check 报草稿/探针文件', out.includes('工作区草稿/探针文件') && out.includes('_ProbeX.agda'), out.split('\n').filter((l) => l.includes('草稿')).join('|'))
@@ -174,14 +174,33 @@ const engine = await import(join(PRESET, 'plugins', 'agda-engine.mjs'))
 // ── 6) 结果级分诊（堆爆 / 被杀 / 超时）────────────────────────────────────
 {
   const heap = engine.triageResult({ exitCode: 251, stdout: { text: 'Heap exhausted; current heap size 8G' }, stderr: { text: '' } }, 'Heap exhausted')
-  ok('堆爆 → concrete-instantiation 处方', heap?.limit === 'agda-concrete-instantiation-eval', JSON.stringify(heap))
-  ok('处方含「符号化」做法', typeof heap?.prescription === 'string' && heap.prescription.includes('符号化'))
+  ok('堆爆 → abstract-体 处方（**不是**字面量界归因）', heap?.limit === 'agda-abstract-body-729-unfold', JSON.stringify(heap))
+  ok('处方指出修法：定义与体一起封进 abstract 块', /abstract/.test(heap?.prescription ?? ''))
+  ok('处方明确「抬 +RTS -M 是歧路」', /歧路/.test(heap?.prescription ?? ''))
+  ok('每条处方带「不是这条」的反例（防过度归因）', typeof heap?.notThis === 'string' && heap.notThis.length > 10, String(heap?.notThis).slice(0, 40))
+  // 「stdlib 接口重建」只在**没有诊断行**时才算（否则普通类型错误会被归因成环境问题）
+  const stdlibOut = { exitCode: 1, stdout: { text: 'Checking Data.List.Properties' }, stderr: { text: '' } }
+  ok('stdlib 重建规则：无诊断行时触发', engine.triageResult(stdlibOut, 'Checking Data.List.Properties')?.limit === 'sandbox-stdlib-write')
+  ok('stdlib 重建规则：有诊断行时不触发', engine.triageResult(stdlibOut, 'Checking Data.List.Properties', undefined, { hasDiagnostics: true }) === null)
   const killed = engine.triageResult({ exitCode: -1, stdout: { text: 'Killed' }, stderr: { text: '' } }, 'Killed')
   ok('被杀 → oom 处方', killed?.limit === 'agda-oom-killed', JSON.stringify(killed))
   const to = engine.triageResult({ exitCode: null, timedOut: true, stdout: { text: '' }, stderr: { text: '' } }, '')
   ok('超时 → timeout 处方', to?.limit === 'agda-timeout', JSON.stringify(to))
   const fine = engine.triageResult({ exitCode: 0, stdout: { text: 'ok' }, stderr: { text: '' } }, 'ok')
   ok('成功 → 无处方', fine === null)
+  // 历史/趋势：跨规则集不可比（真事故：旧规则 85 分被记成「回退」）
+  ok(
+    'trendLine 跨规则集标记不可比',
+    /跨规则集不可比/.test(dag.trendLine([{ score: 100, ruleset: 'r4/aaa' }, { score: 85, ruleset: 'r5/bbb' }])),
+    dag.trendLine([{ score: 100, ruleset: 'r4/aaa' }, { score: 85, ruleset: 'r5/bbb' }]),
+  )
+  ok('trendLine 同规则集仍报趋势', /→/.test(dag.trendLine([{ score: 90, ruleset: 'r5/bbb' }, { score: 85, ruleset: 'r5/bbb' }])))
+  ok('rulesetChangedSinceLastRun 能识别切换', dag.rulesetChangedSinceLastRun([{ score: 100, ruleset: 'r4/aaa' }], 'r6/ccc')?.from === 'r4/aaa')
+  ok('rulesetChangedSinceLastRun 同版返回 null', dag.rulesetChangedSinceLastRun([{ score: 100, ruleset: 'r6/ccc' }], 'r6/ccc') === null)
+  // 旧记录（本字段是后加的）也要判为不可比，但原因是「legacy」而不是某个版本号
+  const legacy = dag.rulesetChangedSinceLastRun([{ score: 85 }], 'r6/ccc')
+  ok('无规则集戳的旧记录 → 标 legacy 不可比', legacy?.legacy === true && /legacy/.test(legacy.from), JSON.stringify(legacy))
+  ok('trendLine 对 legacy 记录也报不可比', /跨规则集不可比/.test(dag.trendLine([{ score: 100 }, { score: 85, ruleset: 'r6/ccc' }])))
   // 热表可覆盖：传自定义表
   const custom = engine.triageResult({ exitCode: 1, stdout: { text: 'zzz' }, stderr: { text: '' } }, 'zzz', [{ test: /zzz/, limit: 'custom', prescription: 'x' }])
   ok('分诊表可被热表覆盖', custom?.limit === 'custom')

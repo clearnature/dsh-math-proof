@@ -20,7 +20,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 /** 规则语义版本：**规则一变就加一**（进输出日志，保证分数可比）。 */
-export const RULESET_VERSION = 'r5'
+export const RULESET_VERSION = 'r6'
 
 /** 台账↔代码断链的判定开关。 */
 export const DRIFT = {
@@ -95,28 +95,58 @@ export const SCRATCH = {
 /**
  * 编译失败的结果级分诊（诊断行里没有的失败模式：进程被杀 / 堆爆 / 超时）。
  * 这些失败**不会**产生 `file:line: error:` 行，所以必须在结果层判。
+ *
+ * ⚠ 归因要精确（2026-09-10 实测更正）：
+ *   · **不是**「界是字面量所以触发 `any?` 枚举」——`proj₁ (pigeonhole-fin (12 ^ 729) f)` 单独编译
+ *     **3.2s exit 0**，字面量界本身不爆（Agda 不强制它）。
+ *   · **真凶是「含具体数字递归的定义体」被展开**：`stateEnc = fromℕ< … (suc≤12 729 …)` 里的
+ *     `enc12 729` 一旦展开就是 729 层递归。探针链：
+ *       字面量界 + 未封装编码 → 346s 堆爆；只封界（`abstract N729`）+ 未封装编码 → **仍 339s 堆爆**；
+ *       abstract 界 + postulate 玩具编码 → 3s exit 0；abstract 界 + 真实 stateEnc（注入 postulate）→ >75s 超时。
+ *   · 所以**修法不是抬内存**（不是 OOM，是求值；抬 `+RTS -M` 只会让展开跑更久），
+ *     而是**把界与所有相关定义连同它们的体封进同一个 `abstract` 块**，只对外暴露类型。
+ *   · 超时要**分成两类**：stdlib 接口重建（环境，沙箱不可写 stdlib 目录）vs 定义体展开（真问题）。
  */
 export const RESULT_TRIAGE = [
   {
     test: /Heap exhausted|out of memory|OOM/i,
-    limit: 'agda-concrete-instantiation-eval',
+    limit: 'agda-abstract-body-729-unfold',
     prescription:
-      '**具体界被求值**（堆爆）：界保持**符号化**（`∀ k`），具体实例化推到使用点；确需具体值就用 `opaque` 包一层阻断归约；先用小界（k=1,2,3）写独立探针文件确认证明项本身可过，探针用完删除。',
+      '**定义体被展开**（不是「界是字面量」）：真凶通常是含**具体数字递归**的定义体（如 `stateEnc` 里的 `enc12 729`）被展开成几百层。' +
+      '修法：把界与**所有相关定义连同它们的体**封进**同一个 `abstract` 块**，只对外暴露类型（如 `PresField → Fin N729`），块内用 `refl` 证 `N729 ≡ 12 ^ 729` 供块外 `subst`。' +
+      '**只封界不够**（实测 `abstract N729` + 未封装的编码仍 339s 堆爆）。抬 `+RTS -M` 是歧路——这不是 OOM，是求值。',
+    // 反例（避免过度归因）：体里没有具体数字递归、或编码用 postulate 占位时，本来就不慢
+    notThis: '编码体不含具体数字递归（如纯 `∀ n` 形式），或该定义已用 postulate/opaque 占位——那本来就快，不是这条',
   },
   {
     test: /exit code 251|Killed|SIGKILL|signal 9/i,
     limit: 'agda-oom-killed',
-    prescription: '进程被杀（多为内存）：同上按「符号化优先」处理；不要靠加 `--memory` 硬顶，先看是不是鸽巢/`any?` 这类枚举在具体界上展开。',
+    prescription:
+      '进程被杀（多为内存）：先按「定义体展开」处理（见 `agda-abstract-body-729-unfold` 的处方）；确需放宽资源再用 `+RTS -M<n>G`，并**先确认不是求值问题**。',
+    notThis: '机器本身内存紧张（他进程占用）时也会被杀——先看 `free -g` 再归因',
   },
   {
     test: /timed out|timeout/i,
     limit: 'agda-timeout',
-    prescription: '超时：区分「真慢」与「在具体界上求值」。先跑符号化版本比对耗时（实测差距可达 100×：3.4s vs 346s）。',
+    prescription:
+      '**超时先分两类，别混**：① **stdlib 接口重建**——日志尾部在 `Checking Data.*`、`_build` 下大量 `.agdai` 被重写；成因是沙箱（workspace-write）写不了 stdlib 目录 → 接口失效 → 重新编译。属**环境**问题（见 `sandbox-stdlib-write`），不要当成证明慢。' +
+      '② **定义体展开**——日志干净、直奔你的模块 → 真问题，按 `agda-abstract-body-729-unfold` 处方封装。',
+    notThis: '整轮都在检查 stdlib 接口时，超时与你的证明无关',
+  },
+  {
+    // 只在「失败但没有诊断行」时给——否则会把普通类型错误也归因成环境问题
+    test: /Checking Data\.[A-Za-z.]+/,
+    onlyWithoutDiagnostics: true,
+    limit: 'sandbox-stdlib-write',
+    prescription:
+      '出现大量 `Checking Data.*` → **stdlib 接口在重建**：沙箱不可写 stdlib 目录导致接口失效（`_build` 下大量 `.agdai` 被重写即为证据）。这是环境问题，已记 `prover_limits: sandbox-stdlib-write`；改用可写策略或复用已编译产物。',
+    notThis: '首次编译本来就会检查依赖模块——只有在「本该命中缓存却大量重建」时才算',
   },
   {
     test: /Termination checking failed|\[Termination\]/i,
     limit: 'agda-termination',
-    prescription: '终止性检查：把递归改写成在**结构更小的参数**上递归，或用 `--terminating` 友好的辅助函数（不要加 `{-# TERMINATING #-}` 糊过去）。',
+    prescription: '终止性检查：把递归改写到**结构更小的参数**上，或抽出对终止检查友好的辅助函数（不要用 `{-# TERMINATING #-}` 糊过去）。',
+    notThis: '用 `--terminating` 友好写法重写后仍报错，才说明是真正的递归结构问题',
   },
 ]
 

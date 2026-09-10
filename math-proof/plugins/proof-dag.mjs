@@ -855,12 +855,31 @@ export function scratchFiles(workspace, spec = RULESET.SCRATCH, untracked = null
 /** 趋势行：与上一条记录比较。 */
 export function trendLine(history) {
   if (history.length === 0) return '首跑 — 无趋势数据'
-  const last = history[history.length - 1].score
+  const lastRun = history[history.length - 1]
+  const last = lastRun.score
   if (history.length === 1) return `首跑 ${last}/100`
-  const prev = history[history.length - 2].score
+  const prevRun = history[history.length - 2]
+  // **跨规则集的分数不可比**：判定规则（断链豁免、评分权重、postulate 口径）一改，
+  // 同样的台账会算出不同分数。历史里记了 `ruleset`，比较前先看它——否则会把「换规则」
+  // 误报成「回退」（2026-09-10 真事故：旧规则算 85 分，被记成「回退（上次 100）」）。
+  if (lastRun.ruleset !== prevRun.ruleset) {
+    const from = prevRun.ruleset ?? 'legacy（早于规则集戳）'
+    const to = lastRun.ruleset ?? 'legacy（早于规则集戳）'
+    return `跨规则集不可比（${from} → ${to}）：${prevRun.score}/100 → ${last}/100，请按规则集切开看`
+  }
+  const prev = prevRun.score
   const delta = last - prev
   if (delta === 0) return `稳定在 ${last}/100（最近 ${Math.min(history.length, 3)} 次）`
   return `${prev} → ${last}（${delta > 0 ? '+' : ''}${delta}）最近 ${Math.min(history.length, 3)} 次`
+}
+
+/** 上一次记录是否用了**不同**的规则集（用于避免假回退）。 */
+export function rulesetChangedSinceLastRun(history, current) {
+  if (history.length === 0 || current === undefined) return null
+  const last = history[history.length - 1]
+  // 旧记录没有规则集戳（本字段是后加的）→ 同样不可比，但原因不同：叫「legacy」而不是某个版本号
+  if (last.ruleset === undefined) return { from: 'legacy（该记录早于规则集戳）', to: current, prevScore: last.score, legacy: true }
+  return last.ruleset === current ? null : { from: last.ruleset, to: current, prevScore: last.score, legacy: false }
 }
 
 /** 读某模块的源码文本（找不到返回 null）。 */
@@ -1270,6 +1289,8 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
     const history = readHistory(workspace)
     const record = {
       ts: new Date().toISOString(),
+      // **规则集戳**：分数只有在同一规则集下才可比（改规则=改口径，不是退步）
+      ruleset: `${live.version}/${live.hash ?? 'unknown'}`,
       score: d.score,
       blockers: d.cyclic.length + d.dangling.length + d.noEvidence.length,
       warnings: d.drift.length + d.openDecisions.length + d.undiagnosed.length,
@@ -1279,10 +1300,14 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
     const runs = [...history, record]
     appendHistory(workspace, record)
     const prev = history.length === 0 ? null : history[history.length - 1].score
+    const switched = rulesetChangedSinceLastRun(history, record.ruleset)
     return [
       '# proof_dag: check',
       '',
-      `- **完整性评分: ${d.score}/100**${prev !== null && d.score < prev ? `  ⚠ 回退（上次 ${prev}）` : ''}`,
+      `- **完整性评分: ${d.score}/100**${
+        switched !== null ? `（上次 ${switched.prevScore} 用的是规则集 \`${switched.from}\`）` : ''
+      }${switched === null && prev !== null && d.score < prev ? `  ⚠ 回退（上次 ${prev}）` : ''}`,
+      ...(switched === null ? [] : [`- ⚠ **规则集已变**：\`${switched.from}\` → \`${record.ruleset}\` —— 两次分数**不可直接比较**，本条不计入回退`]),
       `- 趋势: ${trendLine(runs)}`,
       ...(d.deductions.length === 0
         ? ['- 扣分: 无 ✅']
@@ -1391,6 +1416,13 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
       '',
       `- 台账: \`${ledgerPath(workspace)}\`｜更新于 ${ledger.updatedAt ?? '—'}`,
       `- **完整性评分: ${d.score}/100**｜趋势: ${trendLine(readHistory(workspace))}`,
+      ...(rulesetChangedSinceLastRun(readHistory(workspace), `${live.version}/${live.hash ?? 'unknown'}`) === null
+        ? []
+        : [
+            `- ⚠ 上次记录用的是**另一个规则集**（${
+              rulesetChangedSinceLastRun(readHistory(workspace), `${live.version}/${live.hash ?? 'unknown'}`).from
+            }）→ 分数不可直接比较，别当成回退`,
+          ]),
       `- 规则集: \`${live.version}/${live.hash ?? 'unknown'}\`｜插件本体: \`${LOADED_PLUGIN_HASH ?? 'unknown'}\`${
         RULESET.moduleHash(PLUGIN_FILE) === LOADED_PLUGIN_HASH ? '' : ' ⚠ **落后于磁盘**（跑 \`doctor\` 看详情）'
       }`,
