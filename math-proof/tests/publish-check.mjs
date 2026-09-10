@@ -7,12 +7,14 @@
 // 或**漏文件**（用户装不上）。所以钉死三件事：
 //   1. `state/` 与临时文件必须被排除；
 //   2. 目录布局必须是 `<out>/<preset-id>/agent.cordis.yml`（dsh 的 `scanRoot` 只认这一种）；
-//   3. 生成物必须齐（.gitignore / LICENSE / 根 README 带安装片段），且非空目录必须拒绝覆盖。
+//   3. 生成物必须齐（.gitignore / LICENSE / 根 README 带安装片段），且非空目录必须拒绝覆盖；
+//   4. **分发件的权限必须归一化**：dsh 文件工具给新文件落 0600，而 `cpSync` 保留它 → 
+//      本地构建的分发包会「只有属主可读」（用户 2026-09-10 提醒的正是这一类）。
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/\/$/, '')
 const PRESET = dirname(HERE)
@@ -81,6 +83,29 @@ try {
   ok('布局：<out>/<preset-id>/agent.cordis.yml 存在', existsSync(join(out, ID, 'agent.cordis.yml')))
   ok('布局：preset.yml 存在', existsSync(join(out, ID, 'preset.yml')))
   ok('布局：plugins 目录存在', existsSync(join(out, ID, 'plugins')))
+  // 2026-09-10：用户提醒「engineering/tests 下某些脚本只有属主可读」——查下去发现根因在
+  // dsh 的文件工具（新建文件落 0600：暂存文件 0o600，只有目标已存在时才 chmod 回去），
+  // 而 `cpSync` 会**保留**源权限 → 本地构建的分发包可能是「只有属主可读」。
+  // 分发包是给别人的，所以这里既**归一化**（publish.mjs 显式 chmod 0644）也**断言**。
+  {
+    const root = join(out, 'math-proof')
+    const bad = []
+    const walk = (dir) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const q = join(dir, e.name)
+        if (e.isDirectory()) walk(q)
+        else {
+          const m = statSync(q).mode & 0o777
+          if ((m & 0o044) !== 0o044) bad.push(`${relative(out, q)}(${m.toString(8)})`)
+        }
+      }
+    }
+    walk(root)
+    ok('分发件里没有「别人读不了」的文件（组/其他都可读）', bad.length === 0, bad.slice(0, 5).join(', '))
+    const modes = new Set(['hooks/hooks.json', 'scripts/check-all.mjs', 'impl/ruleset.mjs'].map((f) => (statSync(join(root, f)).mode & 0o777).toString(8)))
+    ok('分发件权限被归一化成 664/644 这一档（不受构建者 umask 影响）', [...modes].every((m) => m === '644' || m === '664'), [...modes].join(','))
+  }
+
   ok('布局：preset 目录在仓库根之下（根不是 preset 目录）', !existsSync(join(out, 'agent.cordis.yml')))
 
   const gates = existsSync(join(out, '.github', 'workflows', 'gates.yml')) ? readFileSync(join(out, '.github', 'workflows', 'gates.yml'), 'utf8') : ''

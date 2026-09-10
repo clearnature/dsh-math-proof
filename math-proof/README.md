@@ -331,6 +331,11 @@ node tests/paths-check.mjs   # PATHS_OK
 
 回归：`node tests/budget-check.mjs` → `BUDGET_OK`。
 
+**文件权限提醒**：dsh 的**文件工具给新建文件落 0600**（原子写暂存文件的权限，只有覆盖既有文件时才还原）——
+所以 agent 写过的新文件在本机常常「只有属主可读」。对 git / CI **没有影响**（git 只记可执行位，提交后是 100644），
+但**共享安装或直接拷贝工作树**会读不了。分发包已由 `publish.mjs` 归一化成 0644（`publish-check` 有断言钉死），
+仓库侧自查：`find . -type f -exec chmod 664 {} +`（`publish.mjs --dry-run` 会报出还剩多少个 0600）。详见 [M4.5b](docs/maps/M4-state-and-storage.md)。
+
 ## 二、怎么跑
 
 ```bash

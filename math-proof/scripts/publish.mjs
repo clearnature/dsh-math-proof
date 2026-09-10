@@ -23,7 +23,7 @@
 // 发布树里还会生成：`.gitignore`（挡住 state/）、`LICENSE`（MIT，与 Agda 库和 dsh 本体一致）、
 // 根 `README.md`（给人看的：这是什么 / 怎么装 / 依赖什么 / 怎么自检）。
 
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -341,6 +341,12 @@ if (!DRY && target !== null) {
     const dest = join(target, rel)
     mkdirSync(dirname(dest), { recursive: true })
     cpSync(join(PRESET_DIR, rel), dest)
+    // ⚠ `cpSync` **保留源文件权限**。而 dsh 的文件工具给新建文件落 **0600**
+    // （`dsh-fs-local` 的原子写：暂存文件 0o600，只有目标**已存在**时才 chmod 回去），
+    // 所以本地构建出来的分发包可能是「只有属主可读」——分发出去别人（多用户/共享安装）读不了。
+    // 这里**显式归一化**：可执行位保留，其余一律 0644（与 git 记录的 100644 一致）。
+    const srcMode = statSync(join(PRESET_DIR, rel)).mode & 0o777
+    chmodSync(dest, (srcMode & 0o111) === 0 ? 0o644 : 0o755)
     written++
   }
   writeFileSync(join(OUT, '.gitignore'), GITIGNORE)
@@ -355,6 +361,30 @@ if (!DRY && target !== null) {
 }
 
 const bytes = files.reduce((sum, rel) => sum + statSync(join(PRESET_DIR, rel)).size, 0)
+
+/**
+ * 本地树里「只有属主可读」的文件（0600）。
+ *
+ * 为什么值得报：dsh 的**文件工具给新建文件落 0600**（`dsh-fs-local` 原子写：暂存文件 0o600，
+ * 只有目标**已存在**时才 chmod 回原权限）——所以 agent 写过的新文件在本机都是 0600。
+ * 对 git 无所谓（git 只记可执行位，提交后是 100644），但**共享安装 / 直接拷贝工作树**就会读不了。
+ * 分发包已由上面的 `chmodSync` 归一化；这里只是让人**在自己机器上**也能看见。
+ */
+const ownerOnly = files.filter((rel) => {
+  try {
+    return (statSync(join(PRESET_DIR, rel)).mode & 0o044) !== 0o044
+  } catch {
+    return false
+  }
+})
+
+if (ownerOnly.length > 0) {
+  console.log(
+    `\n⚠ 本地树里有 ${ownerOnly.length} 个文件只有属主可读（0600）——分发包会被 chmod 归一化，\n` +
+      '  但共享安装/直接拷贝工作树时会读不了。修法：`find . -type f -exec chmod 664 {} +`\n' +
+      `  例如：${ownerOnly.slice(0, 3).join('、')}`,
+  )
+}
 
 if (AS_JSON) {
   console.log(

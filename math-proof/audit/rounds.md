@@ -2891,3 +2891,51 @@ SyntaxError: The requested module 'node:zlib' does not provide an export named '
 
 `CHECK_ALL_OK 22/22`（budget-check 211/211；inject-check 25/25 含新断言；docs-check 81/81；plugins-check 24/24）。
 新增 `docs/maps/M7-budget.md` §M7.6（含控制流图、安全纪律、**被否证的三条**）。
+
+## 七十一、文件权限：用户的一条提醒查出的三件事（2026-09-10）
+
+**用户提醒**：`engineering/tests/` 下两个 oracle 脚本是 `-rw-------`，若希望 CI 或他人可跑，需要放开读权限。
+
+### 71.1 范围比「两个文件」大得多
+
+`find -perm -u+r ! -perm -o+r` 在会话工作区数出 **103 个仓库文件**是 0600
+（`src/` 60、`docs/` 32、`memory/` 5、`engineering/` 6，另有工具私有状态目录 70 个不计），
+本 preset 仓库另有 **83 个**（包括本轮新增的全部文件）。已全部 `chmod 664`（与本仓库其余文件一致）；
+`git status` 条目数前后都是 159（preset 仓库 0），**权限位确实不影响 git 状态**。
+
+### 71.2 但「放开读权限」并不是 CI 跑不了的原因（这条必须纠正）
+
+- git **只记可执行位**（`100644` / `100755`），**不记**组/其他人的读写位 → 一个 0600 文件提交后就是 100644，
+  检出即 0644（随检出方 umask）。所以权限不是 CI 的障碍。
+- 真正的原因是**这些文件根本没进仓库**：抽查 5 个 `engineering/tests/*.py` **全部 UNTRACKED**；
+  整块 Burnside 工作（`BurnsideMain.agda`、`BurnsideNecklace.agda`、`memory/burnside-block5-necklace.md`）也全未提交，
+  该仓库共 **141 条未跟踪条目**。**要让 CI 跑到它们，必须提交**（哪些该提交是仓库治理决策，不擅自代替决定）。
+
+### 71.3 根因在 harness：原子写让**新文件**保持 0600
+
+`@deepseek-ai/dsh-fs-local` 的 `writeFileAtomic`：
+
+- `await handle.chmod(384)`（`lib/index.js:484`）→ **暂存文件是 0o600**（同目录私有暂存目录 0o700）；
+- `if (mode !== void 0) await handle.chmod(mode)`（`:495`）→ 只有**传了目标权限**才改回去；
+- 调用点 `writeFileAtomic(target, content, existing?.mode, …)`（`:791`）→ **新文件**传的是 `undefined`。
+
+⇒ **agent 的文件工具新建的文件一律 0600**。复现（同目录、同 umask 0002）：`write` 工具建的文件 `-rw-------`、
+`bash` 重定向建的是 `-rw-rw-r--`、编译器写的 `_build/*.agdai` 也是 `-rw-rw-r--`。与 preset 的代码无关。
+
+### 71.4 我们这边能修的那一半（真问题在分发包）
+
+`scripts/publish.mjs` 用 `cpSync`，而 **`cpSync` 保留源权限** → 本地构建的分发包会带 0600。
+实测（把 `impl/ruleset.mjs` 设成 600 后构建）：**去掉归一化 → 分发件里是 600；加上归一化 → 644**。
+
+- `publish.mjs`：拷贝后显式 `chmodSync`（可执行位保留 → 0755，其余 → 0644）；
+- `publish-check`：新增两条断言——「分发件里没有别人读不了的文件」「权限被归一化（不受构建者 umask 影响）」，
+  并**实测门禁有牙**（把归一化去掉两条都变红：`math-proof/impl/ruleset.mjs(600)`）；
+- `publish.mjs --dry-run`：顺带报出本地树里还剩多少个 0600（信息性提示，不改退出码）。
+
+上游修法（新文件按 `0o666 & ~umask` 落权限）留给 `dsh-fs-local`——那是部署侧代码，不擅自改已安装的包
+（pnpm store 里是构建产物，升级即覆盖）。
+
+### 71.5 复验
+
+`CHECK_ALL_OK 22/22`（publish-check 36→**38/38**；docs-check 81/81）；两处工作树 0600 计数均为 **0**；
+生效目录与仓库一致；CI 20/22/24 全绿。
