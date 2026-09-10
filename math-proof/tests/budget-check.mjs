@@ -301,7 +301,7 @@ section('思考强度（EFFORT / planEffort / govern）')
   ok('折叠：turn4 起始 low → 结束 off（被降档过）', fx[3].effortAtStart === 'low' && fx[3].effortLast === 'off' && fx[3].effortDowngraded === true, JSON.stringify({ a: fx[3].effortAtStart, b: fx[3].effortLast }))
   ok('折叠：turn3 记录了两次档位变化（high → low）', JSON.stringify(fx[2].efforts) === JSON.stringify(['high', 'low']), JSON.stringify(fx[2].efforts))
   ok('折叠：档位是**运行值**（早于首个 header 的回合不该拿到末尾的值）', fx[0].effortAtStart === null && fx[0].effortLast === null, JSON.stringify({ a: fx[0].effortAtStart, b: fx[0].effortLast }))
-  ok('折叠：不把 request/header 的 header 整体留在回合对象里（只留标量）', !JSON.stringify(fx[3]).includes('fix-model'), JSON.stringify(Object.keys(fx[3])).slice(0, 120))
+  ok('折叠：不把 request/header 整体留在回合对象里（只留 provider/model/effort 这些标量）', fx[3].header === undefined && typeof fx[3].provider === 'string' && typeof fx[3].model === 'string' && fx[3].model.length < 40, JSON.stringify({ header: fx[3].header, keys: Object.keys(fx[3]).length }))
 
   // 端到端：从 apply 抓监听器，用假 next 驱动一遍（本地能做到的、最接近真 harness 的验证）
   {
@@ -441,6 +441,50 @@ section('会话 token 预算（SESSION / 总闸）')
     const allowed = runHook('budget-gate.mjs', { session_id: 'h2', cwd: ws2, hook_event_name: 'PreToolUse', tool_name: 'proof_dag', tool_input: { action: 'journal' } })
     ok('会话到线时收尾路径仍放行', allowed.code === 0, String(allowed.code))
     rmSync(ws2, { recursive: true, force: true })
+  }
+
+  // token 分解账（跨 provider 通用）——用户点的正是「输入 / 输出」这个维度
+  {
+    const { turns: fxAll } = traffic.foldSession(FIXTURE)
+    const sum = (k) => fxAll.reduce((a, x) => a + (x[k] ?? 0), 0)
+    const totals = traffic.sessionTotals(FIXTURE)
+    ok('sessionTotals 给出全量分解（输入/缓存/输出/思考）', totals.inTok === sum('inTok') && totals.cacheTok === sum('cacheTok') && totals.outTok === sum('outTok') && totals.reasoningTok === sum('reasoningTok'), JSON.stringify(totals).slice(0, 120))
+    ok('sessionTotals：tok = 未缓存输入 + 缓存读 + 输出', totals.tok === totals.inTok + totals.cacheTok + totals.outTok, `${totals.tok} vs ${totals.inTok + totals.cacheTok + totals.outTok}`)
+    const line = traffic.fmtTokenLine(totals)
+    ok('fmtTokenLine 输出「输入 … · 输出 …」两段（含缓存命中率）', /输入 \*\*/.test(line) && /输出 \*\*/.test(line) && line.includes('命中率'), line)
+    ok('fmtTokenLine：无缓存时也不写「缓存命中」（不编零）', !traffic.fmtTokenLine({ inTok: 100, cacheTok: 0, outTok: 10, reasoningTok: 0 }).includes('缓存命中'))
+    const sm = traffic.summarizeTokens({ inTok: 5, cacheTok: 95, outTok: 10, reasoningTok: 4 })
+    ok('summarizeTokens 口径：输入 = 未缓存 + 缓存读', sm.input === 100 && sm.output === 10 && sm.total === 110)
+    ok('summarizeTokens：命中率与「思考占输出」', Math.abs(sm.cacheHitRate - 0.95) < 1e-9 && Math.abs(sm.reasoningOfOutput - 0.4) < 1e-9, JSON.stringify(sm))
+    ok('addBreakdown 逐字段相加', JSON.stringify(traffic.addBreakdown({ tok: 1, inTok: 2, cacheTok: 3, outTok: 4, reasoningTok: 5 }, { tok: 10, inTok: 20, cacheTok: 30, outTok: 40, reasoningTok: 50 })) === JSON.stringify({ tok: 11, inTok: 22, cacheTok: 33, outTok: 44, reasoningTok: 55 }))
+    ok('会话分解账 = 已闭合 + 当前回合', (() => { const s2 = { sessionBreakdown: { tok: 10, inTok: 6, cacheTok: 2, outTok: 2, reasoningTok: 1 }, liveBreakdown: { tok: 5, inTok: 3, cacheTok: 1, outTok: 1, reasoningTok: 0 } }; return policy.sessionBreakdown(s2).tok === 15 && policy.sessionBreakdown(s2).inTok === 9 })())
+
+    // fixture 的 request/header 里带 provider/model → 回合应能归属
+    ok('回合带上 provider / model（来自 request/header，阶跃值）', fxAll[3].provider === 'fix' && fxAll[3].model === 'fix-model', JSON.stringify({ p: fxAll[3].provider, m: fxAll[3].model }))
+    ok('按 provider 分组统计存在（全机报表要用）', totals.byProvider.fix?.tok === 920 && totals.byProvider['—']?.tok === 1220, JSON.stringify(totals.byProvider))
+
+    // 状态与样本
+    resetState()
+    const st = policy.startTurn({ sessionId: 'bd1', transcript: FIXTURE, cwd: '/w', prompt: 'x', sessionTok: 400e6, sessionBreakdown: { tok: 400e6, inTok: 5e6, cacheTok: 393e6, outTok: 2e6, reasoningTok: 0.8e6 } })
+    ok('公告里同时给出 token 总量与输入/输出分解', st.text.includes('会话预算') && st.text.includes('输入') && st.text.includes('输出'), st.text.split('\n').find((l) => l.includes('会话预算'))?.slice(0, 80) ?? '')
+    ok('公告标注「跨 provider 通用」', st.text.includes('跨 provider 通用'))
+    const stt = budgetPlugin.runBudget({ action: 'status', sessionId: 'bd1', cwd: '/w' })
+    ok('status 给出输入（缓存命中/未缓存）+ 输出（其中思考）', /输入 \*\*/.test(stt) && stt.includes('缓存命中') && stt.includes('其中思考'), stt.split('\n').find((l) => l.includes('输入')) ?? '')
+    // report 走 `sessionLogFiles()`（`<root>/<workspace>/<session>/session.jsonl*`），测试里补一套布局
+    mkdirSync(join(SESSIONS, 'ws-report', 'sess-report'), { recursive: true })
+    writeFileSync(join(SESSIONS, 'ws-report', 'sess-report', 'session.jsonl'), readFileSync(FIXTURE))
+    const rep = budgetPlugin.runBudget({ action: 'report', cwd: '/w', sessionId: 'bd1' })
+    ok('report 有「Token 账」一节并说明数据来源', rep.includes('## Token 账') && rep.includes('assistant/message.usage'), rep.slice(rep.indexOf('## Token 账'), rep.indexOf('## Token 账') + 60))
+    ok('report 按 provider 与 model 分组（扫到 1 个会话）', rep.includes('| provider |') && rep.includes('| model |') && rep.includes('全机 1 个会话'), rep.slice(rep.indexOf('| provider |'), rep.indexOf('| provider |') + 40))
+    ok('report 给出本会话的输入/输出', rep.includes('**本会话**') && /输入 \*\*/.test(rep), rep.split('\n').find((l) => l.includes('本会话'))?.slice(0, 60) ?? '')
+
+    // 结算样本带上分解与 provider（报表要按 provider 归类）
+    const prof2 = traffic.blankProfile()
+    const st2 = { session: 'bd2', turn: 1, class: 'chat', budget: 10, used: 1, denied: 0, startedAt: Date.now() - 30_000, transcript: FIXTURE, cwd: '/w', sessionTok: 1000, sessionBudget: 1e9, sessionBreakdown: { tok: 0, inTok: 0, cacheTok: 0, outTok: 0, reasoningTok: 0 } }
+    const r2 = policy.settleTurn({ profile: prof2, state: st2, fromTurn: 1 })
+    ok('结算样本带上分解（输入/缓存/输出）', r2.sample.inTok === 180 && r2.sample.outTok === 30 && r2.sample.cacheTok === 110, JSON.stringify({ i: r2.sample.inTok, o: r2.sample.outTok, c: r2.sample.cacheTok }))
+    ok('结算样本**带 provider/model 字段**（该回合早于首个 request/header → 值为 null，是如实反映）', 'provider' in r2.sample && 'model' in r2.sample && r2.sample.provider === null, JSON.stringify({ p: r2.sample.provider, m: r2.sample.model }))
+    ok('结算把回合分解累加进会话账', st2.sessionBreakdown.tok === 320 && st2.sessionBreakdown.inTok === 180 && st2.sessionBreakdown.cacheTok === 110, JSON.stringify(st2.sessionBreakdown))
   }
 
   // 静态：SESSION 真的被用上（而不是只写在表里）

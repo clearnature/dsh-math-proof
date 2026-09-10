@@ -315,6 +315,9 @@ function blankTurn(turn) {
     effortAtStart: null,
     effortLast: null,
     effortClosed: false,
+    /** 本回合实际走的 provider / model（同样来自 `request/header`，是阶跃值）。 */
+    provider: null,
+    model: null,
     /** 命中的回执标记（**只留标记本身，不留原文**——一个回合的工具结果可能有几百 KB）。 */
     receipts: [],
     calls: [],
@@ -337,6 +340,9 @@ export function foldLines(lines, options = {}) {
   let current = null
   /** 当前生效的思考强度（`request/header` 只在变化时落盘 → 需要跨行记住上一个值）。 */
   let lastEffort = null
+  /** 当前生效的 provider / model（同上：阶跃值，跨回合延续）。 */
+  let lastProvider = null
+  let lastModel = null
   for (const line of lines) {
     const e = parseLine(line)
     if (e === null) continue
@@ -351,10 +357,17 @@ export function foldLines(lines, options = {}) {
       // → 按「最近一次出现的回合号」归属。这是「思考强度真的被改了吗」的**审计痕迹**，
       // 也是事后按档位分组统计（每步 reasoning vs 步数/流量）的唯一数据源。
       // ⚠ `header` 里含完整系统提示词，**只取 config.reasoningEffort 这一个标量**，绝不整条序列化。
-      const effort = e.data?.header?.config?.reasoningEffort ?? e.data?.config?.reasoningEffort
+      const cfg = e.data?.header?.config ?? e.data?.config
+      const effort = cfg?.reasoningEffort
       if (typeof effort === 'string' && effort !== '') {
         lastEffort = effort
         if (current !== null) turnOf(current).efforts.push(effort)
+      }
+      if (typeof cfg?.provider === 'string' && cfg.provider !== '') lastProvider = cfg.provider
+      if (typeof cfg?.model === 'string' && cfg.model !== '') lastModel = cfg.model
+      if (current !== null) {
+        turnOf(current).provider = lastProvider
+        turnOf(current).model = lastModel
       }
       continue
     }
@@ -377,6 +390,8 @@ export function foldLines(lines, options = {}) {
       case 'turn/start':
         tr.start = e.time ?? tr.start
         tr.effortAtStart = lastEffort
+        tr.provider = lastProvider
+        tr.model = lastModel
         break
       case 'turn/end':
         tr.end = e.time ?? tr.end
@@ -726,15 +741,84 @@ export function scanSessionTurns(files, options = {}) {
  */
 export function sessionTotals(file) {
   const { header, turns } = foldSession(file)
-  let tok = 0
-  let steps = 0
-  let calls = 0
+  const acc = { tok: 0, inTok: 0, cacheTok: 0, outTok: 0, reasoningTok: 0, steps: 0, calls: 0 }
+  const byProvider = new Map()
+  const byModel = new Map()
   for (const tr of turns) {
-    tok += tr.tok || 0
-    steps += tr.steps || 0
-    calls += tr.toolCalls || 0
+    acc.tok += tr.tok || 0
+    acc.inTok += tr.inTok || 0
+    acc.cacheTok += tr.cacheTok || 0
+    acc.outTok += tr.outTok || 0
+    acc.reasoningTok += tr.reasoningTok || 0
+    acc.steps += tr.steps || 0
+    acc.calls += tr.toolCalls || 0
+    const key = tr.provider ?? '—'
+    const pk = byProvider.get(key) ?? { tok: 0, inTok: 0, cacheTok: 0, outTok: 0, turns: 0 }
+    pk.tok += tr.tok || 0
+    pk.inTok += tr.inTok || 0
+    pk.cacheTok += tr.cacheTok || 0
+    pk.outTok += tr.outTok || 0
+    pk.turns += 1
+    byProvider.set(key, pk)
+    const mk = byModel.get(tr.model ?? '—') ?? { tok: 0, inTok: 0, cacheTok: 0, outTok: 0, turns: 0 }
+    mk.tok += tr.tok || 0
+    mk.inTok += tr.inTok || 0
+    mk.cacheTok += tr.cacheTok || 0
+    mk.outTok += tr.outTok || 0
+    mk.turns += 1
+    byModel.set(tr.model ?? '—', mk)
   }
-  return { tok, steps, calls, turns: turns.length, session: header?.id ?? null, preset: header?.agentPreset ?? null }
+  return {
+    ...acc,
+    turns: turns.length,
+    session: header?.id ?? null,
+    preset: header?.agentPreset ?? null,
+    byProvider: Object.fromEntries(byProvider),
+    byModel: Object.fromEntries(byModel),
+  }
+}
+
+/**
+ * 一行「输入 / 输出」摘要（**跨 provider 通用**：数据来自每个适配器都必须给的 `assistant/message.usage`）。
+ *
+ * 为什么这么分：**输入侧**（未缓存 + 缓存命中）与**输出侧**在计费/积分口径里是两种东西，
+ * 而「钱」只在 DeepSeek 这类余额制 provider 上存在——MiMo / Qwen 之类积分制上钱没有意义，
+ * token 才是能跨 provider 对齐的单位。
+ */
+export function summarizeTokens(t) {
+  const input = (t?.inTok ?? 0) + (t?.cacheTok ?? 0)
+  const out = t?.outTok ?? 0
+  return {
+    input,
+    output: out,
+    uncachedInput: t?.inTok ?? 0,
+    cacheRead: t?.cacheTok ?? 0,
+    reasoning: t?.reasoningTok ?? 0,
+    total: input + out,
+    cacheHitRate: input > 0 ? (t?.cacheTok ?? 0) / input : 0,
+    reasoningOfOutput: out > 0 ? (t?.reasoningTok ?? 0) / out : 0,
+  }
+}
+
+/** 渲染「输入 … / 输出 …」一行（紧凑，给公告/播报/状态用）。 */
+export function fmtTokenLine(t) {
+  const s = summarizeTokens(t)
+  const parts = [`输入 **${fmtTok(s.input)}**`]
+  if (s.cacheRead > 0) parts.push(`（缓存命中 ${fmtTok(s.cacheRead)} / 未缓存 ${fmtTok(s.uncachedInput)}，命中率 ${(s.cacheHitRate * 100).toFixed(1)}%）`)
+  parts.push(`· 输出 **${fmtTok(s.output)}**`)
+  if (s.reasoning > 0) parts.push(`（其中思考 ${fmtTok(s.reasoning)}，占输出 ${(s.reasoningOfOutput * 100).toFixed(0)}%）`)
+  return parts.join(' ')
+}
+
+/** 合并两个分解账（用于累加会话累计）。 */
+export function addBreakdown(a, b) {
+  return {
+    tok: (a?.tok ?? 0) + (b?.tok ?? 0),
+    inTok: (a?.inTok ?? 0) + (b?.inTok ?? 0),
+    cacheTok: (a?.cacheTok ?? 0) + (b?.cacheTok ?? 0),
+    outTok: (a?.outTok ?? 0) + (b?.outTok ?? 0),
+    reasoningTok: (a?.reasoningTok ?? 0) + (b?.reasoningTok ?? 0),
+  }
 }
 
 /** 会话存储根。 */

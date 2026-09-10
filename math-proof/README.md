@@ -325,7 +325,13 @@ node tests/paths-check.mjs   # PATHS_OK
 所以「100 万 token 一次会话」会死在第一次调用上。改：`MATH_PROOF_SESSION_BUDGET=1B` 或 `budget action:"session" tokens:"1B"`。
 监控数据从官方缝来（`tokenUsage` 投影 / `tokenMeter` / `sessionQuery` / 会话日志），详见 [M7.7](docs/maps/M7-budget.md)。
 
-**额度（余额）监控**：官方接口是 **`GET /user/balance`**，返回的是**钱**（金额字符串）且**没有「总量」字段**
+**监控口径（重要）**：**token 是主，钱是特例**。DSH 不只对接 DeepSeek——MiMo / Qwen 等**积分制**服务
+没有余额接口、「钱」也没意义，而 token 用量是每个适配器都必须给的。所以本 preset 按 **输入/输出** 记账
+（`输入 = 未缓存 + 缓存命中`，`输出` 内含思考），`budget action:"report"` 按 **provider / model** 汇总全机，
+`status` 给本会话分解。本机 26 个会话实测：**输入 1764.0M（缓存命中 99.4%）· 输出 4.59M（思考占输出 45%）**
+——吃额度的是输入侧重复上下文，「省额度」的杠杆是少跑几轮而不是少想。
+
+**余额（DeepSeek 专属）**：官方接口是 **`GET /user/balance`**，返回的是**钱**（金额字符串）且**没有「总量」字段**
 ——社区流传的 `/v1/user/info` 与 `total_quota/remaining_quota/used_quota`、以及「剩余/总量=百分比」都不成立。
 本 preset 只做站得住的：**采样 → 燃烧速率（¥/小时，充值不算负消耗）→ ETA**；百分比仅在你自定基线时给。
 `budget action:"quota"`（默认不联网）｜`refresh:true` 拉一次（凭据走 harness 的 `credentials`，不碰密钥文件）｜

@@ -3036,3 +3036,48 @@ compaction 管的是**上下文压力**（不是累计花费）；`tokenUsage` �
 形状不符、无 key 四种 / 工具默认不联网与 refresh 需异步 / CLI 三条路径 / 静态断言「没有臆造端点」）；
 `publish-check` 38→**41/41**；`CHECK_ALL_OK 22/22`（Node 24 + Node 22）。
 文档：M7 新增 §M7.7b（含官方接口事实表与「能做/不能做」两栏）+ 开关表 + 状态文件表；README 一段。
+
+## 七十四、监控口径纠正：token 是主，钱是特例（2026-09-10）
+
+**用户纠正**（原话要点）：token 配额，不是 ¥/小时——因为用 DSH 不是 DeepSeek 一家，很多 MiMo、Qwen 等
+提供的是**积分服务**，钱对它们没用；**token 的输入/输出、每次会话**才是有意义的监控数据。
+
+这条纠正是对的，而且我上一轮把主次弄反了：
+
+| 上一轮做的 | 这一轮改成 |
+| --- | --- |
+| 把「余额（¥）」当作额度监控的主体 | **token 账是主**（跨 provider），余额降级为 **DeepSeek 专属**并在报告首行声明 |
+| 会话只报一个 `tok` 总量 | 报 **输入 / 输出**分解：`输入 = 未缓存 + 缓存命中`、`输出 = 生成 + 其中思考`（含命中率、「思考占输出」） |
+| 没有 provider 维度 | `request/header` 里的 provider/model 也折进回合 → `report` 新增**按 provider / model** 的全机汇总 |
+
+### 74.1 实现
+
+- `impl/session-traffic.mjs`：`sessionTotals` 返回全量分解（`inTok/cacheTok/outTok/reasoningTok`）
+  与 `byProvider` / `byModel`；新增 `summarizeTokens`（口径换算）、`fmtTokenLine`（「输入 … · 输出 …」一行）、
+  `addBreakdown`（累加）；回合新增 `provider` / `model`（与 effort 一样是 `request/header` 的**阶跃值**）。
+- `impl/budget-policy.mjs`：会话状态新增 `sessionBreakdown` / `liveBreakdown`（已闭合 + 当前回合），
+  结算样本带上 `inTok/cacheTok/outTok/reasoningTok/provider/model`；公告/播报/结算全部改为进出分解。
+- `plugins/budget.mjs`：`status` 给出本会话分解；`report` 新增「Token 账」一节（全机 + 按 provider + 按 model + 本会话）；
+  `quota` 与 `explain` 明确「只对余额制 provider 有效，积分制看 token 账」。
+
+### 74.2 这个口径下的实测（本机 26 个会话）
+
+| 项 | 数值 |
+| --- | --- |
+| 输入 | **1764.0M**（缓存命中 **1753.9M**，命中率 **99.4%**） |
+| 输出 | **4.59M**（其中思考 2.07M，占输出 **45%**） |
+
+⇒ 吃额度的是**输入侧的重复上下文**（量是输出的 380 倍）；输出只占 0.26%。
+与 [§七十](#七十思考强度自动调节先量两个直觉被自己的数据否掉2026-09-10) 的结论一致：
+**省额度的杠杆是「少跑几轮」，不是「少想」**——思考连输出的 45% 都不到，而输出本身只有 0.26%。
+
+单会话实例（本会话）：输入 864.5M（缓存命中 859.4M / 未缓存 5.15M）· 输出 1.92M（思考占输出 39%）
+——与用户在界面上看到的「输入 863M tok」一致。
+
+### 74.3 复验
+
+`budget-check` 289→**308/308**（+19 条：分解字段与口径、`fmtTokenLine` 的「无缓存不编零」、
+`summarizeTokens` 命中率与思考占比、`addBreakdown`、会话分解 = 已闭合 + 当前回合、
+回合 provider/model 归属、按 provider 分组、status/report 的进出分解与分组表、样本带分解与 provider 字段、
+结算累加分解）；`CHECK_ALL_OK 22/22`。文档：M7 新增 §M7.7a（口径表 + 实测 + 「谁吃额度」的结论），
+余额一节改为 §M7.7b 并加「积分制没有这一节」的前置说明；README 同步。

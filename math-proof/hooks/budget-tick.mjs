@@ -52,7 +52,16 @@ try {
     }
     state.lastLiveMs = live.ok ? live.ms : (state.lastLiveMs ?? null)
     // 会话闸的「当前回合」那一半：把最近读到的 tok 记下来（硬线判定用它，可能滞后一个刷新周期）
-    if (live.ok && live.turn !== null && typeof live.turn.tok === 'number') state.liveTok = live.turn.tok
+    if (live.ok && live.turn !== null && typeof live.turn.tok === 'number') {
+      state.liveTok = live.turn.tok
+      state.liveBreakdown = {
+        tok: live.turn.tok ?? 0,
+        inTok: live.turn.inTok ?? 0,
+        cacheTok: live.turn.cacheTok ?? 0,
+        outTok: live.turn.outTok ?? 0,
+        reasoningTok: live.turn.reasoningTok ?? 0,
+      }
+    }
     state.lastLiveWhy = live.ok ? null : live.why
     const text = tickText({ state, mode, live: liveInfo })
     writeTurn(state)

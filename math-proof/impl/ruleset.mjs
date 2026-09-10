@@ -332,6 +332,10 @@ export const EFFORT = {
 /**
  * **单次会话的 token 消耗预算**（回答「给会话加个百万 token 预算」）。
  *
+ * 为什么单位是 **token** 而不是钱：DSH 不只对接 DeepSeek——MiMo / Qwen 等**积分制**服务没有
+ * 「余额」接口，「钱」对它们没有意义；而 **token 用量是每个适配器都必须给的**（`assistant/message.usage`），
+ * 是唯一能跨 provider 对齐的额度单位。钱只作为 DeepSeek 一家的补充信息（`impl/quota.mjs`）。
+ *
  * 先看实测（2026-09-10，本机 26 个会话；每会话累计 `tok = Σ_回合(input+cacheRead+output)`）：
  *
  * | 口径 | 数值 |

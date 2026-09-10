@@ -49,9 +49,12 @@ try {
     const previous = readTurn(sessionId)
     const budget = sessionBudgetTokens(rec.profile)
     let sessionTok = previous?.sessionTok ?? 0
+    let sessionBreakdown = previous?.sessionBreakdown
     if (previous === null && transcript !== '') {
       try {
-        sessionTok = sessionTotals(transcript).tok
+        const totals = sessionTotals(transcript)
+        sessionTok = totals.tok
+        sessionBreakdown = { tok: totals.tok, inTok: totals.inTok, cacheTok: totals.cacheTok, outTok: totals.outTok, reasoningTok: totals.reasoningTok }
       } catch {
         sessionTok = 0 // 读不到就从 0 起算（宁可晚一点拦，也不要报错卡住开工）
       }
@@ -64,6 +67,7 @@ try {
       previous,
       profile: rec.profile,
       sessionTok,
+      sessionBreakdown,
       sessionBudget: budget.tokens,
     })
     if (started.text !== '') sections.push(started.text)

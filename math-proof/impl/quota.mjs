@@ -205,7 +205,13 @@ export function fmtMoney(n, currency) {
 
 /** 渲染一份人类可读的额度报告。 */
 export function renderQuotaReport(state, extra = {}) {
-  const lines = ['# budget: quota（DeepSeek 余额：钱，不是 token 配额）', '']
+  const lines = [
+    '# budget: quota（**DeepSeek 专属**：余额是「钱」，不是 token 配额）',
+    '',
+    '> ⚠ 这一条**只对 DeepSeek 这类余额制 provider 有效**。MiMo / Qwen 等**积分制**服务既没有 `/user/balance`，',
+    '> 「钱」也没有意义——那边该看的是 **token 账**（`budget action:"report"` 的「Token 账」一节，跨 provider 通用）。',
+    '',
+  ]
   const samples = state.samples ?? []
   if (samples.length === 0) {
     lines.push('- **还没有采样**：`budget action:"quota" refresh:true`（或 `node scripts/quota.mjs --refresh`）拉一次。')
@@ -214,7 +220,7 @@ export function renderQuotaReport(state, extra = {}) {
   }
   const last = samples[samples.length - 1]
   const base = quotaBaseline(state)
-  lines.push(`- 数据来源：官方 \`GET ${BALANCE_PATH}\`（**金额字符串、没有总量字段**）`)
+  lines.push(`- 数据来源：DeepSeek 官方 \`GET ${BALANCE_PATH}\`（**金额字符串、没有总量字段**；其他 provider 无此接口）`)
   lines.push(`- 最新余额：**${fmtMoney(last.total, last.currency)}**（${last.at}，来源 ${last.source ?? '—'}）`)
   if (typeof last.granted === 'number' || typeof last.toppedUp === 'number') {
     lines.push(`  - 其中赠金 ${fmtMoney(last.granted, last.currency)}｜充值 ${fmtMoney(last.toppedUp, last.currency)}`)

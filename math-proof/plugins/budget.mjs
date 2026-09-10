@@ -19,6 +19,7 @@ import { BUDGET, EFFORT, SESSION } from '../impl/ruleset.mjs'
 import { appendQuotaSample, fetchBalance, loadQuota, renderQuotaReport, saveQuota } from '../impl/quota.mjs'
 import {
   budgetMode,
+  sessionBreakdown,
   effectiveCalls,
   fmtTok,
   parseTokenAmount,
@@ -32,6 +33,7 @@ import {
   writeTurn,
 } from '../impl/budget-policy.mjs'
 import {
+  fmtTokenLine,
   budgetFor,
   classBaseline,
   classDef,
@@ -96,8 +98,9 @@ function renderStatus(args) {
     }
     const budget = sessionBudgetTokens(profile)
     lines.push(
-      `- **会话预算**: 已用 **${fmtTok(sessionUsed(state))} / ${fmtTok(state.sessionBudget)}**（${(sessionRatio(state, profile) * 100).toFixed(1)}%，来源 ${state.sessionBudgetSource ?? budget.source}）｜` +
+      `- **会话预算**（token，跨 provider 通用）: 已用 **${fmtTok(sessionUsed(state))} / ${fmtTok(state.sessionBudget)}**（${(sessionRatio(state, profile) * 100).toFixed(1)}%，来源 ${budget.source}）｜` +
         `${sessionRatio(state, profile) >= SESSION.hardAt ? '🛑 **已到硬线：只留收尾白名单**' : sessionRatio(state, profile) >= SESSION.warnAt ? '⚠ 已过提醒线' : '未到提醒线'}`,
+      `  ${fmtTokenLine(sessionBreakdown(state))}`,
       `  （口径：已闭合回合累计 ${fmtTok(state.sessionTok)} + 最近读到的当前回合 ${fmtTok(state.liveTok)}；当前回合每 N 次调用刷新一次 → 判定可能滞后）`,
     )
     const logged = live?.effortLast ?? live?.effortAtStart ?? null
@@ -170,13 +173,75 @@ function renderReport(args, cwd) {
       ],
     ),
   )
+  // ── 本会话 / 按 provider 的 token 账（跨 provider 通用）──────────────────
+  const files = sessionLogFiles()
+  const perProvider = new Map()
+  const perModel = new Map()
+  let machine = { tok: 0, inTok: 0, cacheTok: 0, outTok: 0, reasoningTok: 0 }
+  let scanned = 0
+  for (const f of files) {
+    try {
+      const s2 = sessionTotals(f)
+      scanned++
+      for (const k of ['tok', 'inTok', 'cacheTok', 'outTok', 'reasoningTok']) machine[k] += s2[k] ?? 0
+      for (const [k, v] of Object.entries(s2.byProvider)) {
+        const cur = perProvider.get(k) ?? { tok: 0, inTok: 0, cacheTok: 0, outTok: 0, turns: 0 }
+        perProvider.set(k, { tok: cur.tok + v.tok, inTok: cur.inTok + v.inTok, cacheTok: cur.cacheTok + v.cacheTok, outTok: cur.outTok + v.outTok, turns: cur.turns + v.turns })
+      }
+      for (const [k, v] of Object.entries(s2.byModel)) {
+        const cur = perModel.get(k) ?? { tok: 0, inTok: 0, cacheTok: 0, outTok: 0, turns: 0 }
+        perModel.set(k, { tok: cur.tok + v.tok, inTok: cur.inTok + v.inTok, cacheTok: cur.cacheTok + v.cacheTok, outTok: cur.outTok + v.outTok, turns: cur.turns + v.turns })
+      }
+    } catch {
+      /* 坏日志跳过 */
+    }
+  }
+  lines.push('', '## Token 账（跨 provider 通用；数据来自各适配器的 `assistant/message.usage`）', '')
+  lines.push(`- 全机 ${scanned} 个会话：${fmtTokenLine(machine)}`)
+  if (perProvider.size > 0) {
+    lines.push(
+      '',
+      table(
+        ['provider', '回合', '输入', '（缓存命中）', '输出', '总 tok'],
+        [...perProvider.entries()]
+          .sort((a, b) => b[1].tok - a[1].tok)
+          .map(([k, v]) => [`\`${k}\``, String(v.turns), fmtTok(v.inTok + v.cacheTok), fmtTok(v.cacheTok), fmtTok(v.outTok), `**${fmtTok(v.tok)}**`]),
+      ),
+    )
+  }
+  if (perModel.size > 0) {
+    lines.push(
+      '',
+      table(
+        ['model', '回合', '输入', '输出', '总 tok'],
+        [...perModel.entries()]
+          .sort((a, b) => b[1].tok - a[1].tok)
+          .slice(0, 8)
+          .map(([k, v]) => [`\`${k}\``, String(v.turns), fmtTok(v.inTok + v.cacheTok), fmtTok(v.outTok), `**${fmtTok(v.tok)}**`]),
+      ),
+    )
+  }
+  const sessionState = args?.sessionId === undefined || String(args.sessionId) === '' ? null : readTurn(String(args.sessionId))
+  if (sessionState !== null) {
+    lines.push('', `- **本会话**：${fmtTokenLine(sessionBreakdown(sessionState))}（上限 ${fmtTok(sessionState.sessionBudget)}，已用 ${(sessionRatio(sessionState, profile) * 100).toFixed(1)}%）`)
+  }
+
   const recent = (profile.samples ?? []).slice(-8).reverse()
   if (recent.length > 0) {
     lines.push('', '## 最近 8 个结算')
     lines.push(
       table(
-        ['时间', '类', '调用', '步数', 'tok', '结局'],
-        recent.map((s) => [String(s.at).slice(5, 16), `\`${s.class}\``, String(s.calls), String(s.steps ?? '—'), fmtTok(s.tok), s.outcome]),
+        ['时间', '类', 'provider', '调用', '步数', '输入', '输出', '结局'],
+        recent.map((s) => [
+          String(s.at).slice(5, 16),
+          `\`${s.class}\``,
+          String(s.provider ?? '—'),
+          String(s.calls),
+          String(s.steps ?? '—'),
+          fmtTok((s.inTok ?? 0) + (s.cacheTok ?? 0)),
+          fmtTok(s.outTok),
+          s.outcome,
+        ]),
       ),
     )
   }
@@ -485,7 +550,12 @@ function renderExplain() {
     '  看不见档位（部署关了思考/换适配器）或档位未知 → **不动**；任何异常 → 退回原配置（绝不因为调速让请求失败）。',
     '- 效果可审计：每次配置变化都会落 `request/header`（里面有 `config.reasoningEffort`）。',
     '',
-    '## 额度（余额）监控：`GET /user/balance`',
+    '## 监控口径：**token 账是主，余额是 DeepSeek 特例**',
+    '- **主监控 = token**（跨 provider 通用）：数据来自每个适配器都必须给的 `assistant/message.usage`，按**输入（缓存命中/未缓存）/ 输出（其中思考）**分开看；',
+    '  ``budget action:"report"`` 的「Token 账」一节给出**按 provider / model** 的全机汇总。**积分制服务（MiMo / Qwen 等）只看这个**——那边「钱」没有意义，也没有余额接口。',
+    '- **会话预算也按 token**（`SESSION`）：这才是能跨 provider 对齐的额度单位。',
+    '',
+    '## 余额（DeepSeek 专属）：`GET /user/balance`',
     '- 官方接口给的是**钱**（`{is_available, balance_infos:[{currency,total_balance,granted_balance,topped_up_balance}]}`，金额是**字符串**），',
     '  **没有「总量」字段** ⇒ 「剩余/总量=百分比」在官方接口上算不出来（社区流传的 `total_quota/remaining_quota/used_quota` 并不存在）。',
     '- 能做且做了：**采样 → 燃烧速率（¥/小时，只看最近单调下降区间，充值不算负消耗）→ ETA**；百分比只在**自定基线**（`baseline:`）或历史最高余额时给，并标注来源。',
