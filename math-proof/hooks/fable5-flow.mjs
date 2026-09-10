@@ -7,9 +7,13 @@
 //   · 第 1 条 自主任务分解 + 第 2 条 拓扑扫描（UserPromptSubmit）
 //       —— 看起来是「跨多步的新任务」时，注入一段极短的开工清单（分解 → 拓扑扫描 → 多路径 → 计划模式 + 落台账）。
 //          只在新任务的第一时间提醒，**不每轮都刷**；闲聊/单步问题不打扰。
-//   · 第 7 条 持久记忆 + 第 9 条 防虚假完成（Stop）
+//   · 第 7 条 持久记忆 + 第 9 条 防虚假完成（原 Stop 分支，2026-09-10 **移走**）
 //       —— 收工时提醒：关键决策写 journal；**完成声明必须附证据**（工具回执/编译输出），
 //          没证据的不许写「已完成」。
+//          ⚠ 为什么不在这里说了：官方桥在 `agent/turn-stopping` 上**不注入 additionalContext**
+//          （只处理 deny→steer，见 hooks/carryover.mjs 顶部的源码依据），Stop 钩子输出的话
+//          一次都没进过模型上下文。现在这段文本由 `budget-settle.mjs`（Stop，做副作用）
+//          写进信箱，再由 `budget-start.mjs`（UserPromptSubmit，能投递）在下一轮开局念出来。
 //
 // 知识部分仍在 `skills/fable5-thinking/SKILL.md`（随 preset 分发，九条原则原文）。
 // 输入/输出契约与其它钩子一致：stdin JSON（Claude Code 方言），stdout `hookSpecificOutput.additionalContext`。
@@ -57,14 +61,6 @@ const INTAKE = [
   '4. **落台账**：把目标拆成 `proof_dag` 节点（`add`/`import`），再开工——长程记忆不在上下文里，在台账里。',
 ].join('\n')
 
-const WRAPUP = [
-  '【fable5 流程 · 收工三项】',
-  '- **第 7 条 持久记忆**：关键决策/教训/交接写 `proof_dag journal`（`decision` / `lesson` / `handoff`）；',
-  '- **第 8 条 对抗自检**：结论自己先当反方审一遍（或用 `code-reviewer` 视角），列出最可能错的地方；',
-  '- **第 9 条 防虚假完成**：**每一项「完成」都要能指到证据**（`proof_compile` 回执 / 命令输出 / 文件行号）。',
-  '  没有证据的，写「未验证」或「待做」，不要写成已完成。',
-].join('\n')
-
 /**
  * 写「流程标记」：`fable5-gate.mjs` 靠它做「计划绑定」——
  * 多步任务已开工但台账里还没有分解时，动文件会被拦一次（exit 2）。
@@ -88,14 +84,11 @@ function markTask() {
   }
 }
 
+// 只处理 UserPromptSubmit（Stop 分支见文件头：那个投递点根本不生效）
 let ctx = ''
-let name = 'UserPromptSubmit'
-if (event === 'Stop') {
-  name = 'Stop'
-  ctx = WRAPUP
-} else if (looksMultiStep(prompt)) {
+if (event !== 'Stop' && looksMultiStep(prompt)) {
   ctx = INTAKE
   markTask()
 }
 
-process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: name, additionalContext: ctx } })}\n`)
+process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: ctx } })}\n`)

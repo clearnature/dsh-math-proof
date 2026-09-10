@@ -1,0 +1,15 @@
+{"type":"session","version":0,"id":"fixture-session","createdAt":1000,"cwd":"/tmp/math-proof-fixture","agentPreset":"math-proof","origin":"main"}
+{"type":"turn/start","seq":1,"time":1000,"data":{"turn":1}}
+{"type":"assistant/message","seq":2,"time":1100,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"tool-call","id":"c1","name":"bash","arguments":"{\"command\":\"node scripts/check-all.mjs\"}"}]},"usage":{"inputTokens":100,"outputTokens":10,"totalTokens":120,"cacheReadTokens":10,"reasoningTokens":0}}}
+{"type":"tool/result","seq":3,"time":1200,"data":{"turn":1,"step":1,"message":{"source":{"kind":"tool","callId":"c1"},"content":[{"type":"tool-result","toolCallId":"c1","content":[{"type":"text","text":"# 一键门禁\n\nCHECK_ALL_OK 21/21"}]}]}}}
+{"type":"assistant/message","seq":4,"time":1300,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"text","text":"全绿"}]},"usage":{"inputTokens":80,"outputTokens":20,"totalTokens":200,"cacheReadTokens":100,"reasoningTokens":0}}}
+{"type":"turn/end","seq":5,"time":2000,"data":{"turn":1,"reason":{"kind":"completed"}}}
+{"type":"turn/start","seq":6,"time":3000,"data":{"turn":2}}
+{"type":"assistant/message","seq":7,"time":3100,"data":{"turn":2,"step":1,"message":{"role":"assistant","content":[{"type":"tool-call","id":"c2","name":"read","arguments":"{\"file\":\"a.agda\"}"}]},"usage":{"inputTokens":200,"outputTokens":10,"totalTokens":300,"cacheReadTokens":90,"reasoningTokens":0}}}
+{"type":"assistant/message","seq":8,"time":3200,"data":{"turn":2,"step":2,"message":{"role":"assistant","content":[{"type":"tool-call","id":"c3","name":"read","arguments":"{\"file\":\"a.agda\"}"}]},"usage":{"inputTokens":200,"outputTokens":10,"totalTokens":300,"cacheReadTokens":90,"reasoningTokens":0}}}
+{"type":"hook/result","seq":9,"time":3250,"data":{"turn":2,"point":"PreToolUse","handlerId":"claude-code:PreToolUse:9","decision":"deny","exitCode":2,"durationMs":90}}
+{"type":"assistant/message","seq":10,"time":3300,"data":{"turn":2,"step":3,"message":{"role":"assistant","content":[{"type":"tool-call","id":"c4","name":"read","arguments":"{\"file\":\"a.agda\"}"}]},"usage":{"inputTokens":200,"outputTokens":10,"totalTokens":300,"cacheReadTokens":90,"reasoningTokens":0}}}
+{"type":"turn/end","seq":11,"time":4000,"data":{"turn":2,"reason":{"kind":"aborted"}}}
+{"type":"turn/start","seq":12,"time":5000,"data":{"turn":3}}
+{"type":"assistant/chunk","seq":13,"time":5100,"data":{"turn":3,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":300,"outputTokens":5,"totalTokens":400,"cacheReadTokens":95,"reasoningTokens":0}}}}
+{"type":"assistant/chunk","seq":14,"time":5150,"data":{"turn":3,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":5,"totalTokens":20,"cacheReadTokens":5,"reasoningTokens":0}}}}

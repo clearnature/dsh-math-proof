@@ -2720,3 +2720,84 @@ check 照常扣分｜**覆盖时保留 receipt / evidenceVerified / evidence 文
 ### 68.4 复验
 
 `check-all` → **CHECK_ALL_OK 21/21**（`run` **423/423**）；挂载校验 ✅。
+
+## 六十九、任务预算与流量账本（2026-09-10）
+
+**用户提问**（原话要点）：每次预算能不能让模型自己 ±10% 加/减，直到单次任务能很好地跑完；
+「速度太快、无限循环、耗费流量」该怎么办；**用什么来评价每次任务的流量平均消耗**。
+
+### 69.1 先量，再设计（这一步改变了整个方案）
+
+把本机全部会话日志算了一遍（数据源 `~/.dsh/sessions/**/session.jsonl[.zstd]`，取
+`assistant/message.usage`，与 `@deepseek-ai/dsh-token-meter` 同源）：
+
+| 指标 | p25 | 中位 | p75 | p90 | max |
+| --- | --- | --- | --- | --- | --- |
+| 单回合 tok | 3.15M | **6.61M** | 11.07M | 17.63M | 84.14M |
+| 单回合步数 | — | **16** | — | 52 | 325 |
+| 单回合墙钟 | — | 111.7s | — | 398.1s | 2109.8s |
+
+中位回合拆开：`input 8.2k` + `cacheRead` **6.58M** + `output` **14.2k**
+⇒ **99.6% 的流量是上下文被重复读；模型真正写出来的字只占 0.9%**（合计 1.62B token / 174 回合）。
+
+据此否掉了三种「直觉方案」：
+1. **按 token 给预算** —— 模型无法观测自己的 token 消耗，给了也执行不了；改为**工具调用次数**
+   （钩子能精确数、模型也能自己数）。
+2. **让模型少写字** —— 只影响 0.9%，杠杆约等于零。
+3. **用均值做基线** —— 类内差 5.6 倍（p25↔p90），单个 84M 的失控回合足以把均值拉偏 ~50%；
+   改为**按类取中位数**（窗口 20 条，同 workspace 样本优先，样本 <5 条**只记账不动手**）。
+
+顺带发现**本会话自己就是样本**：提问那一轮已跑到 60+ 步——正是用户描述的形态。
+
+### 69.2 设计:自适应只挂在两种结局上（防棘轮、防刷指标）
+
+| 结局 | 动作 | 理由 |
+| --- | --- | --- |
+| 已验证完成（完成 + 机器证据 + 没撞墙） | **−10%** | 唯一能证明「预算够用」的证据 |
+| 撞到预算墙（被拦过且没完成） | **+10%** | 唯一能证明「预算不够」的证据 |
+| 撞墙但完成且有证据 | 不动 | 预算刚好卡住，不该再收紧也不该再放宽 |
+| 完成但无证据 | 不动 | 没证据的「完成」不算数，否则模型靠缩小目标刷低预算 |
+| 失败 / 中断 / 报错 | 不动 | **失败不养预算**——否则一个坏构建就能把预算养肥（棘轮） |
+| 未闭合 / 窗口截断 | 不动 + 待结算 | 少算步数会让预算误判「很便宜」 |
+
+配套硬约束：夹紧 `[0.5×, 2×]` 该类中位调用数；追加预算走**申请制 + 记债**
+（`topup` 限 1 次/任务、理由 ≥20 字、批 +50%、下个已验证完成的任务扣回 10%）。
+**「让模型自己加预算」的答案是：可以，但必须是申请 + 记账，不能是自由旋钮——否则压力是假的。**
+
+### 69.3 实施（复用官方缝，不造机制）
+
+| 层 | 文件 | 职责 |
+| --- | --- | --- |
+| 量 | `impl/session-traffic.mjs` | 多帧 zstd 结构扫帧（含**尾部半帧容忍**）+ 按回合折叠 + 分类 + 稳健统计 + 账本存取 + 回执判定 |
+| 判 | `impl/budget-policy.mjs` | 开局公告 / 纯函数闸门判定 / 播报 / 结算 / ±10% 自适应 / 补账 |
+| 表 | `impl/ruleset.mjs` `BUDGET` + `RECEIPT` | 阈值、先验、白名单、取证集、分类正则、回执标记（r7→r8） |
+| 工具 | `plugins/budget.mjs` | `status`/`report`/`classes`/`topup`/`calibrate`/`history`/`explain`/`on`/`off` |
+| 钩子 | `hooks/budget-{start,gate,tick,settle}.mjs` | 公告 / 两级刹车 / 过程播报 / 只做副作用的结算登记 |
+| 报表 | `scripts/traffic-report.mjs` | 全机流量报表 + `--calibrate` 用真实日志标定 |
+| 门禁 | `tests/budget-check.mjs`（168 条） | 规则自洽 / 计量（含 zstd 多帧与撕裂容忍）/ 判定 / 结算与夹紧 / 还债 / 投递契约 |
+
+刹车分级：**80% 提醒 → 100% 禁取证类 → 130% 只留收尾白名单**；**同一工具同参数第 4 次**直接拦
+（「无限循环」的正解是打转检测，不是预算数字）；一个回合最多拦 3 次（拦多了本身就是流量）；
+白名单与取证集**不相交**（门禁断言）。被拦的文案固定给出收尾三步：`proof_dag journal` 落盘 →
+`todo_write` 列缺口 → 需要就 `topup`。**信息只许收敛、不许丢**。
+
+### 69.4 顺带查实的存量 bug：Stop 钩子的投递从来没生效
+
+核对官方桥源码（`@deepseek-ai/dsh-hooks-claude-code`）：`agent/turn-stopping` 回调
+**只处理 `decision === "deny"`**（`agent.steer` 强行续跑），**不调用 `contextFrom`**；
+对比 `SessionStart` / `UserPromptSubmit` / `PostToolUse` 三处都真的注入了 `additionalContext`。
+日志旁证：`hook/result` 只记 `turn/point/handlerId/decision/exitCode/durationMs`（**不记 output**），
+而 SessionStart 的「接手简报」与 UserPromptSubmit 的「fable5 开工四项」都能在日志里找到对应的
+`user/message`（`source.plugin = hooks-claude-code`），**唯独 Stop 的文本一次都没出现过**。
+
+修法：删除 `hooks/stop-reminder.mjs`（死代码 + 每回合白起一个进程），新增 `hooks/carryover.mjs`
+信箱——Stop 钩子把「收工检查」「fable5 收工三项」写进信箱，下一轮 `UserPromptSubmit`
+（`budget-start.mjs`）取空并念出来。`fable5-flow.mjs` 的 Stop 分支同样移除。
+**约束写进注释与门禁**：不要在 Stop 里输出 `additionalContext`，也不要在 Stop 里 deny。
+
+### 69.5 复验
+
+`check-all` → **CHECK_ALL_OK 22/22**（新增 `budget-check` 168/168；`hooks-check` 改写为
+58/58 并钉住「Stop 不输出」；`plugins-check` 24/24；`inject-check` 22/22；`docs-check` 80/80）。
+新增 `docs/maps/M7-budget.md`（含控制环与控制流两张 Mermaid 图、口径表、开关表、**未知边界清单**）。
+**尚未验证**：钩子在**真实 dsh 会话**里被桥调用这一步要重启进程后才算实测（M7.9 已如实标注）。

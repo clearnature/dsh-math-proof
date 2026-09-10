@@ -37,10 +37,21 @@
 | 事件 | 脚本 | 行为 |
 | --- | --- | --- |
 | `SessionStart` | `session-start.mjs` | 注入**接手简报**（进度 / 评分 / 证据 / 对象完整度 / 可开工 / 待裁决）；空台账时给开工指引 |
+| `UserPromptSubmit` | `budget-start.mjs` | **预算公告**（本类预算 / 提醒线 / 刹车线 / 收尾路径）+ 投递上一轮信箱 + 补上一轮未结的账 |
+| `UserPromptSubmit` | `fable5-flow.mjs` | 多步任务注入**开工四项**（分解 / 拓扑扫描 / 多路径 / 落台账） |
 | `PreToolUse`（`proof_dag`） | `gate-dag.mjs` | **拦截越过步骤**：标 `proven` 时若无回执、或依赖未 proven → **exit 2 + 理由**，工具不会执行 |
-| `Stop` | `stop-reminder.mjs` | 收工提醒（未验证 / 断链 / 待裁决 → 提示写 `handoff`） |
+| `PreToolUse`（`*`） | `budget-gate.mjs` | **预算闸门**：数调用、查原地打转、过软/硬线拦取证类工具（见 §一.16） |
+| `PreToolUse`（`*`） | `fable5-gate.mjs` | 计划绑定（多步任务未落台账就动文件 → 拦一次）+ 防虚假完成（无证据的「已完成」→ 拦） |
+| `PostToolUse`（`*`） | `budget-tick.mjs` | 每 N 次调用回一句「已用/剩余 + 实测 tok + 墙钟」（**不拦**） |
+| `Stop` | `budget-settle.mjs` | **只做副作用**：登记待结算 + 写「收工检查 / fable5 收工三项」进信箱 |
 
-回归：`node tests/hooks-check.mjs` → `HOOKS_OK 22/22`。
+> ⚠ **Stop 钩子输不出上下文**：官方桥在 `agent/turn-stopping` 上只处理 `deny`→`steer`，
+> **不注入 `additionalContext`**（源码 + 日志双重核对）。原 `stop-reminder.mjs` 因此在 Stop 上
+> 白跑了很久（日志里那段文本一次都没作为注入消息出现），已删除并把内容搬进信箱，
+> 由下一轮 `UserPromptSubmit` 念出来。**别在 Stop 里写要进上下文的话，也别在 Stop 里 deny**
+> （后者会 steer 出新回合 = 流量翻倍）。
+
+回归：`node tests/hooks-check.mjs` → `HOOKS_OK`。
 
 ## 一.9 热重载（不新开会话改纪律）
 
@@ -271,13 +282,49 @@ SOVEREIGN_REPO=/your/math/repo SOVEREIGN_WIKI=/your/wiki dsh web
 node tests/paths-check.mjs   # PATHS_OK
 ```
 
+## 一.16 预算与流量（每次任务花多少、谁说了算）
+
+回答三个问题：**用什么评价消耗**、**预算能不能自己加减**、**无限循环怎么挡**。完整设计见 [M7](docs/maps/M7-budget.md)。
+
+**计量口径**（实测可复算：`node scripts/traffic-report.mjs`）：
+
+| 指标 | 口径 | 为什么 |
+| --- | --- | --- |
+| `calls` | 本回合**工具调用次数** | 主控量：钩子能精确数、模型也能自己数——**双方都能观测的量才能当预算** |
+| `tok` | `Σ_step(input + cacheRead + output)` | 记账量，取官方 `assistant/message.usage`（与 `dsh-token-meter` 同源） |
+| 基线 | 该类最近 20 条的**中位数**（同 workspace 优先） | 类内差 5.6 倍，均值会被单个失控回合拉偏 |
+
+本机实测（26 会话 / 174 回合）：单回合 tok 中位 **6.61M**（p90 17.63M、max 84.14M）、
+步数中位 16（max 325）；中位回合的 `input 8.2k` + `cacheRead` **6.58M** + `output` **14.2k**
+⇒ **99.6% 的流量是上下文被重复读**，模型输出只占 **0.9%**。所以杠杆是**调用次数**，不是「少写字」。
+
+**预算怎么自己加减（±10%）**：
+
+- **加**：只在**撞到预算墙**（被拦过且没做完）时 +10%；
+- **减**：只在**已验证完成**时 −10%（有债先扣）——没证据的「完成」不算数；
+- **不动**：失败 / 中断 / 无证据的完成（失败不养预算，否则一个坏构建就能把预算养肥）；
+- **夹紧**：永远在 `[0.5×, 2×]` 该类中位调用数之间（棘轮到顶）；样本 < 5 条**只记账不动手**；
+- **追加**：`budget action:"topup" reason:"…"` 每任务限 1 次、理由 ≥20 字、批 +50%、**记债**
+  （下个已验证完成的任务扣回 10%）。想多花，先还——这样「自己给自己压力」才有牙。
+
+**刹车分级**（`BUDGET` 表，冷档）：80% 提醒（不拦）→ **100% 起禁取证类**
+（`read`/`glob`/`grep`/`bash`/`web_*`）→ **130% 起只留收尾白名单**
+（`budget`/`proof_dag`/`proof_oracle`/`todo_write`/…）。另外**同一工具同参数第 4 次**直接拦
+（原地打转与预算无关），**墙钟**超限按硬线处理。一个回合最多拦 3 次（拦多了本身就是流量）。
+被拦**不是失败**：正确动作是 `proof_dag journal` 落盘 + `todo_write` 列缺口——信息只许收敛，不许丢。
+
+**开关**：`MATH_PROOF_BUDGET=off` 全关｜`=warn` 只提醒不拦｜`budget action:"off"` 等同 warn｜
+`budget action:"status"` 看本回合实况｜`budget action:"calibrate"` 用真实日志标定各类预算。
+
+回归：`node tests/budget-check.mjs` → `BUDGET_OK`。
+
 ## 二、怎么跑
 
 ```bash
 # 1) 改插件后必须过 schema 自检（否则整个会话启动失败）
 node ~/.dsh/.agent-presets/math-proof/scripts/lint-schemas.mjs   # SCHEMA_LINT_OK
 
-# 2) 十四套门禁（全部期望通过）
+# 2) 门禁（全部期望通过；逐个跑用下面这些，图省事直接跳到第 3 步）
 node tests/run.mjs            # ALL_PASS（插件回归）
 node tests/benchmark.mjs      # BENCHMARK_PASS（冻结语料：评分权重不许漂移）
 node tests/eval-check.mjs     # EVAL_CHECK_OK（工具/技能覆盖）
@@ -292,8 +339,15 @@ node tests/plugins-check.mjs  # PLUGINS_OK（三平面分类回归 + 跨脚本�
 node tests/publish-check.mjs  # PUBLISH_OK（发布准备：state 排除 / 布局 / 生成物）
 node tests/ruleset-check.mjs  # RULESET_OK（规则静态加载为冷档 / doctor 自证 / postulate 门禁 / 结果级分诊）
 node tests/docs-check.mjs     # DOCS_OK（M2 依赖图与源码一致 / 地图齐 / Mermaid 闭合 / 无死链）
+node tests/skills-ref-check.mjs # SKILLS_REF_OK（技能引用可解析 + 允许清单引用必须是条件式）
+node tests/paths-check.mjs    # PATHS_OK（机器绝对路径只出现在 impl/local-paths.json）
+node tests/inject-check.mjs   # INJECT_OK（ctx.<服务> 必须 inject 声明 + 严格 ctx 真挂载）
+node tests/prompt-vars-check.mjs # PROMPT_VARS_OK（提示段里的 {{变量}} 必须已注册）
+node tests/reload-check.mjs   # RELOAD_OK（代码改动是否需要重启 dsh 进程的判断）
+node tests/hot-section-check.mjs # HOT_SECTION_OK（热档只认官方数据/文本缝）
+node tests/budget-check.mjs   # BUDGET_OK（预算：规则表自洽 / 判定 / 结算 / 投递契约）
 
-# 3) 一键跑全部门禁（15 个入口汇总成一张表）
+# 3) 一键跑全部门禁（22 个入口汇总成一张表）
 node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs   # CHECK_ALL_OK
 
 # 4) 运维

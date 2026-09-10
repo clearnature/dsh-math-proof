@@ -102,6 +102,7 @@
       - 库门禁：`engineering/check_group_chain.sh`（群论链 8 模块）、`engineering/check_fermat_chain.sh`（Fermat 链 L0–L4）、`engineering/check_all_modules_parallel.sh`。
       - ⚠ **沙箱限制（2026-09-09 实测）**：链闸门会写 stdlib 接口目录（`agda-stdlib/_build/...agdai`）；在 `workspace-write` 沙箱下该目录只读 → 闸门 exit=42（**权限问题，非类型错误**）。此时改用 `proof_compile` 逐模块验证（只写工作区内 `.agdai`），或请用户放开写权限。
       - 证明策略优先级、硬性禁令、六类错误指纹、对抗验证协议：见下一条「证明纪律」提示段，务必逐条遵守。
+      - **任务预算（每任务开局注入）**：按**工具调用次数**计（钩子计数，token 只在结算时出账——实测 99.6% 的流量是上下文重复读）。80% 提醒、100% 起禁取证类（`read`/`glob`/`grep`/`bash`/`web_*`）、130% 起只留收尾白名单，**同一工具同参数第 4 次直接拦**。**被拦不是失败**：`proof_dag journal` 落盘 + `todo_write` 列缺口即合格交付；确需追加用 `budget action:"topup" reason:"…"`（每任务限 1 次、批 +50%、**记债**：下个已验证完成的任务扣回 10%）。自查 `budget action:"status"`；口径与开关见纪律 §0.8 与 `docs/maps/M7-budget.md`。
       - 技能加载顺序：**非平凡目标（不是单条引理）先加载 `research-system`（外层研究流程：拆解→五路并行→三筛→证明图→G/C/R/V→记忆）与 `prove2me-method`（大规模协作纪律的本地化：三条铁律 / solver 循环 / reduction 复用 / 论文式说明）**；需要先算后验证（Python 枚举 / 找反例 / 大规模核对）加载 `compute-then-verify`；涉及群 / 代数结构加载 `type-theory-presentation`（第一原理：展示群八要素 + 术语红线）、`duodecimal-corpus`（`docs/duodecimal` 全 24 份索引）、`group-first-proof`（投影层工具）；涉及连续统 / 极限 / 千禧年问题加载 `meta-diagnosis`（三重完备性标尺 + 病态检测）；**长程 / 跨天任务加载 `long-horizon-discipline`（阶段交付 + 接手简报 + 依赖图不断链 + 限制经验库）**；**要写/审查证明项时加载 `proof-engineer`（随本 preset 分发：`skills/proof-engineer/SKILL.md`）**：模块头格式 + 五种证明策略 + 类型/导入规范 + GF(3) 语义 + 三类已知陷阱（`mod-helper` 编译限制与 REWRITE、递归证明项在 `cong` 中卡住、`trans` 嵌套优雅性）。**任何跨度 >3 步或改动 >50 行的任务：开工先做分解与拓扑扫描**（本 preset 自带路径：纪律 §0 分解纪律 + `research-system` 的「拆解→并行→三筛」+ 纪律 §0.5 长程纪律）；**若你的环境里另有 `fable5-thinking` 技能（第三方技能，**不随本仓库分发**），可加载它作为补充**。交付前逐项附证据（「防虚假完成」纪律见 §0.6）。编译失败**不要逐错误 whack-a-mole**：按 `agda-proof-engine` §5.9「编译失败的批量修复协议」批量分诊修复（最多 5 轮，超过标 BLOCKED 交人）；**若环境里另有 `loop-engineer` 技能（通用迭代修复引擎，**不随本仓库分发**）可委托它**。交付前 / 动底层模块前委托 `code-reviewer`（随本 preset 分发：`skills/code-reviewer/SKILL.md`）。**随本仓库分发的技能只有 `skills/` 下那 12 个（含 `proof-engineer` / `code-reviewer`）；别处的技能（含第三方 `fable5-thinking`、通用 `loop-engineer`）不保证存在，引用一律写成条件式。**
       - **先算后验证**（zcode 方法论）：Python 精确整数计算（`engineering/` 轨道，禁浮点）作猜想生成器 / 约束来源 / 对抗验证器；**Agda 是唯一裁决**（Python 通过 ≠ 证明）。模型必须保留全部结构分量（无信息截断）。交叉验证测试落 `engineering/tests/`（`python3 -m pytest engineering/tests/`）。
       - **形式化后端立场**：本项目以 **Agda** 为准（依赖类型论原生、构造主义、无 `Choice`、`--rewriting`/Cubical、0 postulate 可逐模块审计）；Lean 4 生态强但接受 `Classical.choice`/`propext`，与本宪法冲突，**只作方法论参考**，不作裁决。
@@ -174,12 +175,15 @@
 
 # ── 数学证明模式：本地插件行 ─────────────────────────────────────────────────
 #
-# 四条相对说明符行（`./` 由 Include 以 preset 目录为 base 解析）：
+# 相对说明符行（`./` 由 Include 以 preset 目录为 base 解析）：
 #   proof-discipline —— systemPrompt「证明纪律」提示段 + `proof_audit` 静态审计工具
 #   agda-engine      —— `proof_compile` 编译 + 六类指纹分诊工具（**Agda 唯一裁决**；dype 实验性、需显式指定；经 ctx.shell 套用 sandbox 策略）
 #   proof-graph      —— `proof_graph` 静态 import DAG：拓扑序 / 环检测 / 未解析依赖
 #   proof-dag        —— `proof_dag` 持久化命题级台账：状态机 / owner / next 调度 / check 体检
-# 四行都不 provide 任何 service，因此可以裸露在 preset 里，不需要 isolate realm；
+#   python-oracle    —— `proof_oracle` 先算后验证（Python 精确整数 + 覆盖清单 + 回执）
+#   prover-limits    —— `prover_limits` 工具链限制经验库（证据 + 误判防护必填）
+#   budget           —— `budget` 每次任务的预算与流量账本（本回合实况 / 按类基线 / 追加申请 / 标定）
+# 本地插件行都不 provide 任何 service，因此可以裸露在 preset 里，不需要 isolate realm；
 # 文件内只 import `node:` 内建模块（preset 目录不在 harness 的 node_modules 走查范围内）。
 #
 # ⚠ 改动插件后必须跑 schema 自检（否则非法 schema 会让整个会话启动失败）：
@@ -219,6 +223,8 @@
 #   node ~/.dsh/.agent-presets/math-proof/scripts/docs-gen.mjs       # 生成 docs/maps/M2-dependency.md（依赖图，从源码生成，勿手改）
 #   node ~/.dsh/.agent-presets/math-proof/tests/docs-check.mjs       # DOCS_OK（M2 与源码一致 / 地图齐 / Mermaid 闭合 / 链接可解析）
 #   node ~/.dsh/.agent-presets/math-proof/tests/hooks-check.mjs      # HOOKS_OK（SessionStart / UserPromptSubmit / PreToolUse 拦截 / Stop 行为契约）
+#   node ~/.dsh/.agent-presets/math-proof/tests/budget-check.mjs     # BUDGET_OK（预算规则表自洽 / 判定 / 结算 ±10% / 投递契约）
+#   node ~/.dsh/.agent-presets/math-proof/scripts/traffic-report.mjs # 会话流量报表（--calibrate 用真实日志标定各类预算）
 # 覆盖：proof_dag 状态机/失败诊断/签名变更级联失效/证据完整性/台账↔代码断链/损坏台账隔离/
 #       并发写不丢更新/溯源/流水/接手简报/完整性评分与趋势/裁决闭环；prover_limits 经验库（证据+误判防护必填）；proof_graph 拓扑序
 #       与环检测；proof_audit 门禁；agda-engine 指纹分诊与经验库联动；技能索引 frontmatter。
@@ -242,7 +248,12 @@
 - id: python-oracle
   name: './plugins/python-oracle.mjs'
 
-# 钩子（Claude Code hooks.json 方言）：SessionStart 注入接手简报、PreToolUse 拦截越过步骤、Stop 收工提醒
+# 钩子（Claude Code hooks.json 方言）：
+#   SessionStart     接手简报
+#   UserPromptSubmit 预算公告 + 上一轮信箱（收工检查 / fable5 收工三项）
+#   PreToolUse       预算闸门（+ fable5 计划绑定闸门）
+#   PostToolUse      过程播报（每 N 次调用一句「已用/剩余」，**不拦**）
+#   Stop             只做副作用：登记待结算 + 写信箱（**Stop 的 additionalContext 官方桥不注入**）
 - id: hooks
   name: '@deepseek-ai/dsh-hooks-claude-code'
   config:
@@ -259,6 +270,11 @@
 # 证明器限制经验库（把工具链限制转成可累积、带证据的软件经验；query 由 proof_compile 联动）
 - id: prover-limits
   name: './plugins/prover-limits.mjs'
+
+# 预算与流量账本（`budget` 工具：本回合实况 / 按类基线 / 追加申请 / 标定 / 历史）
+# 计量与判定在 impl/session-traffic.mjs + impl/budget-policy.mjs；钩子在 hooks/budget-*.mjs。
+- id: budget
+  name: './plugins/budget.mjs'
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'

@@ -123,7 +123,7 @@ for (const r of mountResults) {
 {
   const allTools = mountResults.filter((r) => r.ok).flatMap((r) => r.tools)
   const allSections = mountResults.filter((r) => r.ok).flatMap((r) => r.sections)
-  ok('6 个工具都被注册', allTools.length === 6 && new Set(allTools).size === 6, allTools.join(','))
+  ok('7 个工具都被注册（含 budget）', allTools.length === 7 && new Set(allTools).size === 7 && allTools.includes('budget'), allTools.join(','))
   ok('纪律提示段被注册', allSections.includes('math-proof:discipline'), allSections.join(','))
 }
 

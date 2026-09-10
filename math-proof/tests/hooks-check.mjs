@@ -6,7 +6,9 @@
 // 覆盖三个钩子的**行为契约**（不是「配置存在」）：
 //   SessionStart  → 输出 hookSpecificOutput.additionalContext（接手简报 / 空台账指引）
 //   PreToolUse    → 越过步骤时 exit 2 + stderr 理由；合规时 exit 0
-//   Stop          → 有未决项时附加上下文，无则空
+//   Stop          → **只做副作用**（信箱写入）：官方桥不注入 Stop 的 additionalContext，
+//                   所以「收工提醒」必须落信箱、由下一轮 UserPromptSubmit 念出来。
+//   UserPromptSubmit → 预算公告 + 信箱投递（能注入的三个点之一）
 // 以及 hooks.json 的结构（事件、命令指向真实脚本）。
 
 import { spawnSync } from 'node:child_process'
@@ -25,8 +27,14 @@ const ok = (name, cond, detail = '') => {
   results.push(`${cond ? '✅' : '❌'} ${name}${cond || detail === '' ? '' : ` — ${detail}`}`)
   if (!cond) failures++
 }
-const runHook = (file, payload) => {
-  const r = spawnSync(process.execPath, [join(HOOKS, file)], { input: JSON.stringify(payload), encoding: 'utf8' })
+/** 预算钩子的状态目录：**指向临时目录**，绝不碰用户的真实预算账本。 */
+const HOOK_STATE = mkdtempSync(join(tmpdir(), 'math-proof-hooks-state-'))
+const runHook = (file, payload, env = {}) => {
+  const r = spawnSync(process.execPath, [join(HOOKS, file)], {
+    input: JSON.stringify(payload),
+    encoding: 'utf8',
+    env: { ...process.env, ...env },
+  })
   return { code: r.status, out: (r.stdout ?? '').trim(), err: (r.stderr ?? '').trim() }
 }
 
@@ -48,7 +56,7 @@ try {
   // ── hooks.json 结构 ─────────────────────────────────────────────────────
   const cfg = JSON.parse(readFileSync(join(HOOKS, 'hooks.json'), 'utf8'))
   const events = Object.keys(cfg.hooks ?? {})
-  for (const e of ['SessionStart', 'PreToolUse', 'Stop']) ok(`hooks.json 含 ${e}`, events.includes(e), events.join(', '))
+  for (const e of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']) ok(`hooks.json 含 ${e}`, events.includes(e), events.join(', '))
   const commands = Object.values(cfg.hooks ?? {}).flat().flatMap((g) => g.hooks ?? []).map((h) => h.command)
   ok('hooks.json 命令数 >= 3', commands.length >= 3, String(commands.length))
   for (const c of commands) {
@@ -99,11 +107,30 @@ try {
   const unrelated = runHook('gate-dag.mjs', { cwd: ws, tool_input: { action: 'list' } })
   ok('gate 非 proven 操作放行', unrelated.code === 0)
 
-  // ── Stop：有未决项 → 附加上下文 ────────────────────────────────────────
-  const stop = runHook('stop-reminder.mjs', { cwd: ws, hook_event_name: 'Stop' })
-  ok('Stop exit 0', stop.code === 0)
-  ok('Stop 提醒待裁决', stop.out.includes('待人类裁决'), stop.out.slice(0, 160))
-  ok('Stop 提醒写交接', stop.out.includes('handoff'), stop.out.slice(0, 200))
+  // ── Stop：只做副作用（写信箱），不指望被投递 ───────────────────────────
+  // 2026-09-10 修正：官方桥 `agent/turn-stopping` 只处理 deny→steer，
+  // **不注入 additionalContext**（源码 + 日志双重核对，见 hooks/carryover.mjs）。
+  // 原先的 stop-reminder.mjs 因此从未生效，已删除 → 内容搬进信箱，由下轮开局投递。
+  const stop = runHook('budget-settle.mjs', { cwd: ws, session_id: 'hooks-check', hook_event_name: 'Stop' }, { MATH_PROOF_STATE_DIR: HOOK_STATE })
+  ok('Stop 钩子 exit 0', stop.code === 0)
+  ok('Stop 钩子**不输出**任何模型可见内容（投不出去，别自欺）', stop.out === '', stop.out.slice(0, 120))
+  const carried = (() => {
+    const p = join(HOOK_STATE, `carryover-${createHash('sha1').update(String(ws)).digest('hex').slice(0, 12)}.json`)
+    try {
+      return JSON.parse(readFileSync(p, 'utf8')).items.map((i) => i.text).join('\n')
+    } catch {
+      return ''
+    }
+  })()
+  ok('信箱收到 fable5 收工三项', carried.includes('收工三项'), carried.slice(0, 120))
+  ok('信箱收到台账收工检查（未决项）', carried.includes('待人类裁决') && carried.includes('handoff'), carried.slice(0, 200))
+
+  // UserPromptSubmit 取空信箱 → 下一轮才看得到
+  const startTurn = runHook('budget-start.mjs', { cwd: ws, session_id: 'hooks-check', transcript_path: '', prompt: '帮我证一下这个引理', hook_event_name: 'UserPromptSubmit' }, { MATH_PROOF_STATE_DIR: HOOK_STATE })
+  ok('开局钩子 exit 0 且注入预算公告', startTurn.code === 0 && startTurn.out.includes('本任务预算'), startTurn.out.slice(0, 120))
+  ok('开局钩子把上一轮信箱念了出来（收工三项）', startTurn.out.includes('收工三项'))
+  const drained = runHook('budget-start.mjs', { cwd: ws, session_id: 'hooks-check', transcript_path: '', prompt: '帮我证一下这个引理', hook_event_name: 'UserPromptSubmit' }, { MATH_PROOF_STATE_DIR: HOOK_STATE })
+  ok('信箱取空后不再重复念（幂等投递）', drained.out.includes('本任务预算') && !drained.out.includes('收工三项'), drained.out.slice(0, 120))
 
   // ── fable5 流程钩子：把「流程」当流程，而不是只当知识文件 ──────────────
   const intake = runHook('fable5-flow.mjs', { hook_event_name: 'UserPromptSubmit', prompt: '把 NSEFinalClosure 里的 C7 实例化问题解决掉，并补齐 T6 的对象层' })
@@ -116,9 +143,9 @@ try {
   const ack = runHook('fable5-flow.mjs', { hook_event_name: 'UserPromptSubmit', prompt: '继续' })
   ok('fable5: 纯应答不打扰', ack.out.includes('"additionalContext":""'))
 
+  // Stop 分支已移除（那段文本现在由 budget-settle 落信箱 → 下轮开局投递）
   const wrap = runHook('fable5-flow.mjs', { hook_event_name: 'Stop' })
-  ok('fable5: Stop → 收工三项', wrap.code === 0 && wrap.out.includes('收工三项'), wrap.out.slice(0, 120))
-  ok('fable5: 收工含持久记忆/对抗自检/防虚假完成', wrap.out.includes('持久记忆') && wrap.out.includes('对抗自检') && wrap.out.includes('防虚假完成'))
+  ok('fable5: Stop 分支不再输出（投不出去的死代码已清掉）', wrap.code === 0 && wrap.out.includes('"additionalContext":""'), wrap.out.slice(0, 120))
 
   // ── fable5 流程闸门（PreToolUse）：计划绑定 + 防虚假完成 ────────────────
   const gws = mkdtempSync(join(tmpdir(), 'math-proof-flow-'))
@@ -173,12 +200,12 @@ try {
   const cfg = JSON.parse(readFileSync(join(HOOKS, 'hooks.json'), 'utf8')).hooks
   ok('hooks.json 注册了 UserPromptSubmit', Array.isArray(cfg.UserPromptSubmit) && cfg.UserPromptSubmit.length > 0)
   const commands = Object.values(cfg).flat().flatMap((g) => g.hooks.map((h) => h.command))
-  for (const f of ['session-start.mjs', 'gate-dag.mjs', 'stop-reminder.mjs', 'fable5-flow.mjs', 'fable5-gate.mjs']) {
+  for (const f of ['session-start.mjs', 'gate-dag.mjs', 'fable5-flow.mjs', 'fable5-gate.mjs', 'budget-start.mjs', 'budget-gate.mjs', 'budget-tick.mjs', 'budget-settle.mjs']) {
     ok(`hooks.json 指向真实脚本 ${f}`, commands.some((c) => c.includes(f)) && existsSync(join(HOOKS, f)))
   }
 }
 
-console.log('# 钩子回归（SessionStart / UserPromptSubmit / PreToolUse / Stop）\n')
+console.log('# 钩子回归（SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop）\n')
 console.log(results.join('\n'))
 console.log(`\n${failures === 0 ? 'HOOKS_OK' : 'HOOKS_FAIL'} ${results.length - failures}/${results.length}`)
 process.exit(failures === 0 ? 0 : 1)

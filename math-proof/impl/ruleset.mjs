@@ -18,7 +18,151 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 /** 规则语义版本：**规则一变就加一**（进输出日志，保证分数可比）。 */
-export const RULESET_VERSION = 'r7'
+export const RULESET_VERSION = 'r8'
+
+/**
+ * 「已验证」的**弱证据**：工具回执文本里出现这些标记才算机器出过声。
+ *
+ * ⚠ 口径必须说清（不许把弱证据当强证据）：
+ *   · 这是**文本匹配**——模型抄一段样例文本也能命中，所以它只是**必要不充分**；
+ *   · **强证据**是落盘产物：`~/.dsh/state/math-proof/receipts/`（编译回执，绑源码哈希）
+ *     与 `oracle-receipts/`（绑脚本哈希 + stdout 哈希）。`session-traffic.mjs` 的
+ *     `verifiedByFiles` 看的是「本回合时间窗内有没有**新写的**回执文件」——那是文件系统事实。
+ *   · 两者取或：任一出声即算「有证据」；都没有 → 记 `unverified`（**不扣预算，也不减预算**）。
+ */
+export const RECEIPT = {
+  /**
+   * ⚠ 只收**高信号**标记：`exit 0` 这种**不收**——实测它几乎在每个回合的工具输出里都出现
+   * （模型自己 echo、脚本回显都能命中），收进来等于「人人都有证据」= 门禁失效。
+   * 收 `回执: \``（签发形态）而**不收** `回执: `（未签发形态是 `- 回执: ⚠ 未签发…`）。
+   */
+  patterns: [
+    'CHECK_ALL_OK',
+    'ALL_PASS',
+    'BENCHMARK_PASS',
+    'SCHEMA_LINT_OK',
+    'EVAL_CHECK_OK',
+    'KNOWLEDGE_OK',
+    'DUP_OK',
+    'CACHE_OK',
+    'REFS_OK',
+    'ROUTING_OK',
+    'HOOKS_OK',
+    'MARKET_OK',
+    'PLUGINS_OK',
+    'PUBLISH_OK',
+    'RULESET_OK',
+    'DOCS_OK',
+    'SKILLS_REF_OK',
+    'PATHS_OK',
+    'INJECT_OK',
+    'PROMPT_VARS_OK',
+    'RELOAD_OK',
+    'HOT_SECTION_OK',
+    'BUDGET_OK',
+    'ORACLE-MANIFEST',
+    '✅ 退出 0',
+    '回执: `',
+  ],
+  /** 回执落盘目录（相对 state 目录）。强证据。 */
+  dirs: ['receipts', 'oracle-receipts'],
+}
+
+/**
+ * **预算与流量管理**（冻结数值；回答「每次任务的预算能不能自己加减」）。
+ *
+ * 实测口径（2026-09-10，本机 26 会话 / 174 个有 usage 的回合，见 `scripts/traffic-report.mjs`）：
+ *   · 单回合中位 **6.61M token**（p25 3.15M / p75 11.07M / p90 17.63M / max 84.14M）——差 5.6 倍；
+ *   · 单回合步数中位 **16**（p90 52，max 325）；每步上下文中位 **49.2 万 token**；
+ *   · 拆开看：input 8.2k / cacheRead **6.58M** / output **14.2k** —— **99.6% 的流量是「上下文被重复读」**，
+ *     模型真正写出来的字只占 **0.9%**。
+ *   ⇒ 三个结论直接决定本表：
+ *     1. 流量 ≈ **步数 × 每步上下文**。所以预算的主控量是**步数**，不是 token；
+ *     2. 「让模型少写字」几乎省不了流量（0.9%），别把它当杠杆；
+ *     3. 用户要求「自己给自己加减 10%」必须挂在**步数**上，且必须**按任务类**——
+ *        全局中位数对 5.6 倍的类间差异毫无意义。
+ *
+ * 自适应的三条纪律（防棘轮 / 防刷指标）：
+ *   · **只在「已验证完成」时减 10%**——没证据的「完成」不算，不减；
+ *   · **只在「撞到预算墙」时加 10%**——失败/中断**不加**（否则一个坏构建就能把预算养肥，见 clamp）；
+ *   · 无论怎么调，都夹在 **[min, max] × 该类中位步数** 区间内；样本不足 `minSamples` 时**只记账不动手**。
+ */
+export const BUDGET = {
+  /** 计量单位：**一个 turn**（UserPromptSubmit → Stop）。 */
+  unit: 'turn',
+  /** 计量单位说明：预算按**工具调用次数**计（钩子能精确数、模型也能自己数）。 */
+  counterUnit: 'tool-call',
+  /** 一次结算的调整步长（用户口径：±10%）。 */
+  adjust: 0.1,
+  /** 夹紧区间：相对该类**中位调用数**的倍数（0.5×–2×）。棘轮的物理上限就在这里。 */
+  clamp: { min: 0.5, max: 2 },
+  /** 基线 = 该类最近 `window` 条样本的中位**工具调用数**（不用均值：单次 84M 的失控能把均值拉偏 ~50%）。 */
+  window: 20,
+  /** 少于这么多条样本 → 只记账，不调整、不刹车（数据不足时不动手）。 */
+  minSamples: 5,
+  /** 历史样本上限（数据管理：状态文件必须有界，超出丢最旧）。 */
+  historyMax: 400,
+  /** 提醒线：用到这个比例就在工具结果里回一句（不拦）。 */
+  warnAt: 0.8,
+  /** 两级刹车：`softAt` 起禁**取证类**工具；`hardAt` 起只留白名单（收尾路径）。 */
+  softAt: 1,
+  hardAt: 1.3,
+  /** 每 N 次工具调用回一次「已用/剩余」（少打扰）。 */
+  tickEvery: 5,
+  /** 同一「工具 + 参数」重复到第几次判为原地打转。 */
+  repeatAt: 3,
+  /** 白名单：预算耗尽后**仍然允许**的工具——收尾与记账的路，绝不能被预算掐断。 */
+  allowlist: ['budget', 'proof_dag', 'proof_oracle', 'todo_write', 'ask_user_question', 'skill', 'proof_graph'],
+  /** 取证类工具：soft 刹车先掐这些（停止找新证据，先交出已有结论）。 */
+  evidenceTools: ['read', 'glob', 'grep', 'bash', 'web_search', 'web_fetch', 'subagent', 'subagent_fork', 'workflow', 'task', 'jobs'],
+  /**
+   * 追加预算（回答「可以让模型自己加预算吗」）：
+   * **可以，但走申请制 + 记债**——不能是自由旋钮，否则「压力」是假的。
+   */
+  topup: {
+    /** 每任务最多申请次数。 */
+    maxPerTask: 1,
+    /** 批准额度 = 当前预算 × 该比例。 */
+    grantRatio: 0.5,
+    /** 理由的最短长度（要有实质内容，不是「继续」）。 */
+    minReasonChars: 20,
+    /** 记债：下个**已验证完成**的任务先按该比例扣回。 */
+    debtRepayRatio: 0.1,
+  },
+  /** 墙钟上限（毫秒）：0 = 不限。防「步数没超但一步卡很久」。 */
+  wallMs: { default: 1200000, chat: 180000 },
+  /**
+   * 任务分类（**顺序即优先级**，第一条命中即用）。
+   * `calls` 是**先验**（不是实测值）：实测值由 `scripts/traffic-report.mjs --calibrate`
+   * 写进 `~/.dsh/state/math-proof/budget-profile.json`，运行时以 profile 为准。
+   * `requireReceipt`：这类任务的「完成」是否必须有机器证据才算数（chat/docs 本质上没有回执）。
+   */
+  classes: [
+    {
+      id: 'compile',
+      label: '编译/类型错误修复',
+      match: '编译|报错|类型错误|修(一下)?(这个)?(bug|错误)|InfectiveImport|UnsolvedConstraint|exit [1-9]|不通过|跑不过',
+      calls: 30,
+      requireReceipt: true,
+    },
+    { id: 'proof', label: '写/改形式化证明', match: '证明|定理|引理|形式化|Agda|postulate|证一下|补证|证完|invariant|同构', calls: 38, requireReceipt: true },
+    { id: 'diagnose', label: '排查/审计/定位', match: '排查|为什么|为何|定位|诊断|根因|审计|核对|检查一下|复盘|怎么会', calls: 26, requireReceipt: false },
+    { id: 'docs', label: '文档/报告/整理', match: '文档|说明|README|报告|注释|整理|成文|索引|maps?|发布说明', calls: 26, requireReceipt: false },
+    {
+      id: 'build',
+      label: '实现/重构/批量改造',
+      match: '实现|重构|迁移|新增|接入|改造|集成|批量|端到端|接上|跑通|落地|优化|升级',
+      calls: 32,
+      requireReceipt: true,
+    },
+    { id: 'chat', label: '短问答', match: '', calls: 6, requireReceipt: false },
+  ],
+  /** 一条都没命中时的兜底类 + 「算长任务」的字符数阈值（长提示词默认按 build 处理）。 */
+  defaultClass: 'chat',
+  longPromptChars: 60,
+  /** 兜底：都没命中且提示词很长 → 按这个类走。 */
+  longDefaultClass: 'build',
+}
 
 /** 台账↔代码断链的判定开关。 */
 export const DRIFT = {

@@ -1,10 +1,10 @@
-# math-proof 文档（地图 M1–M6）
+# math-proof 文档（地图 M1–M7）
 
 > 这里是**架构与数据**文档。人类入口是上一级的 [`README.md`](../README.md)；
 > 模型的常驻纪律在 `../agent.cordis.yml` + `../impl/discipline.md`；缓存纪律见 [`CACHE.md`](../CACHE.md)；
 > 逐轮审计与**被否证的判断**见 [`AUDIT.md`](../AUDIT.md) + [`audit/rounds.md`](../audit/rounds.md)。
 
-## 六张地图
+## 七张地图
 
 | 地图 | 回答的问题 | 什么时候看 |
 | --- | --- | --- |
@@ -14,6 +14,7 @@
 | [M4 · 状态与数据管理](maps/M4-state-and-storage.md) | 数据存哪、哪个是主数据、怎么清理不丢东西 | 磁盘涨了 / 换机器 / 备份恢复 |
 | [M5 · 会话生命周期](maps/M5-lifecycle.md) | 什么时候注入什么、压缩后靠什么接上、改东西要不要新开会话 | 跨天接手 / 改了规则想知道生效没 |
 | [M6 · 证据链与反刷分](maps/M6-evidence-chain.md) | 什么算证据、什么时候失效、什么行为算作弊 | 标 `proven` 之前 / 看评分之前 |
+| [M7 · 预算与流量](maps/M7-budget.md) | 每次任务花多少、用什么评价、谁来决定加减、什么时候会拦你的工具 | 被拦了 / 想调预算 / 想关掉刹车 |
 
 ## 三条读法建议
 
@@ -28,7 +29,7 @@
   ```bash
   node tests/docs-check.mjs      # DOCS_OK：M2 与源码一致 / 地图文件齐 / Mermaid 块闭合 / 文件链接可解析
   ```
-- **M1、M3–M6 是手写地图**：改架构/流程时同步改，并在 `audit/rounds.md` 记一轮；
+- **M1、M3–M7 是手写地图**：改架构/流程时同步改，并在 `audit/rounds.md` 记一轮；
 - **不要在文档里写字面数字**（模块数、断言数、字符数）：它们会漂移，一律用命令现场取；
 - 文档里所有相对链接必须可解析（`docs-check` 会核）。
 

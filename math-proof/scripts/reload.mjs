@@ -92,7 +92,9 @@ if (proc === null) {
   const hooksNewer = newestHookMtime() > proc.startedAt
   console.log(`- dsh 进程: pid ${proc.pid}｜启动于 ${new Date(proc.startedAt).toLocaleString()}`)
   console.log(`- **插件代码比进程新？${pluginNewer ? '是 → ❗必须重启 dsh 进程（ESM 缓存：新会话不够）' : '否（进程内已是当前代码）'}**`)
-  console.log(`- **钩子代码比进程新？${hooksNewer ? '是 → ❗同样必须重启进程' : '否'}**`)
+  console.log(
+    `- **钩子脚本比进程新？${hooksNewer ? '是 → 无需重启：钩子是每次调用新起进程，改完下一次调用即生效（但同一文件若被插件 import，插件那一侧仍是旧的）' : '否'}**`,
+  )
 }
 console.log('')
 console.log('> ⚠ **实测更正（2026-09-10）**：Cordis 加载器对本地行用**无 query 的 `import(url)`**，')
@@ -123,6 +125,9 @@ console.log('  **判断方法：先跑 `proof_dag action:"doctor"`**——它报
 console.log('  规则集不一致 = 本次结果已按新规则算（热）；插件本体落后 = 结构是旧的（引用分数必须连同哈希一起说）。')
 console.log('')
 console.log('## 一句话')
-console.log('**真热（同进程立即生效）：`impl/discipline.md`、`impl/ruleset.mjs`、`impl/local-paths.json` 的值；')
-console.log('改了代码（`plugins/**`、`hooks/**`、描述/schema/persona/composition）→ 必须重启 dsh 进程。**')
-console.log('改完不需要任何命令——下一次模型请求即生效（热档位）。')
+console.log('**真热（同进程立即生效）：①`impl/discipline.md` / `impl/path-section.md` 的文本；②`impl/local-paths.json` 的值；')
+console.log('③ `hooks/*.mjs` 与它们 import 的模块（钩子每次调用都是新起进程加载）。**')
+console.log('**必须重启 dsh 进程：`plugins/**` 代码、`impl/ruleset.mjs`（静态 import 的冷档）、`hooks/hooks.json`、')
+console.log('工具描述/schema、persona、`agent.cordis.yml`**——它们经 Cordis 的无 query `import(url)` 在进程内固化。')
+console.log('注意：`impl/session-traffic.mjs` / `impl/budget-policy.mjs` 同时被钩子（热）与 `plugins/budget.mjs`（冷）引用，')
+console.log('所以「钩子行为立刻变、`budget` 工具要重启才变」是正常现象，不是没生效。')

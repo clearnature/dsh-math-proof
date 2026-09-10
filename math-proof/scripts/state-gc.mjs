@@ -15,6 +15,9 @@
 //   witness-*/          每个 workspace 一个 git 见证仓库（每次关键变更一个 commit）
 //   checkpoint-*.json   见证检查点
 //   graph-<ws>.{json,md}知识图谱导出（**可重建的派生物**，会随每次 graph 调用累积）
+//   budget-profile.json 预算学习账本（样本/各类预算；**不清理**——清了等于把学到的忘掉）
+//   budget-turn-<sid>.json 每会话「本回合实况」（覆盖重写；残留可删）
+//   carryover-<ws>.json 收工信箱（Stop 写入、下轮开局取空）
 // 长期运行的风险：回执无限增长、见证仓库快照累积、聚合索引与回执脱节、图谱导出堆积。
 // 本脚本是唯一的维护入口——**归档不删除**（数据留档，热目录瘦身）。
 
@@ -74,6 +77,9 @@ const report = {
   checkpoints: 0,
   ledgers: 0,
   graphs: { files: 0, bytes: 0, groups: 0 },
+  budgetTurns: { files: 0, bytes: 0 },
+  budgetProfile: { bytes: 0 },
+  carryover: { files: 0, bytes: 0 },
 }
 const graphFiles = []
 for (const e of entries) {
@@ -102,6 +108,16 @@ for (const e of entries) {
   } else if (e.startsWith('history-')) {
     report.history.files += 1
     report.history.bytes += st.size
+  } else if (e.startsWith('budget-turn-')) {
+    // 每会话一份「本回合实况」（用完即弃；钩子会覆盖重写，不是学习状态）
+    report.budgetTurns.files += 1
+    report.budgetTurns.bytes += st.size
+  } else if (e === 'budget-profile.json') {
+    // 预算学习账本（跨天保留，**不清理**，只在报告里让体积可见）
+    report.budgetProfile.bytes = st.size
+  } else if (e.startsWith('carryover-')) {
+    report.carryover.files += 1
+    report.carryover.bytes += st.size
   } else if (e.startsWith('witness-') && st.isDirectory()) {
     const s = dirSize(p)
     report.witness.repos += 1
@@ -240,6 +256,9 @@ console.log(`| 评分历史 | ${report.history.files} 个 | ${mb(report.history.
 console.log(`| 见证仓库 | ${report.witness.repos} 个 | ${mb(report.witness.bytes)} | 每次关键变更一个 commit |`)
 console.log(`| 检查点 / 台账 | ${report.checkpoints} / ${report.ledgers} | — | — |`)
 console.log(`| 知识图谱导出 | ${report.graphs.files} 个文件（${report.graphs.groups} 组） | ${mb(report.graphs.bytes)} | **派生物**（可由台账重建，可归档） |`)
+console.log(`| 预算账本 | 1 份 | ${mb(report.budgetProfile.bytes)} | 学习状态（各类中位/预算/样本，**不清理**） |`)
+console.log(`| 回合实况 | ${report.budgetTurns.files} 个 | ${mb(report.budgetTurns.bytes)} | 钩子每回合覆盖重写（可安全删除） |`)
+console.log(`| 收工信箱 | ${report.carryover.files} 个 | ${mb(report.carryover.bytes)} | 取空即清（残留下轮会被覆盖） |`)
 console.log('')
 if (!APPLY) {
   console.log('（dry-run）常用维护：')

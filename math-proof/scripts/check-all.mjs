@@ -3,7 +3,7 @@
 // 用法：node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs
 // 退出码 0 = 全部通过；非 0 = 有套件失败（并打印失败套件的尾部输出）。
 //
-// 为什么需要它：门禁有 21 个入口（lint + 20 套件）。日常「改完跑一遍」不该记命令，
+// 为什么需要它：门禁有 22 个入口（lint + 21 套件）。日常「改完跑一遍」不该记命令，
 // 也不该漏跑。本脚本按固定顺序执行、汇总成一张表，并把失败套件的尾部日志原样贴出
 // （禁止「我跑过了」式声称——证据必须出现在输出里）。
 
@@ -35,6 +35,7 @@ const SUITES = [
   ['prompt-vars-check', join(PRESET, 'tests', 'prompt-vars-check.mjs'), 'PROMPT_VARS_OK'],
   ['reload-check', join(PRESET, 'tests', 'reload-check.mjs'), 'RELOAD_OK'],
   ['hot-section-check', join(PRESET, 'tests', 'hot-section-check.mjs'), 'HOT_SECTION_OK'],
+  ['budget-check', join(PRESET, 'tests', 'budget-check.mjs'), 'BUDGET_OK'],
 ]
 
 const rows = []
