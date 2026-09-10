@@ -84,7 +84,11 @@ console.log('# 热重载状态（数学证明模式）\n')
 console.log(`- composition: \`${composition}\``)
 console.log(`  - mtime ${new Date(st.mtimeMs).toISOString()}｜size ${st.size}`)
 console.log(`- 最新代码文件: \`${plugins[0].f}\`（${new Date(plugins[0].mtimeMs).toLocaleString()}）`)
-console.log(`- composition 比插件新？**${st.mtimeMs > plugins[0].mtimeMs ? '是' : '否（composition 时间戳更旧 = 新会话不会重挂）'}**`)
+console.log(
+    `- composition 比最新插件新？**${st.mtimeMs > plugins[0].mtimeMs ? '是' : '否'}**` +
+      '（⚠ 这一行**只比 mtime**，不能推出「新会话会不会重挂」：挂载失效看的是**本文件相对上次挂载**是否变过；' +
+      '而本进程内改插件代码一律要重启——见下面的结论行）',
+  )
 if (proc === null) {
   console.log('- 运行中的 dsh 进程：**未检测到**（不影响结论；改了插件代码仍要重启进程才能生效）')
 } else {
