@@ -810,6 +810,72 @@ export function fmtTokenLine(t) {
   return parts.join(' ')
 }
 
+/** 分组整数（`25,178,836`）——**与界面显示逐字符对齐**，便于人肉核对。 */
+export function fmtInt(n) {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
+  return Math.round(n).toLocaleString('en-US')
+}
+
+/**
+ * 把一条回合账整理成**与界面同名的字段**（`TurnUsagePanel` 的口径）。
+ *
+ * 界面（`client-ui-chat` 的 `deriveTurnTokenUsage` → `normalizeUsage`）与本模块的字段对照：
+ *
+ * | 界面显示 | 日志字段（`assistant/message.usage`） | 本模块 |
+ * | --- | --- | --- |
+ * | 提供方 / 模型 | `request/header` 的 `config.provider/model` | `tr.provider` / `tr.model` |
+ * | 缓存命中（%） | `cacheReadTokens / (inputTokens + cacheReadTokens)` | `cacheHitRate` |
+ * | 未缓存输入 | `inputTokens` | `inTok` |
+ * | 缓存读取 | `cacheReadTokens` | `cacheTok` |
+ * | 输出（其中推理） | `outputTokens` / `reasoningTokens` | `outTok` / `reasoningTok` |
+ * | 本轮用量 | `totalTokens`（≡ 未缓存输入 + 缓存读取 + 输出） | `tok` |
+ *
+ * ⚠ 算术恒等式是**同一把尺子**：`tok === inTok + cacheTok + outTok`。
+ * 界面里的一条「本轮用量 25,178,836 tok」在日志里就是
+ * `{inputTokens: 26872, cacheReadTokens: 25116032, outputTokens: 35932, reasoningTokens: 9672}`。
+ */
+export function turnUsageRow(tr) {
+  const inTok = tr?.inTok ?? 0
+  const cacheTok = tr?.cacheTok ?? 0
+  const outTok = tr?.outTok ?? 0
+  const reasoningTok = tr?.reasoningTok ?? 0
+  const input = inTok + cacheTok
+  return {
+    provider: tr?.provider ?? null,
+    model: tr?.model ?? null,
+    total: tr?.tok ?? input + outTok,
+    uncachedInput: inTok,
+    cacheRead: cacheTok,
+    output: outTok,
+    reasoning: reasoningTok,
+    input,
+    cacheHitRate: input > 0 ? cacheTok / input : 0,
+    steps: tr?.steps ?? null,
+    calls: tr?.toolCalls ?? null,
+  }
+}
+
+/**
+ * 渲染**与界面完全同格式**的一块用量（供人肉核对：界面数字 == 我们的数字）。
+ * 缺字段就如实省略（不写 0 冒充「读过」）。
+ */
+export function renderUsageBlock(tr, options = {}) {
+  const u = turnUsageRow(tr)
+  const title = options.title ?? '本轮用量'
+  const lines = [`${title} ${fmtInt(u.total)} tok`, '']
+  lines.push('提供方 / 模型', `    ${u.provider === null ? '未记录' : `${u.provider}/${u.model ?? '—'}`}`)
+  if (u.input > 0) {
+    lines.push('缓存命中', `    ${(u.cacheHitRate * 100).toFixed(1)}%`)
+    lines.push('未缓存输入', `    ${fmtInt(u.uncachedInput)} tok`)
+    lines.push('缓存读取', `    ${fmtInt(u.cacheRead)} tok`)
+  } else {
+    lines.push('未缓存输入', `    ${fmtInt(u.uncachedInput)} tok`)
+  }
+  lines.push('输出', u.reasoning > 0 ? `    ${fmtInt(u.output)} tok（其中推理 ${fmtInt(u.reasoning)} tok）` : `    ${fmtInt(u.output)} tok`)
+  if (options.withSteps === true) lines.push('步数 / 工具调用', `    ${u.steps ?? '—'} / ${u.calls ?? '—'}`)
+  return lines.join('\n')
+}
+
 /** 合并两个分解账（用于累加会话累计）。 */
 export function addBreakdown(a, b) {
   return {

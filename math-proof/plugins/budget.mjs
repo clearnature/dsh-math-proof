@@ -33,7 +33,10 @@ import {
   writeTurn,
 } from '../impl/budget-policy.mjs'
 import {
+  fmtInt,
   fmtTokenLine,
+  renderUsageBlock,
+  turnUsageRow,
   budgetFor,
   classBaseline,
   classDef,
@@ -41,6 +44,7 @@ import {
   loadProfile,
   saveProfile,
   foldLastTurn,
+  foldSession,
   scanSessionTurns,
   sessionLogFiles,
   ZSTD_SUPPORTED,
@@ -51,7 +55,7 @@ import {
 export const name = 'budget'
 export const inject = ['tools']
 
-export const ACTIONS = ['status', 'report', 'classes', 'topup', 'calibrate', 'history', 'session', 'quota', 'explain', 'on', 'off']
+export const ACTIONS = ['status', 'usage', 'report', 'classes', 'topup', 'calibrate', 'history', 'session', 'quota', 'explain', 'on', 'off']
 
 /** 一行表格。 */
 function table(headers, rows) {
@@ -129,6 +133,72 @@ function renderStatus(args) {
       }`,
     )
   }
+  return lines.join('\n')
+}
+
+/**
+ * `usage`：**与界面逐字段同格式**的用量明细（本轮 + 最近若干轮 + 会话累计）。
+ *
+ * 为什么要有它：界面（`TurnUsagePanel`）显示的就是
+ * 「本轮用量 / 提供方·模型 / 缓存命中 / 未缓存输入 / 缓存读取 / 输出（其中推理）」，
+ * 而这些字段与日志里 `assistant/message.usage` 一一对应。用**同一套标签与分组数字**渲染，
+ * 人可以把界面上的数字与本工具的输出**逐字符对上**——省掉「到底谁在算哪个量」的争论。
+ */
+function renderUsage(args) {
+  const sessionId = String(args?.sessionId ?? '')
+  const state = sessionId === '' ? null : readTurn(sessionId)
+  const transcript = state?.transcript ?? args?.transcript
+  const limit = Math.max(1, Math.min(20, Number(args?.limit ?? 5)))
+  const lines = ['# budget: usage（与界面同格式：本轮 / 最近若干轮 / 会话累计）', '']
+  if (typeof transcript !== 'string' || transcript === '') {
+    lines.push('- 拿不到会话日志路径（没有回合状态，也没有 transcript）：本命令需要会话上下文。')
+    return lines.join('\n')
+  }
+  let folded
+  try {
+    folded = foldSession(transcript)
+  } catch (e) {
+    lines.push(`- 读日志失败：${e instanceof Error ? e.message : String(e)}`)
+    return lines.join('\n')
+  }
+  const turns = folded.turns.filter((t) => (t.tok ?? 0) > 0)
+  if (turns.length === 0) {
+    lines.push('- 日志里还没有带用量的回合。')
+    return lines.join('\n')
+  }
+  const live = turns[turns.length - 1]
+  lines.push('## 本轮（进行中的最后一轮）', '', '```', renderUsageBlock(live, { title: '本轮用量', withSteps: true }), '```', '')
+  const recent = turns.slice(-limit - 1, -1).reverse()
+  if (recent.length > 0) {
+    lines.push(`## 最近 ${recent.length} 个已完成回合`, '')
+    lines.push(
+      table(
+        ['轮次', '用量 tok', '缓存命中', '未缓存输入', '缓存读取', '输出（推理）', '提供方 / 模型'],
+        recent.map((t) => {
+          const u = turnUsageRow(t)
+          return [
+            String(t.turn),
+            `**${fmtInt(u.total)}**`,
+            u.input > 0 ? `${(u.cacheHitRate * 100).toFixed(1)}%` : '—',
+            fmtInt(u.uncachedInput),
+            fmtInt(u.cacheRead),
+            u.reasoning > 0 ? `${fmtInt(u.output)}（${fmtInt(u.reasoning)}）` : fmtInt(u.output),
+            u.provider === null ? '未记录' : `${u.provider}/${u.model ?? '—'}`,
+          ]
+        }),
+      ),
+      '',
+    )
+  }
+  // 会话累计：用同一标签渲染（把 breakdown 当成一条「回合」）
+  if (state !== null) {
+    const bd = sessionBreakdown(state)
+    lines.push('## 本会话累计', '', '```', renderUsageBlock({ ...bd, provider: live.provider, model: live.model }, { title: '会话累计' }), '```', '')
+    const prof = loadProfile()
+    lines.push(`- 会话预算：**${fmtTok(sessionUsed(state))} / ${fmtTok(state.sessionBudget)}**（${(sessionRatio(state, prof) * 100).toFixed(1)}%）`)
+    lines.push('')
+  }
+  lines.push(`> 口径恒等式：\`本轮用量 = 未缓存输入 + 缓存读取 + 输出\`（与界面同一把尺子）；字段来自 \`assistant/message.usage\`。`)
   return lines.join('\n')
 }
 
@@ -589,6 +659,7 @@ export function runBudget(args, ctx) {
   const sessionId = input.sessionId === undefined ? '' : String(input.sessionId)
 
   if (action === 'status') return renderStatus({ sessionId, cwd })
+  if (action === 'usage') return renderUsage({ sessionId, transcript: input.transcript, limit: input.limit })
   if (action === 'report') return renderReport(input, cwd)
   if (action === 'classes') return renderClasses(cwd)
   if (action === 'topup') return runTopup({ ...input, sessionId, cwd })
@@ -635,10 +706,10 @@ export function apply(ctx) {
         action: {
           type: 'string',
           enum: ACTIONS,
-          description: 'status 本回合实况（含会话预算）/ report 按类基线 / classes 分类表 / topup 申请追加（需 reason）/ calibrate 标定（可 dryRun）/ history 历史样本 / session 看设会话 token 预算 / quota 余额采样与趋势（默认不联网，refresh:true 才拉）/ explain 口径与开关 / on,off 切刹车。',
+          description: 'status 本回合实况（含会话预算）/ usage **与界面同格式**的用量明细（本轮 + 最近若干轮 + 会话累计）/ report 按类基线 / classes 分类表 / topup 申请追加（需 reason）/ calibrate 标定（可 dryRun）/ history 历史样本 / session 看设会话 token 预算 / quota 余额采样与趋势（默认不联网，refresh:true 才拉）/ explain 口径与开关 / on,off 切刹车。',
         },
         reason: { type: 'string', description: `topup 用：追加理由（≥${BUDGET.topup.minReasonChars} 字，写清还缺哪一件关键证据、拿到就能收工）。` },
-        limit: { type: 'number', description: 'history 用：返回多少条（1–60，默认 12）。' },
+        limit: { type: 'number', description: 'history 用：返回多少条（1–60，默认 12）；usage 用：最近多少轮（1–20，默认 5）。' },
         tokens: { type: 'string', description: 'session 用：会话 token 预算（如 "1B" / "500M" / 纯数字）；留空=查看，reset=恢复默认。' },
         refresh: { type: 'boolean', description: 'quota 用：真的去拉一次官方 GET /user/balance（默认 false，只读本机采样缓存，不联网）。' },
         baseline: { type: 'number', description: 'quota 用：自定百分比基线（官方接口没有「总量」字段）。' },

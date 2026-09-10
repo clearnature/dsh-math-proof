@@ -243,6 +243,28 @@ Token 账按**输入 / 输出**分开，这是有意义的分解（也是实测�
 `budget action:"report"` 的「Token 账」一节给出**按 provider / model** 的全机汇总，
 `budget action:"status"` 给出本会话的输入（缓存命中/未缓存）与输出（其中思考）。
 
+### M7.7a′ 字段对照：**界面 = 日志 = 我们**（同一把尺子）
+
+界面每条回合底部的用量面板（`client-ui-chat` 的 `TurnUsagePanel`，数据由 `deriveTurnTokenUsage` 从该回合事件算出）
+与日志里的 `assistant/message.usage` **是同一套字段**，本模块只是把它折起来：
+
+| 界面显示 | 日志字段（`assistant/message.usage`） | 本模块 |
+| --- | --- | --- |
+| 本轮用量` <n> tok` | `totalTokens` | `tok` |
+| 提供方 / 模型 | `request/header` 的 `config.provider` / `config.model` | `tr.provider` / `tr.model` |
+| 缓存命中 `<x>%` | `cacheReadTokens / (inputTokens + cacheReadTokens)` | `cacheHitRate` |
+| 未缓存输入 | `inputTokens` | `inTok` |
+| 缓存读取 | `cacheReadTokens` | `cacheTok` |
+| 输出（其中推理） | `outputTokens` / `reasoningTokens` | `outTok` / `reasoningTok` |
+
+**恒等式**：`本轮用量 ≡ 未缓存输入 + 缓存读取 + 输出`。
+实测校验（拿界面上那一轮的数字）：`26,872 + 25,116,032 + 35,932 = 25,178,836` ✅
+—— 日志里就是 `{inputTokens: 26872, cacheReadTokens: 25116032, outputTokens: 35932, reasoningTokens: 9672}`。
+
+**怎么用**：`budget action:"usage"` 用**界面同款标签与分组整数**渲染「本轮 / 最近若干轮 / 会话累计」，
+所以界面上看到的数字与本工具的输出可以**逐字符对上**（`tests/budget-check.mjs` 里就把这一轮的向量当回归用例钉死）。
+`status` 给一行紧凑摘要（k/M），`usage` 给可核对的明细（分组整数）。
+
 ## M7.7 会话 token 预算（跨回合的总闸）
 
 任务预算（[M7.5](#m75-刹车分级)）管的是「**这一次任务**别绕路」；会话预算管的是「**这一次会话**别把额度烧光」。
@@ -360,6 +382,7 @@ Token 账按**输入 / 输出**分开，这是有意义的分解（也是实测�
 | `budget action:"report"` | 按类基线 + 最近结算（`scan:true` 顺带重扫全部日志现算） |
 | `budget action:"calibrate"` | 用本机真实日志标定各类预算（`dryRun:true` 只算不写） |
 | `SESSION.env`（默认 `MATH_PROOF_SESSION_BUDGET`） | 会话 token 预算（`1M` / `500M` / `1B` / 纯数字），**下一回合生效** |
+| `budget action:"usage"`（`limit:N`） | **与界面同格式**的用量明细：本轮 + 最近 N 轮 + 会话累计 |
 | `budget action:"quota"` / `refresh:true` / `baseline:N` | 余额报告（默认不联网）/ 拉一次 / 设百分比基线 |
 | `node scripts/quota.mjs [--refresh] [--json] [--baseline N]` | 同上，命令行版（适合 cron 与告警） |
 | `budget action:"session" tokens:"1B"` | 同上，写进账本（`reset` 恢复默认） |

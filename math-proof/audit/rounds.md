@@ -3081,3 +3081,50 @@ compaction 管的是**上下文压力**（不是累计花费）；`tokenUsage` �
 回合 provider/model 归属、按 provider 分组、status/report 的进出分解与分组表、样本带分解与 provider 字段、
 结算累加分解）；`CHECK_ALL_OK 22/22`。文档：M7 新增 §M7.7a（口径表 + 实测 + 「谁吃额度」的结论），
 余额一节改为 §M7.7b 并加「积分制没有这一节」的前置说明；README 同步。
+
+## 七十五、对齐界面数据格式：同一把尺子（2026-09-10）
+
+**用户指出**：「这个本身就有数据啊，该怎么利用当前会话的数据格式」，并贴出界面那一块：
+
+```
+本轮用量 25,178,836 tok
+
+提供方 / 模型
+    deepseek-official/deepseek-v4-flash
+缓存命中
+    99.9%
+未缓存输入
+    26,872 tok
+缓存读取
+    25,116,032 tok
+输出
+    35,932 tok（其中推理 9,672 tok）
+```
+
+### 75.1 核实：界面与日志是**同一套字段**（不需要另造口径）
+
+- 界面：`client-ui-chat` 的 `TurnUsagePanel` ← `deriveTurnTokenUsage` 逐事件折叠该回合 → `normalizeUsage`；
+- 日志：`assistant/message.usage` = `{inputTokens, outputTokens, totalTokens, cacheReadTokens, reasoningTokens}`；
+- **恒等式**：`totalTokens ≡ inputTokens + cacheReadTokens + outputTokens`。
+  用用户给的数验算：`26,872 + 25,116,032 + 35,932 = 25,178,836` ✅（与界面「本轮用量」逐位相同）。
+
+所以正确做法不是另立一套指标，而是**用同一套标签与数字格式**把已有的账渲染出来。
+
+### 75.2 实现
+
+- `impl/session-traffic.mjs`：`fmtInt`（**分组整数**，与界面一致；不是 k/M）、`turnUsageRow`（界面字段 ↔ 内部字段）、
+  `renderUsageBlock`（**同款标签 + 4 格缩进**，缺推理就不写括号、缺提供方就写「未记录」）；
+- `plugins/budget.mjs`：新增 `budget action:"usage"`（`limit:N`）——「本轮（进行中）」用同款块渲染，
+  「最近 N 个已完成回合」出表（含提供方/模型与命中率），「本会话累计」同款块；并写明恒等式；
+  `status` 保留 k/M 的紧凑摘要，`usage` 给可核对的明细。
+
+### 75.3 为什么值得单列一条回归
+
+把**这一轮的真实向量**（`26872 / 25116032 / 35932 / 9672`）写进 `tests/budget-check.mjs`：
+渲染第一行必须逐字符等于 `本轮用量 25,178,836 tok`，五个标签必须与界面一致，三个分项必须同数字。
+这样以后谁改了渲染或字段口径，门禁立刻红——**「界面说的数」和「工具说的数」不会再各说各话**。
+
+### 75.4 复验
+
+`budget-check` 308→**328/328**（+20 条）；`CHECK_ALL_OK 22/22`（Node 24 + 22）。
+文档：M7 新增 §M7.7a′（界面/日志/内部三列对照表 + 恒等式 + 实测校验 + 用法），README 一段。

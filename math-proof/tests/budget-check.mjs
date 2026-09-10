@@ -478,6 +478,28 @@ section('会话 token 预算（SESSION / 总闸）')
     ok('report 按 provider 与 model 分组（扫到 1 个会话）', rep.includes('| provider |') && rep.includes('| model |') && rep.includes('全机 1 个会话'), rep.slice(rep.indexOf('| provider |'), rep.indexOf('| provider |') + 40))
     ok('report 给出本会话的输入/输出', rep.includes('**本会话**') && /输入 \*\*/.test(rep), rep.split('\n').find((l) => l.includes('本会话'))?.slice(0, 60) ?? '')
 
+    // 与界面**逐字符同格式**：拿一个真实回合（用户在界面上看到的那一轮）当测试向量
+    {
+      const guiTurn = { inTok: 26872, cacheTok: 25116032, outTok: 35932, reasoningTok: 9672, tok: 26872 + 25116032 + 35932, provider: 'deepseek-official', model: 'deepseek-v4-flash', steps: 12, toolCalls: 11 }
+      ok('fmtInt 用分组整数（与界面一致，不是 k/M）', traffic.fmtInt(25178836) === '25,178,836' && traffic.fmtInt(26872) === '26,872', `${traffic.fmtInt(25178836)}`)
+      ok('算术恒等式：本轮用量 = 未缓存输入 + 缓存读取 + 输出', guiTurn.inTok + guiTurn.cacheTok + guiTurn.outTok === guiTurn.tok && guiTurn.tok === 25178836, String(guiTurn.tok))
+      const block = traffic.renderUsageBlock(guiTurn, { title: '本轮用量', withSteps: true })
+      ok('渲染出界面那一块的第一行（本轮用量 + 分组数字）', block.split('\n')[0] === '本轮用量 25,178,836 tok', block.split('\n')[0])
+      for (const label of ['提供方 / 模型', '缓存命中', '未缓存输入', '缓存读取', '输出']) {
+        ok(`标签与界面一致：${label}`, block.includes(`${label}\n`), block.slice(0, 60))
+      }
+      ok('提供方 / 模型 行是 `provider/model` 且缩进 4 格', block.includes('\n    deepseek-official/deepseek-v4-flash\n'), block.split('\n').slice(2, 4).join('|'))
+      ok('缓存命中按 inputTokens+cacheReadTokens 算 → 99.9%', block.includes('\n    99.9%\n'), block.split('\n')[5])
+      ok('三个分项的数字与界面逐个一致', block.includes('26,872 tok') && block.includes('25,116,032 tok'), block.split('\n').filter((l) => l.includes('tok')).join(' | '))
+      ok('输出行带「其中推理」（推理为 0 时不写）', block.includes('35,932 tok（其中推理 9,672 tok）') && !traffic.renderUsageBlock({ inTok: 1, cacheTok: 2, outTok: 3, reasoningTok: 0, tok: 6 }).includes('其中推理'))
+      ok('提供方缺失时如实写「未记录」', traffic.renderUsageBlock({ inTok: 1, cacheTok: 0, outTok: 1, tok: 2 }).includes('未记录'))
+      ok('turnUsageRow 与界面字段一一对应', (() => { const u = traffic.turnUsageRow(guiTurn); return u.total === 25178836 && u.uncachedInput === 26872 && u.cacheRead === 25116032 && u.output === 35932 && u.reasoning === 9672 && Math.abs(u.cacheHitRate - 0.99893) < 1e-4 })())
+      // 与日志折叠的一致性：fixture turn1 的渲染结果等于它自己的 tok（也是界面会显示的那个数）
+      const fx1 = fxAll[0]
+      const b1 = traffic.renderUsageBlock(fx1)
+      ok('日志折叠出来的回合也能渲染（且总量等于该回合 tok）', b1.includes(`本轮用量 ${traffic.fmtInt(fx1.tok)} tok`) && fx1.tok === fx1.inTok + fx1.cacheTok + fx1.outTok, b1.split('\n')[0])
+    }
+
     // 结算样本带上分解与 provider（报表要按 provider 归类）
     const prof2 = traffic.blankProfile()
     const st2 = { session: 'bd2', turn: 1, class: 'chat', budget: 10, used: 1, denied: 0, startedAt: Date.now() - 30_000, transcript: FIXTURE, cwd: '/w', sessionTok: 1000, sessionBudget: 1e9, sessionBreakdown: { tok: 0, inTok: 0, cacheTok: 0, outTok: 0, reasoningTok: 0 } }
@@ -485,6 +507,25 @@ section('会话 token 预算（SESSION / 总闸）')
     ok('结算样本带上分解（输入/缓存/输出）', r2.sample.inTok === 180 && r2.sample.outTok === 30 && r2.sample.cacheTok === 110, JSON.stringify({ i: r2.sample.inTok, o: r2.sample.outTok, c: r2.sample.cacheTok }))
     ok('结算样本**带 provider/model 字段**（该回合早于首个 request/header → 值为 null，是如实反映）', 'provider' in r2.sample && 'model' in r2.sample && r2.sample.provider === null, JSON.stringify({ p: r2.sample.provider, m: r2.sample.model }))
     ok('结算把回合分解累加进会话账', st2.sessionBreakdown.tok === 320 && st2.sessionBreakdown.inTok === 180 && st2.sessionBreakdown.cacheTok === 110, JSON.stringify(st2.sessionBreakdown))
+  }
+
+  // usage 动作：本轮 / 最近若干轮 / 会话累计（与界面同格式）
+  {
+    resetState()
+    const live = process.env.HOME + '/.dsh/sessions/--data-work-discrete-mathematics--/session-10a4b85c-9308-4f17-bc06-8ca2210339d1/session.jsonl.zstd'
+    const hasLive = existsSync(live)
+    if (!hasLive) {
+      skip('usage 动作（需要真实会话日志）', '本机没有该会话日志')
+    } else {
+      policy.startTurn({ sessionId: 'u9', transcript: live, cwd: '/w', prompt: 'x' })
+      const out = budgetPlugin.runBudget({ action: 'usage', sessionId: 'u9', cwd: '/w', limit: 3 })
+      ok('usage：给出「本轮」块（围栏 + 界面同格式）', out.includes('## 本轮') && out.includes('```') && /本轮用量 [\d,]+ tok/.test(out), out.split('\n').slice(0, 6).join(' / '))
+      ok('usage：给出最近若干轮的表格（含提供方/模型列）', out.includes('## 最近 3 个已完成回合') && out.includes('| 提供方 / 模型 |'), out.split('\n').find((l) => l.includes('| 轮次')) ?? '')
+      ok('usage：给出会话累计块', out.includes('## 本会话累计') && /会话累计 [\d,]+ tok/.test(out), out.split('\n').find((l) => l.includes('会话累计')) ?? '')
+      ok('usage：明确写出恒等式（与界面同一把尺子）', out.includes('未缓存输入 + 缓存读取 + 输出'), out.split('\n').slice(-1)[0])
+      const noCtx = budgetPlugin.runBudget({ action: 'usage', sessionId: 'no-such-session', cwd: '/w' })
+      ok('usage：没有会话上下文时如实说明（不硬编）', noCtx.includes('拿不到会话日志路径') || noCtx.includes('还没有带用量的回合'), noCtx.split('\n')[2] ?? '')
+    }
   }
 
   // 静态：SESSION 真的被用上（而不是只写在表里）

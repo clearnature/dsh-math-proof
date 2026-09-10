@@ -331,6 +331,11 @@ node tests/paths-check.mjs   # PATHS_OK
 `status` 给本会话分解。本机 26 个会话实测：**输入 1764.0M（缓存命中 99.4%）· 输出 4.59M（思考占输出 45%）**
 ——吃额度的是输入侧重复上下文，「省额度」的杠杆是少跑几轮而不是少想。
 
+**与界面同格式**：`budget action:"usage"` 用界面那套标签与**分组整数**渲染「本轮 / 最近若干轮 / 会话累计」
+（字段对照：界面的「本轮用量/提供方·模型/缓存命中/未缓存输入/缓存读取/输出（其中推理）」＝ 日志的
+`totalTokens`/`request.header.config`/`cacheReadTokens÷(input+cache)`/`inputTokens`/`cacheReadTokens`/`outputTokens+reasoningTokens`），
+可以逐字符核对界面数字；恒等式 `本轮用量 = 未缓存输入 + 缓存读取 + 输出`（回归里钉死了实测向量）。
+
 **余额（DeepSeek 专属）**：官方接口是 **`GET /user/balance`**，返回的是**钱**（金额字符串）且**没有「总量」字段**
 ——社区流传的 `/v1/user/info` 与 `total_quota/remaining_quota/used_quota`、以及「剩余/总量=百分比」都不成立。
 本 preset 只做站得住的：**采样 → 燃烧速率（¥/小时，充值不算负消耗）→ ETA**；百分比仅在你自定基线时给。
