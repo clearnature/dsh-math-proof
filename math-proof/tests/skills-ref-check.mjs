@@ -77,7 +77,10 @@ const shipped = new Set(
     .map((e) => e.name),
 )
 const allowFile = join(HERE, 'fixtures', 'external-skills.json')
-const allow = existsSync(allowFile) ? new Set(Object.keys(JSON.parse(readFileSync(allowFile, 'utf8')))) : new Set()
+// `_` 开头的键是文档说明（_comment / _format），不是白名单条目
+const allow = existsSync(allowFile)
+  ? new Set(Object.keys(JSON.parse(readFileSync(allowFile, 'utf8'))).filter((k) => !k.startsWith('_')))
+  : new Set()
 
 ok('抽出技能引用', referenced.size > 0, `references=${referenced.size}`)
 const missing = [...referenced.keys()].filter((n) => !shipped.has(n) && !allow.has(n)).sort()
