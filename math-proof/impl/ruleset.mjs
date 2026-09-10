@@ -1,0 +1,172 @@
+// 数学证明模式 — **可热读的判定规则**（零依赖，只 import `node:` 内建模块）
+//
+// 为什么单独一个文件：工具插件的代码在 standing mount 时被加载一次，**改磁盘不会改变本进程里
+// 已挂载的实例**。2026-09-10 的实际事故：会话里跑的 `proof_dag` 是旧规则（把同模块依赖、传递依赖、
+// 未登记模块都算成断链 → 报 85/100、断链 25 条），而磁盘上的新规则算出来是 0 条。会话里无法自证，
+// 只能靠人肉 diff 工具输出与磁盘源码。
+//
+// 本文件把**判定规则**（断链豁免、评分权重、postulate 分类、编译爆炸处方、草稿文件模式）抽出来，
+// 由工具**每次调用重新 import**（带 `?v=<mtime>` 打破 ESM 缓存）→ 改规则**不需要重开会话**，
+// 也不需要重挂载；同时把 `RULESET_VERSION` 与源码哈希写进每次输出，让分数可比、可追溯。
+//
+// 规矩：
+//   · 改这里的**数值/开关/模式** → 立即生效（热）。改完请把 `RULESET_VERSION` 加一，否则
+//     两次不同规则的分数会被当成同一条曲线。
+//   · 改**工具本体**（`plugins/*.mjs` 的结构、schema、输出格式）→ 仍然需要重挂载；
+//     这种情况由 `proof_dag action:"doctor"` 明确报「插件本体落后于磁盘」，不要装作没事。
+
+import { createHash } from 'node:crypto'
+import { readFileSync, statSync } from 'node:fs'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
+/** 规则语义版本：**规则一变就加一**（进输出日志，保证分数可比）。 */
+export const RULESET_VERSION = 'r5'
+
+/** 台账↔代码断链的判定开关。 */
+export const DRIFT = {
+  /** 同模块豁免：节点声明依赖的模块就是它自己的模块时不算断链（对象节点的常见情形）。 */
+  exemptSameModule: true,
+  /** 传递 import 搜索深度（超过就按纸面依赖处理）。 */
+  transitiveDepth: 8,
+  /** `relations` 里这些前缀算结构性依赖，参与断链核对（对象层喂养依赖图）。 */
+  structuralRelationPrefixes: ['extends'],
+}
+
+/** 完整性评分权重（扣分制；冻结的只有这些数字，改它们要同时 bump RULESET_VERSION）。 */
+export const SCORE = {
+  cyclic: 25,
+  dangling: 15,
+  provenNoEvidence: 10,
+  provenNoEvidenceCap: 30,
+  unverified: 5,
+  unverifiedCap: 20,
+  missingModule: 10,
+  missingModuleCap: 20,
+  driftPer: 3,
+  driftCap: 15,
+  openDecision: 3,
+  openDecisionCap: 9,
+  undiagnosed: 3,
+  undiagnosedCap: 9,
+  unowned: 2,
+  unownedCap: 6,
+  witnessRewritten: 30,
+  witnessShrunk: 30,
+  witnessSuspicious: 10,
+  witnessDirty: 3,
+  /** proven 但模块含**未声明**的 postulate：这是「用公理冒充证明」，重罚。 */
+  undeclaredPostulatePer: 20,
+  undeclaredPostulateCap: 40,
+  /** 声明为真缺口（kind:"gap"）仍标 proven：同罚。 */
+  declaredGapProven: 20,
+}
+
+/**
+ * postulate 分类口径（回答「`proven` 是否要求 0 postulate」）：
+ *   · `rewrite`     —— 项目已论证的 REWRITE 语义设计（如 `div3k`/`mod3k`/`gf3Toℕ-A4-inv`）
+ *   · `unreachable` —— Agda 强制检查下的已知无害项（如 `UnreachableClauses` 相关辅助）
+ *   · `gap`         —— **真缺口**：还没证的断言
+ * 门禁看的是**真缺口**，不是 postulate 总数；但「已声明豁免」必须有人类裁决（journal decision），
+ * 否则算待裁决项——不让模型自己给自己发豁免。
+ */
+export const POSTULATE = {
+  kinds: ['rewrite', 'unreachable', 'gap'],
+  /** 声明豁免是否需要一条（open 或已 resolve 的）人类裁决流水。 */
+  requireHumanRuling: true,
+}
+
+/**
+ * 工作区草稿/探针文件的收尾检查（诊断用过的临时件不该留在库里）。
+ *
+ * ⚠ 命名启发式**一定会误报**（本项目 `test/_test_*.agda` 与 `src/_rt.agda` 都是**有意保留**的真实模块）。
+ * 所以规则是：先按模式取候选，**再用 git 跟踪状态过滤**——被跟踪的就不是草稿。
+ * git 不可用（非仓库 / 无 shell）时**如实标注「未核对」**，不假装准确。
+ */
+export const SCRATCH = {
+  patterns: [/^_Probe.*\.agda$/, /^_test_.*\.agda$/, /^_t[a-z0-9_]*\.agda$/, /\.agda~$/, /\.agda\.(bak|orig|rej)$/],
+  /** 只扫这些子目录（相对工作区），避免遍历整棵 `_build/`。 */
+  roots: ['src', 'test', 'tests', 'engineering', '.'],
+  /** 深度上限：够覆盖常见布局，不会把大仓库翻一遍。 */
+  maxDepth: 3,
+  /** 明确要豁免的路径（相对工作区）。 */
+  allow: [],
+}
+
+/**
+ * 编译失败的结果级分诊（诊断行里没有的失败模式：进程被杀 / 堆爆 / 超时）。
+ * 这些失败**不会**产生 `file:line: error:` 行，所以必须在结果层判。
+ */
+export const RESULT_TRIAGE = [
+  {
+    test: /Heap exhausted|out of memory|OOM/i,
+    limit: 'agda-concrete-instantiation-eval',
+    prescription:
+      '**具体界被求值**（堆爆）：界保持**符号化**（`∀ k`），具体实例化推到使用点；确需具体值就用 `opaque` 包一层阻断归约；先用小界（k=1,2,3）写独立探针文件确认证明项本身可过，探针用完删除。',
+  },
+  {
+    test: /exit code 251|Killed|SIGKILL|signal 9/i,
+    limit: 'agda-oom-killed',
+    prescription: '进程被杀（多为内存）：同上按「符号化优先」处理；不要靠加 `--memory` 硬顶，先看是不是鸽巢/`any?` 这类枚举在具体界上展开。',
+  },
+  {
+    test: /timed out|timeout/i,
+    limit: 'agda-timeout',
+    prescription: '超时：区分「真慢」与「在具体界上求值」。先跑符号化版本比对耗时（实测差距可达 100×：3.4s vs 346s）。',
+  },
+  {
+    test: /Termination checking failed|\[Termination\]/i,
+    limit: 'agda-termination',
+    prescription: '终止性检查：把递归改写成在**结构更小的参数**上递归，或用 `--terminating` 友好的辅助函数（不要加 `{-# TERMINATING #-}` 糊过去）。',
+  },
+]
+
+/** 规则模块自身的路径与哈希。 */
+export const RULESET_PATH = fileURLToPath(import.meta.url)
+
+/** 任意文件的短哈希（8 位）；读不到返回 `null`。 */
+export function moduleHash(file) {
+  try {
+    return createHash('sha1').update(readFileSync(file)).digest('hex').slice(0, 8)
+  } catch {
+    return null
+  }
+}
+
+/** 文件 mtimeMs；读不到返回 0。 */
+function mtimeOf(file) {
+  try {
+    return statSync(file).mtimeMs
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * 重新加载规则（**热**）。带 `?v=<mtime>` 打破 ESM 模块缓存：
+ * 同一个 mtime 只会加载一次，改了文件立刻换新实例。
+ * @returns {Promise<{version:string,hash:string|null,mtime:number,rules:object}>}
+ */
+export async function loadRules() {
+  return loadRulesFrom(RULESET_PATH)
+}
+
+/**
+ * 同 `loadRules`，但可指定文件——**为了测试「热读真的生效」**：写一份临时规则文件，
+ * 改一次内容再加载，断言第二次拿到的是新值（不是 ESM 缓存里的旧模块）。
+ * @param {string} file
+ */
+export async function loadRulesFrom(file) {
+  const mtime = mtimeOf(file)
+  const mod = await import(`${pathToFileURL(file).href}?v=${String(mtime)}`)
+  return { version: mod.RULESET_VERSION, hash: moduleHash(file), mtime, rules: mod }
+}
+
+/**
+ * 判定规则集是否变化（用来在输出里如实标注）。
+ * @param {{hash:string|null}} loaded 挂载时加载的规则集
+ * @param {{hash:string|null}} live 本次调用加载的规则集
+ */
+export function rulesetStatus(loaded, live) {
+  if (loaded?.hash === null || loaded?.hash === undefined) return 'unknown'
+  return loaded.hash === live.hash ? 'current' : 'changed'
+}

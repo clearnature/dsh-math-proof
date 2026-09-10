@@ -1,0 +1,104 @@
+{
+  "schema": "math-proof/object-registry@1",
+  "note": "对象层登记样本（已按真实模块 id 对齐，导入即升级既有模块节点）。字段口径见 type-theory-presentation §13：construction = 生成方式（不是描述）；relations 用 `前缀:目标`，其中 acts_on/embeds/extends/quotient_of/isomorphic_to 的目标必须是已登记节点，invariant 的目标是性质名。",
+  "nodes": [
+    {
+      "id": "Sovereign.Base.Trit",
+      "kind": "object",
+      "statement": "GF(3) = {T₀,T₁,T₂} 带 ⊕/⊗/negate（特征 3 素域）",
+      "construction": "Trit 三进制域 GF(3)——本框架的起点，其余结构由它逐层构造",
+      "carrier": "{T₀, T₁, T₂}",
+      "operations": [
+        "_⊕_",
+        "_⊗_",
+        "negate"
+      ],
+      "relations": [
+        "invariant:⊕-assoc",
+        "invariant:⊗-distribˡ-⊕",
+        "invariant:negate-involutive"
+      ],
+      "module": "Sovereign.Base.Trit",
+      "source": "Base/Trit.agda:27"
+    },
+    {
+      "id": "Sovereign.Algebra.GF9",
+      "kind": "object",
+      "statement": "GF(9) = GF(3)[x]/(x²+1)，α² = −1，α 的乘法阶为 4",
+      "construction": "GF(3) 的二次扩张：载体 {a + bα}，关系 α² = −1",
+      "carrier": "{a + bα | a,b ∈ GF(3)}（9 个元素）",
+      "operations": [
+        "_+gf9_",
+        "_*gf9_",
+        "galoisConjugate",
+        "galoisNorm"
+      ],
+      "relations": [
+        "extends:Sovereign.Base.Trit",
+        "invariant:galoisConjugate²",
+        "invariant:galoisNorm-conjugate"
+      ],
+      "module": "Sovereign.Algebra.GF9",
+      "source": "Algebra/GF9.agda"
+    },
+    {
+      "id": "Sovereign.Algebra.GroupTheory.DuodecClock",
+      "kind": "object",
+      "statement": "DC = ⟨δ, φ | δ³ = id, φ⁴ = id, δφ = φδ⟩，联合阶 12 = lcm(3,4)（推论）",
+      "construction": "Z/3 ⊕ ⟨α⟩ 的联合时钟：δ 取自 GF(3) 加法，φ 取自 C₄ 相位，三条关系即群公理",
+      "carrier": "DuodecPoint = Trit × AlphaPower",
+      "operations": [
+        "mixedOp",
+        "duodec-e",
+        "duodec-inv"
+      ],
+      "relations": [
+        "extends:Sovereign.Base.Trit",
+        "extends:Sovereign.Algebra.GF9",
+        "invariant:mixedOp-12-cycle",
+        "invariant:sigmaDC-homo"
+      ],
+      "module": "Sovereign.Algebra.GroupTheory.DuodecClock",
+      "source": "GroupTheory/DuodecClock.agda"
+    },
+    {
+      "id": "Sovereign.Structology.T6",
+      "kind": "object",
+      "statement": "T⁶ = (Z/3)⁶ 离散环面，729 个格点",
+      "construction": "GF(3) 的六次笛卡尔幂 (Z/3)⁶（GF3 = Fin 3 本地定义），带平移作用与离散差分算子；实际 import A4Group（轨道作用）",
+      "carrier": "T6Lattice = Vec GF3 6（729 点）",
+      "operations": [
+        "shift3",
+        "diffF",
+        "div6",
+        "axisLap"
+      ],
+      "relations": [
+        "invariant:diff-cubed-zero"
+      ],
+      "module": "Sovereign.Structology.T6",
+      "source": "Structology/T6.agda",
+      "deps": [
+        "Sovereign.Structology.A4Group"
+      ]
+    },
+    {
+      "id": "Sovereign.Structology.A4Group",
+      "kind": "object",
+      "statement": "A₄ = 正四面体旋转群（12 个偶置换），非交换",
+      "construction": "正四面体顶点置换群 ⊂ SO(3)：12 个偶置换（Id / Rot i d / Flip j）",
+      "carrier": "A4 的 12 个偶置换",
+      "operations": [
+        "_⊗_",
+        "perm"
+      ],
+      "relations": [
+        "acts_on:Sovereign.Structology.T6",
+        "invariant:perm-hom",
+        "invariant:non-abelian"
+      ],
+      "module": "Sovereign.Structology.A4Group",
+      "source": "Structology/A4Group.agda:210"
+    }
+  ]
+}

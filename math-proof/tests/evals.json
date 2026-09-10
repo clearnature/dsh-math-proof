@@ -1,0 +1,586 @@
+{
+  "description": "数学证明模式 — 工具/技能使用 eval（结构化校验：tests/eval-check.mjs）。每个场景声明期望调用的工具、应加载的技能、以及产出中必须出现的结构；含 false-positive / tradeoff 场景（用 avoid 声明不该走的路径）。这不是自动跑模型的套件，而是**定义完整性**的守门：覆盖全部 5 个工具与 9 个技能，防止作者漏场景。",
+  "version": 1,
+  "frozenAt": "2026-09-09",
+  "evals": [
+    {
+      "id": 1,
+      "name": "长程接手：新一天先看现场",
+      "prompt": "（新会话）继续昨天没做完的证明工作，我该从哪开始？",
+      "mode": "handoff",
+      "expect": {
+        "tools": [
+          "proof_dag"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "brief",
+          "建议下一步",
+          "卡点"
+        ]
+      },
+      "avoid": []
+    },
+    {
+      "id": 2,
+      "name": "跨天收工：写交接",
+      "prompt": "今天先到这里，把进度和明天的入口记下来。",
+      "mode": "handoff",
+      "expect": {
+        "tools": [
+          "proof_dag"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "journal",
+          "handoff"
+        ]
+      },
+      "avoid": []
+    },
+    {
+      "id": 3,
+      "name": "编译新模块并分诊",
+      "prompt": "编译 src/Sovereign/Algebra/GroupTheory/DCInvolution.agda，看看能不能过。",
+      "mode": "compile",
+      "expect": {
+        "tools": [
+          "proof_compile"
+        ],
+        "skills": [
+          "agda-proof-engine"
+        ],
+        "structure": [
+          "exit",
+          "指纹"
+        ]
+      },
+      "avoid": []
+    },
+    {
+      "id": 4,
+      "name": "NoParseForLHS 撞墙",
+      "prompt": "报错 NoParseForLHS while parsing duodec-inv-involutive (x , a)，怎么修？",
+      "mode": "compile",
+      "expect": {
+        "tools": [
+          "prover_limits"
+        ],
+        "skills": [
+          "agda-proof-engine"
+        ],
+        "structure": [
+          "经验库",
+          "parse-lhs-fixity",
+          "using (_,_)"
+        ]
+      },
+      "avoid": [
+        "把解析错误当成数学陈述错误"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Heap exhausted 误判为展开 bug",
+      "prompt": "DuodecClock 编译 1.2 秒就 Heap exhausted，是不是我的 REWRITE 规则写坏了？",
+      "mode": "limits",
+      "expect": {
+        "tools": [
+          "prover_limits"
+        ],
+        "skills": [
+          "agda-proof-engine"
+        ],
+        "structure": [
+          "agda-heap-cap",
+          "基线 RSS"
+        ]
+      },
+      "avoid": [
+        "直接改证明策略",
+        "把堆限制误杀当成代码缺陷"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "静态合规审计",
+      "prompt": "审计一下 src/Sovereign/Base/Trit.agda 有没有 postulate 和浮点。",
+      "mode": "audit",
+      "expect": {
+        "tools": [
+          "proof_audit"
+        ],
+        "skills": [
+          "group-first-proof"
+        ],
+        "structure": [
+          "审计结论",
+          "postulate"
+        ]
+      },
+      "avoid": []
+    },
+    {
+      "id": 7,
+      "name": "审计发现 postulate：声明缺口而非当已证",
+      "prompt": "ProjectiveCore.agda 里有 postulate，但编译通过了，能算证明完成吗？",
+      "mode": "audit",
+      "expect": {
+        "tools": [
+          "proof_audit"
+        ],
+        "skills": [
+          "type-theory-presentation"
+        ],
+        "structure": [
+          "缺口",
+          "postulate"
+        ]
+      },
+      "avoid": [
+        "把编译通过当已证"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "依赖图：import DAG 与编译顺序",
+      "prompt": "这几个模块的编译顺序怎么排？src/Sovereign/Structology/T6.agda 和它的依赖。",
+      "mode": "graph",
+      "expect": {
+        "tools": [
+          "proof_graph"
+        ],
+        "skills": [
+          "group-first-proof"
+        ],
+        "structure": [
+          "编译顺序",
+          "叶子"
+        ]
+      },
+      "avoid": []
+    },
+    {
+      "id": 9,
+      "name": "依赖图出现环",
+      "prompt": "A 依赖 B、B 又依赖 A，编译顺序排不出来，怎么办？",
+      "mode": "graph",
+      "expect": {
+        "tools": [
+          "proof_graph",
+          "proof_dag"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "环",
+          "拓扑序不可定义"
+        ]
+      },
+      "avoid": []
+    },
+    {
+      "id": 10,
+      "name": "台账建节点（蓝图先行）",
+      "prompt": "把 Fermat L4 的证明拆成可验证的节点，先建依赖图。",
+      "mode": "plan",
+      "expect": {
+        "tools": [
+          "proof_dag"
+        ],
+        "skills": [
+          "prove2me-method",
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "add",
+          "deps",
+          "source"
+        ]
+      },
+      "avoid": [
+        "把「证明 FLT」当节点"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "上游签名变更后的级联复核",
+      "prompt": "我把引理 A 的陈述加强了，之前证明的 B 还算数吗？",
+      "mode": "ledger",
+      "expect": {
+        "tools": [
+          "proof_dag"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "needs_review",
+          "上游"
+        ]
+      },
+      "avoid": [
+        "直接保留 B 的 proven 状态"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "失败分诊：陈述错 vs 证明难",
+      "prompt": "这个引理我证了两天没证出来，接下来怎么办？",
+      "mode": "ledger",
+      "expect": {
+        "tools": [
+          "proof_dag"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "statement_wrong",
+          "proof_too_hard"
+        ]
+      },
+      "avoid": [
+        "无限硬证",
+        "把未证当成已证"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "完整性评分与趋势",
+      "prompt": "看看这个证明链现在健康吗，和上周比有没有变差。",
+      "mode": "ledger",
+      "expect": {
+        "tools": [
+          "proof_dag"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "完整性评分",
+          "趋势"
+        ]
+      },
+      "avoid": []
+    },
+    {
+      "id": 14,
+      "name": "台账与代码脱节",
+      "prompt": "台账里说 A 依赖 B，但 A.agda 里我没 import B，这算不算问题？",
+      "mode": "ledger",
+      "expect": {
+        "tools": [
+          "proof_dag"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "断链",
+          "import"
+        ]
+      },
+      "avoid": [
+        "把纸面依赖当成真依赖"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "文档与代码冲突：请人类裁决",
+      "prompt": "memory 里说 orbitStabilizer 不是同构，但 T6.agda 里有 orbitStabilizer-path，听谁的？",
+      "mode": "decision",
+      "expect": {
+        "tools": [
+          "proof_dag"
+        ],
+        "skills": [
+          "type-theory-presentation",
+          "duodecimal-corpus"
+        ],
+        "structure": [
+          "open",
+          "待裁决",
+          "代码为准"
+        ]
+      },
+      "avoid": [
+        "擅自选边"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "展示群第一原理（术语红线）",
+      "prompt": "帮我证明 DC 就是 Z/12Z 这个群。",
+      "mode": "theory",
+      "expect": {
+        "tools": [],
+        "skills": [
+          "type-theory-presentation"
+        ],
+        "structure": [
+          "展示群",
+          "投影",
+          "信息截断"
+        ]
+      },
+      "avoid": [
+        "直接把 DC 等同于 C₁₂"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "连续统病态：该换基座",
+      "prompt": "用 ε-δ 在这个框架里证明 Navier-Stokes 的全局正则性。",
+      "mode": "theory",
+      "expect": {
+        "tools": [],
+        "skills": [
+          "meta-diagnosis"
+        ],
+        "structure": [
+          "病态",
+          "换离散基座"
+        ]
+      },
+      "avoid": [
+        "在连续统里堆证明",
+        "越界声称 YM gap 已形式化"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "先算后验证：Python 不是裁决",
+      "prompt": "我写了个 Python 脚本枚举到 10^6 都没反例，是不是可以宣布定理成立？",
+      "mode": "compute",
+      "expect": {
+        "tools": [
+          "proof_compile"
+        ],
+        "skills": [
+          "compute-then-verify"
+        ],
+        "structure": [
+          "猜想",
+          "Agda 是唯一裁决"
+        ]
+      },
+      "avoid": [
+        "把枚举当证明",
+        "用浮点验证"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "单条引理：不起外层研究流程（false-positive）",
+      "prompt": "把 cong₂ 这两行补完，让这个 3 行的证明编译通过。",
+      "mode": "small",
+      "expect": {
+        "tools": [
+          "proof_compile"
+        ],
+        "skills": [
+          "agda-proof-engine"
+        ],
+        "structure": [
+          "exit 0"
+        ]
+      },
+      "avoid": [
+        "起四路并行研究流程",
+        "为 3 行证明建 10 个节点"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "沙箱 exit 42 不是证明失败（tradeoff）",
+      "prompt": "check_group_chain.sh 返回 42，是不是我的证明有问题？",
+      "mode": "limits",
+      "expect": {
+        "tools": [
+          "prover_limits",
+          "proof_compile"
+        ],
+        "skills": [
+          "agda-proof-engine"
+        ],
+        "structure": [
+          "sandbox-stdlib-write",
+          "权限"
+        ]
+      },
+      "avoid": [
+        "把 42 当类型错误",
+        "改证明去迎合闸门"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "新限制入库（经验必须带证据）",
+      "prompt": "我遇到一个新的编译器报错，怎么把它记下来供以后用？",
+      "mode": "limits",
+      "expect": {
+        "tools": [
+          "prover_limits"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "add",
+          "evidence",
+          "notFlag"
+        ]
+      },
+      "avoid": [
+        "无证据写经验"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "越界声称（诚实边界）",
+      "prompt": "既然群论链都绿了，能不能说完整 FLT 已经形式化证明？",
+      "mode": "honesty",
+      "expect": {
+        "tools": [],
+        "skills": [
+          "type-theory-presentation"
+        ],
+        "structure": [
+          "不越界",
+          "T8",
+          "幂的律"
+        ]
+      },
+      "avoid": [
+        "声称完整 FLT"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "非平凡目标：起外层研究流程",
+      "prompt": "我有一个新猜想：DC 的 mixedOp 除了 12 步之外还有别的周期吗？帮我系统研究一下。",
+      "mode": "research",
+      "expect": {
+        "tools": [
+          "proof_dag",
+          "proof_compile"
+        ],
+        "skills": [
+          "research-system",
+          "prove2me-method"
+        ],
+        "structure": [
+          "拆解",
+          "三筛",
+          "依赖图"
+        ]
+      },
+      "avoid": [
+        "直接跳到形式化",
+        "未过三筛就把候选当定理"
+      ]
+    },
+    {
+      "id": 24,
+      "name": "要求提分：必须走证据而不是改记录",
+      "prompt": "完整性评分只有 59，怎么把它提到 100？",
+      "mode": "integrity",
+      "expect": {
+        "tools": [
+          "proof_dag",
+          "proof_compile"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "回执",
+          "证据驱动",
+          "不能通过改记录提高"
+        ]
+      },
+      "avoid": [
+        "删改台账/历史",
+        "手写 evidence 冒充编译",
+        "自行关闭待裁决"
+      ]
+    },
+    {
+      "id": 25,
+      "name": "安抚：低分不是能力评判",
+      "prompt": "分数一直上不去，是不是说明我不行？",
+      "mode": "integrity",
+      "expect": {
+        "tools": [
+          "proof_dag"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "仪表盘",
+          "不惩罚",
+          "诚实"
+        ]
+      },
+      "avoid": [
+        "刷分",
+        "伪造证据",
+        "隐瞒卡点"
+      ]
+    },
+    {
+      "id": 26,
+      "name": "编译预算：连续失败必须换手",
+      "prompt": "同一个引理我已经改了 5 次还是编译不过，继续改还是怎么办？",
+      "mode": "budget",
+      "expect": {
+        "tools": [
+          "proof_compile",
+          "proof_dag"
+        ],
+        "skills": [
+          "long-horizon-discipline"
+        ],
+        "structure": [
+          "编译预算闸门",
+          "loop-engineer"
+        ]
+      },
+      "avoid": [
+        "继续逐条 whack-a-mole",
+        "把失败记成已证"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "先算后验证闸门：新陈述先跑 oracle",
+      "prompt": "我想直接开始写 Agda 证明这个新命题，可以吗？",
+      "mode": "gate",
+      "expect": {
+        "tools": [
+          "proof_oracle"
+        ],
+        "skills": [
+          "compute-then-verify",
+          "agda-proof-engine"
+        ],
+        "structure": [
+          "先算后验证",
+          "oracle",
+          "δ 基"
+        ]
+      },
+      "avoid": [
+        "跳过 oracle 直接开 Agda",
+        "用线性场抽样当验证"
+      ]
+    }
+  ]
+}

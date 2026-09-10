@@ -1,0 +1,31 @@
+{
+  "registry": "https://fixture.invalid",
+  "fetchedAt": "2020-01-01T00:00:00.000Z",
+  "total": 4,
+  "packages": {
+    "@deepseek-ai/dsh-lsp": {
+      "latest": "0.0.1-rc.1",
+      "versions": ["0.0.1-rc.1", "0.1.2-rc.1"],
+      "description": "fixture: LSP capability seam",
+      "date": "2026-01-01T00:00:00.000Z"
+    },
+    "@deepseek-ai/dsh-tool-session-query": {
+      "latest": "0.0.1-rc.1",
+      "versions": ["0.1.2-rc.1"],
+      "description": "fixture: session history search tools",
+      "date": "2026-01-01T00:00:00.000Z"
+    },
+    "@deepseek-ai/dsh-tool-present": {
+      "latest": "0.1.5-alpha.2",
+      "versions": ["0.1.5-alpha.2"],
+      "description": "fixture: file delivery declarations",
+      "date": "2026-01-01T00:00:00.000Z"
+    },
+    "@deepseek-ai/dsh-fixture-only-package": {
+      "latest": "9.9.9",
+      "versions": ["9.9.9"],
+      "description": "fixture: a package with no relevance row",
+      "date": "2026-01-01T00:00:00.000Z"
+    }
+  }
+}

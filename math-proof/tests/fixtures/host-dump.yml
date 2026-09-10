@@ -1,0 +1,38 @@
+# 人工构造的宿主组合 dump —— 只用来回归 scripts/plugins.mjs 的三平面分类逻辑
+#
+# 覆盖四种情形（必须全部被正确分类）：
+#   1. 宿主禁用 + 我们 preset 声明  → 「由 preset 接管」（tool-fs / plan-mode）
+#   2. 宿主禁用 + 我们没声明 + 出厂 standard 提供 → 「真缺口」（本 fixture 里**没有**这种；
+#      tool-str-replace-editor 只由 minimal 提供，属「对照，不是缺口」）
+#   3. 宿主禁用 + 出厂也不提供      → 静默（skill-badge）
+#   4. 宿主启用 + 我们 preset 也声明 → ⚠ 双份告警（compaction-basic，故意制造）
+# 另含两行非 dsh 行（cordis:group / cordis-plugin-hmr），用来验证计数口径只数 dsh 包。
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+  disabled: true
+
+- id: plan-mode
+  name: '@deepseek-ai/dsh-plan-mode'
+  disabled: true
+
+- id: tool-str-replace-editor
+  name: '@deepseek-ai/dsh-tool-str-replace-editor'
+  disabled: true
+
+- id: skill-badge
+  name: '@deepseek-ai/dsh-skill-badge'
+  disabled: true
+
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+
+- id: some-group
+  name: cordis:group
+
+- id: hmr
+  name: '@deepseek-ai/cordis-plugin-hmr'
+  disabled: true

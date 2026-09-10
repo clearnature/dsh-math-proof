@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "math-proof/knowledge-graph@1",
+  "title": "数学对象知识图谱",
+  "description": "由 `proof_dag action:\"graph\"` 导出。AI 用 JSON（本 schema），人用同目录 .md 视图；两者同源。",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "generatedAt", "workspace", "ontology", "objects", "claims", "edges", "relationIndex", "gaps"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema": { "type": "string", "const": "math-proof/knowledge-graph@1" },
+    "generatedAt": { "type": "string", "description": "ISO 时间戳（仅文件内，不进常驻层）" },
+    "workspace": { "type": "string" },
+    "ontology": {
+      "type": "object",
+      "required": ["objectFields", "relationKinds", "nodeKinds"],
+      "properties": {
+        "objectFields": { "type": "array", "items": { "type": "string" } },
+        "relationKinds": { "type": "array", "items": { "type": "string" } },
+        "nodeKinds": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "objects": { "type": "array", "items": { "$ref": "#/definitions/entry" } },
+    "claims": { "type": "array", "items": { "$ref": "#/definitions/entry" } },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "kind"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "kind": { "type": "string", "description": "depends_on 或 ontology.relationKinds 之一" }
+        }
+      }
+    },
+    "relationIndex": {
+      "type": "object",
+      "description": "按目标索引关系：target → [{from, kind}]",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "object", "required": ["from", "kind"], "properties": { "from": { "type": "string" }, "kind": { "type": "string" } } }
+      }
+    },
+    "gaps": {
+      "type": "object",
+      "required": ["objectsMissingConstruction", "objectsMissingRelations", "unverifiedEvidence", "danglingDeps", "unregisteredRelations"],
+      "properties": {
+        "objectsMissingConstruction": { "type": "array", "items": { "type": "string" } },
+        "objectsMissingRelations": { "type": "array", "items": { "type": "string" } },
+        "unverifiedEvidence": { "type": "array", "items": { "type": "string" } },
+        "danglingDeps": { "type": "array", "items": { "type": "string" } },
+        "unregisteredRelations": { "type": "array", "items": { "type": "string" }, "description": "关系目标未登记（库外概念）——必须显式暴露，不能静默" }
+      }
+    }
+  },
+  "definitions": {
+    "entry": {
+      "type": "object",
+      "required": ["id", "kind", "statement", "state", "deps", "relations", "evidence"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["object", "lemma", "theorem", "bridge"] },
+        "statement": { "type": "string" },
+        "module": { "type": ["string", "null"] },
+        "state": { "type": "string", "enum": ["pending", "active", "proven", "refuted", "blocked", "needs_review", "abandoned"] },
+        "construction": { "type": ["string", "null"], "description": "object 必填：生成方式" },
+        "carrier": { "type": ["string", "null"] },
+        "operations": { "type": "array", "items": { "type": "string" } },
+        "relations": {
+          "type": "object",
+          "description": "按关系词表分桶；未在词表中的关系进 other",
+          "additionalProperties": { "type": "array", "items": { "type": "string" } }
+        },
+        "deps": { "type": "array", "items": { "type": "string" } },
+        "source": { "type": ["string", "null"] },
+        "evidence": { "type": ["string", "null"], "enum": ["verified-receipt", "unverified", null] }
+      }
+    }
+  }
+}

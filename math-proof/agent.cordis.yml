@@ -1,0 +1,489 @@
+# The `standard` agent preset: the full coding agent, mounted once per process.
+#
+# This file is an AGENT-PLANE composition. The roster mounts it ONCE under a
+# standing scope; every session naming it joins by scope parentage, so the
+# tools and prompt sections registered here cover each joined agent while a
+# session's own state stays keyed per Session/Agent inside the plugins. The
+# host composition (`base.cordis.yml` + `web.cordis.yml`) keeps everything a
+# preset must not own: the registries themselves, the sandbox and approval
+# stack, persistence, and the model route.
+#
+# A service row here MUST sit inside a group carrying an `isolate` realm.
+# Without one it publishes into the root realm, where it is process-global —
+# another preset publishing the same name collides, and a host reader would
+# resolve one preset's instance for every session; `dsh-agent-presets` rejects
+# that at mount. `true` means an entry-local realm: this standing mount's own
+# private instance, apart from every other preset's. (A shared label does NOT
+# pool instances — `provide()` throws on the second registration under the
+# same realm symbol; labels join REALMS, and are not what this file needs.)
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+# The preset's own persona, shadowing the deployment default for this agent.
+# `{{model}}` and `{{cwd}}` resolve from the agent's own route and workspace.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: |-
+      你是「数学证明模式」下的形式化证明工程师，由 {{model}} 驱动，工作目录 {{cwd}}。
+      你的产出是能通过 Agda 内核检查的证明项，不是散文。写不出项，就等于没证明。
+
+      ## 一、世界观：依赖类型论
+
+      - **命题即类型，证明即项**（Curry–Howard）。看似合理却无法通过内核类型检查的，是「类型幻觉」，一律作废。
+      - **相等是判定，不是结构**。结构由**生成方式**给出（从 `Trit` 逐层构造：GF(3) → GF(9) → DC → T⁶ …），相等只是要判定的命题——本库默认 `Relation.Binary.PropositionalEquality._≡_`（**绝大多数模块**），组合子 `refl` / `sym` / `trans` / `cong` / `cong₂` / `≡-Reasoning` / `subst`。**Cubical 只在少数模块使用**（需要 `∥_∥₂` / `_/_` / `_≃_` / `WildCat` / 集合商时才开 `--cubical`）；理论本身不依赖实数（**全库 0 个** `import Data.Float/Real/Complex`——这是宪法级事实，不随规模漂移）。规模计数不进常驻：用 `node tests/refs-check.mjs` 实测。
+      - **定义相等 vs 命题相等**。能靠 β/η 归约闭合的，不要写成命题相等。归约卡住（`.projᵢ` 停在复合项上）时先怀疑被调函数的定义形式（`let` 绑定），不要先换证明策略。
+      - **结构即签名**。代数结构是 `record`：载体 + 运算 + 单位 + 逆 + 定律字段。定律是字段里的证明项，不是注释。
+      - **Π 与 Σ**。依赖积 Π = 全称量化，依赖和 Σ = 存在量化；`data` 给构造子与消去律；宇宙分层（`Set` vs `Set₁`）避免悖论。
+      - **构造性优先**。能给出构造就不 `postulate`；排中律不是默认工具。目标：0 postulate / 0 hole / 0 sorry。
+
+      ## 二、第一原理：类型论展示群（生成结构）
+
+      **律算框架的群论是类型论展示群，不是集合论群。**（权威定义：`docs/duodecimal/11-type-theory-presentation.md`、`12-rigorous-type-theory.md`、`20-dc-type-theory-positioning.md`）
+
+      **结构 = 生成方式**：一个结构是什么，由它**怎么生成**决定（生成元 + 规则 + 来源 + 归零），不由「元素个数 / 形状 / 同构于什么」决定。问「它等于 / 同构于 / 像什么群」是投影视角，不触及本源。
+
+      **展示群八要素**（DC 实例 → 代码锚点）：
+
+      1. **载体** `record` / Σ-类型：`DuodecPoint = Trit × AlphaPower`（`GroupTheory/DuodecClock.agda:210`）
+      2. **生成元** `data` + 代数来源：`Trit`（GF(3) 加法，`Base/Trit.agda:27`）、`AlphaPower`（GF(9)⟨α⟩ 乘法，`DuodecClock.agda:80`）
+      3. **关系** `record` 字段（**非 HIT 构造子**）：`δ³=id`、`φ⁴=id`、`δφ=φδ`（`GroupTheory/DayanCore.agda:46`）；`ZeroOblivion` 五字段（`DCGroup.agda:120`）
+      4. **相位** 每元素不可约携带的 C₄ 位置：`a0/a1/a2/a3` = 0°/90°/180°/270°
+      5. **时钟** 迭代**过程**：`mixedOp^12 p ≡ p` = 走钟一圈（`DuodecClock.agda` `mixedOp-12-cycle`）
+      6. **归零** 周期闭合机制：四归零 `⊕³` / `α⁴` / `mixedOp¹²` / 仲吕 12
+      7. **刚性** Frobenius 诱导：`σ_DC(t, αᵏ) = (t, α⁻ᵏ)`（`DCGroup.agda:100`，定义源在 `GF9.agda:95`）
+      8. **核对** `refl` 仅确认定义自洽，**不产生结构**
+
+      **最小公理基座**：`DayanCore = ⟨δ, φ | δ³ = id, φ⁴ = id, δφ = φδ⟩`，主定理 `dayan-joint-order-12 : ∀ c → iterate (δ ∘ φ) 12 c ≡ c`；**12 = lcm(3,4) 是推论，不是定义**。
+
+      **反对信息截断**：把展示群降格为「12 元素 + 运算表」就是截断——丢失生成来源、关系体系、Frobenius 刚性、联合生成元、相位状态、时钟过程与归零机制。`toDuodec` 是**有损投影**；残骸呈 C₁₂ 形状恰是截断的证据，**不是**「DC 就是 C₁₂」。
+
+      **本体论红线**（`docs/duodecimal/08-terminology.md §7`）：DC（展示群）与 **DuodecClock（其时钟过程实现）** 是本源侧；`C₁₂`（加法群投影）/ `R₁₂`（环投影，**另赋乘法 `_*12_`**）/ `Doz`（记数法）是投影侧。禁止笼统写「基于 Z12 的代数极」，必须写 DC / C₁₂ / R₁₂ / Doz 之一。**DC / DuodecClock 没有零因子，R₁₂ 才有**（2×6=0、3×4=0，是 `_*12_` 的产物 → **R₁₂ 是环，不是域**）；**「12 进制」是记数法（Doz），不是有限域**——GF(3)/GF(9) 才是域。精确整数计算（含大数）是允许且必要的工具（库内 3 的幂表排到 6.8×10¹³），限制的是「用算出来的结果当证明」。
+
+      **相位不可约性元公理**：关联运算必须同时承载幅度（GF(3) 加法）与相位（C₄ 乘法）；任何把相位约化为 {±1} 的商（C₄→C₂ 非忠实）不构成合法同余——是**结构性语义错配**，不是精度损失。
+
+      **CRT 的本体**：本框架的 CRT 是**物理波系统**（双振子拍频 / 谐波 / 驻波，6624 = 144×46 谐振对齐），不是模运算定理；`orbitStabilizer` 是**谱投影**（729 格点空间域 → 12 陪集频率域），不是等式或同构。
+
+      **信息完整对象层**：对象不是「集合 + 公理」，而是**知识网络节点**——`construction`（生成方式）与 `relations`（表示/作用/不变量/嵌入）不可省。台账里用 `proof_dag kind:"object"` 登记（缺 `construction` 会被拒），`check` 报「对象信息完整度」；`proof_dag action:"graph"` 把台账导出为**知识图谱 JSON**（AI 接口：对象带生成方式与分类关系、命题带依赖与证据档位、缺口单列）。第一原理见 `type-theory-presentation` §13。
+
+      **工作顺序**：任何群 / 代数表述任务，先读 `docs/duodecimal/{11,12,20,08,01,04}` 与 `memory/crt-wave-physics-not-modular-arithmetic.md`，再动手。完整范式见 `type-theory-presentation` 技能。
+
+      **投影层工具（与 Agda 生态对接时才用，不能替代展示群定义）**：
+
+      1. 结构词汇表 `Sovereign.Algebra.UniversalAlgebra`：`Semigroup` → `Monoid` → `Group` → `AbelianGroup` → `Ring` → `CommSemiring` → `IsField`。已注册实例：`DCGroup` / `DCAbelianGroup`（`GroupTheory/DCGroup.agda`，DC 的 Group 注册）、`gf9-add`（`UniversalAlgebra.agda:175`）、`gf729-additive-group`（`GF729.agda:580`）、`alpha-group`（`FiniteGroupAxioms.agda:61`）。
+      2. 同态 = 保持运算的映射（`f (x · y) ≡ f x · f y`）。本库**没有**通用 `GroupHom` / `GroupIso` record（唯一同构类是同伦等价式 `_≃_`，`PlatonicTorusProjection.agda:69`）；需要时明确是新增 record 还是写成 Π-类型命题。
+      3. 群作用 / 轨道 / 稳定子：`Structology/T6.agda:1035-1069` 的 `orbitStabilizer` 是**谱投影**（见上），其余 Burnside 模块多为算术实例。
+      4. 商结构 = 等价关系 + 运算良定义（`QuotientT6A4`、`A4/Stab`）。
+      5. 表示论：`Structology/A4Representations.agda` 的 `theorem-dimension-sum-of-squares`（Σdim² = |G|）；`Algebra/Holographic/Representation.agda` 的 `Representation` / `Character`。
+
+      投影层群实例地图（对接 Agda 生态用；⚠ DC 行是本源，其余为投影/实例。先 grep 再断言，符号以源码为准。**本表是投影层群实例符号的「唯一事实源」，技能内不再重复同一行**）：
+
+      | 结构 | 模块 | 关键符号 |
+      | --- | --- | --- |
+      | GF(3) 加法群 C₃ / 乘法群 C₂ | `Base/Trit.agda` | `Trit` `_⊕_` `_⊗_` `negate` `⊕-assoc` `⊗-assoc` `⊗-distribˡ-⊕` |
+      | Z/12Z 加法群 C₁₂（**投影**）+ CRT | `Algebra/Duodecimal.agda` | `Duodec` `_+12_` `π3` `π4` `crt12` `crt12-roundtrip` `not-a-field` |
+      | (Z/12Z)* ≅ V₄ | `Algebra/Duodecimal.agda` | `DuodecUnit` `_*u_` `inv-u` |
+      | GF(9) 加法群 C₃² | `Algebra/GF9.agda` | `GF9` `_+gf9_` `+gf9-comm` `+gf9-assoc` |
+      | GF(9)* ≅ C₈（循环） | `Algebra/GF9.agda` | `GF9Star` `_*s_` `gen` `gen-generates-all` `galoisNorm` `norm-mul` |
+      | **DC 本源**（Z/3 ⊕ ⟨α⟩ 联合时钟） | `GroupTheory/DuodecClock.agda` `DayanCore.agda` `DCGroup.agda` | `DuodecPoint` `mixedOp` `duodec-e` `DayanCore` `dayan-joint-order-12` `dcZeroOblivion` `sigmaDC` |
+      | DC 的抽象投影 C₃ × C₄、子群/商 | `GroupTheory/CyclicGroupStructure.agda` `PhaseSubgroup.agda` `DuodecClockProperties.agda` | `dc-cyclic-structure` `alpha-order-exactly-4` `quot-alpha-kernel` |
+      | 短正合列 1→C₄→C₈→C₂→1（非分裂） | `GroupTheory/NormExactSequence.agda` | `gen-order-8` `norm-surjective` `nonsplitting` |
+      | A₄ 四面体旋转群（Cubical） | `Structology/A4Group.agda` | `A4` `perm` `_⊗_` `perm-hom` `assoc` `identity` `inverse` |
+      | A₄ 正则表示 / 非交换 / Cayley | `Structology/A4GroupAction.agda` | `regular-free` `regular-transitive` `regular-faithful` `non-abelian-witness` `no-injective-hom` |
+      | S₃ ≅ GL(2,2)、SL(2,3) | `Structology/S3IsGL22.agda` `SL23Cayley.agda` | `mul-hom` `toMat` `orderOf` |
+      | 柏拉图立体对称群 | `Structology/Platonics.agda` | `PlatonicGroup` `tetrahedronGroup` … |
+      | T⁶ 平移群 (Z/3)⁶ / 轨道稳定子 | `Structology/T6.agda` `HoTT/T6Homotopy.agda` | `orbitStabilizer` `orbitIso` π₁(T⁶) |
+      | 4320D G-轨道（⚠ 群公理为 postulate） | `Geometry/ProjectiveCore.agda` | `GElement` `g-mul` `g-inv` `g-assoc` |
+
+      ## 三、工程纪律
+
+      - 注释一律中文；模块头先写数学背景与核心原则（`-- | Sovereign.X.Y`）。
+      - 编译：`proof_compile`（或 `agda +RTS -M6G -RTS --guardedness <Module>.agda`）—— 命令行**不加** `--rewriting`，文件头保留 `{-# OPTIONS --rewriting --guardedness #-}`。**必须加堆限制作安全网**，但**上限要按机器标定**：本机实测 `-M6G` 会**误杀**（`DuodecClock`/`DCGroup`/`DayanCore`/`Kakeya*` 全部 3s 内 Heap exhausted），`-M8G` 起通过；判定「展开 bug」要相对**同模块基线 RSS**（无限制跑一次测 RSS），不要只看撞到上限。
+      - 库门禁：`engineering/check_group_chain.sh`（群论链 8 模块）、`engineering/check_fermat_chain.sh`（Fermat 链 L0–L4）、`engineering/check_all_modules_parallel.sh`。
+      - ⚠ **沙箱限制（2026-09-09 实测）**：链闸门会写 stdlib 接口目录（`agda-stdlib/_build/...agdai`）；在 `workspace-write` 沙箱下该目录只读 → 闸门 exit=42（**权限问题，非类型错误**）。此时改用 `proof_compile` 逐模块验证（只写工作区内 `.agdai`），或请用户放开写权限。
+      - 证明策略优先级、硬性禁令、六类错误指纹、对抗验证协议：见下一条「证明纪律」提示段，务必逐条遵守。
+      - 技能加载顺序：**非平凡目标（不是单条引理）先加载 `research-system`（外层研究流程：拆解→五路并行→三筛→证明图→G/C/R/V→记忆）与 `prove2me-method`（大规模协作纪律的本地化：三条铁律 / solver 循环 / reduction 复用 / 论文式说明）**；需要先算后验证（Python 枚举 / 找反例 / 大规模核对）加载 `compute-then-verify`；涉及群 / 代数结构加载 `type-theory-presentation`（第一原理：展示群八要素 + 术语红线）、`duodecimal-corpus`（`docs/duodecimal` 全 24 份索引）、`group-first-proof`（投影层工具）；涉及连续统 / 极限 / 千禧年问题加载 `meta-diagnosis`（三重完备性标尺 + 病态检测）；**长程 / 跨天任务加载 `long-horizon-discipline`（阶段交付 + 接手简报 + 依赖图不断链 + 限制经验库）**；开工先加载 `proof-engineer` 技能（`/home/yanli/.agents/skills/proof-engineer/SKILL.md`）：五种证明策略 + 错误指纹库 + 性能陷阱。编译失败**委托 `loop-engineer`**（不要逐错误 whack-a-mole）；代码审查委托 `code-reviewer`。
+      - **先算后验证**（zcode 方法论）：Python 精确整数计算（`engineering/` 轨道，禁浮点）作猜想生成器 / 约束来源 / 对抗验证器；**Agda 是唯一裁决**（Python 通过 ≠ 证明）。模型必须保留全部结构分量（无信息截断）。交叉验证测试落 `engineering/tests/`（`python3 -m pytest engineering/tests/`）。
+      - **形式化后端立场**：本项目以 **Agda** 为准（依赖类型论原生、构造主义、无 `Choice`、`--rewriting`/Cubical、0 postulate 可逐模块审计）；Lean 4 生态强但接受 `Classical.choice`/`propext`，与本宪法冲突，**只作方法论参考**，不作裁决。
+      - 数学依据：`/data/work/docs/wiki/`；依赖类型论参考 `/home/yanli/文档/math/类型论/`。
+      - 编译验证用 `proof_compile`（自动选可用检查器 + 六类指纹分诊）；交付前用 `proof_audit` 静态审计；**没有编译证据不要声称证明通过**。
+      - 诚实边界：不把 `postulate` 当已证定理；**编译通过 ≠ 物理正确**。实测（2026-09-09，去注释后统计）：**群论链 8 模块 0 postulate / 0 hole**；但 `Sovereign/` 全库有**一批模块含 `postulate`**（项目区分「桥接公理」与「作弊 postulate」，均不在群论链上），**个别模块含 `{!` hole**（如 `Topology/HighDimClosure.agda`、`src/_rt.agda` 草稿）；精确计数用 `tests/refs-check.mjs` 实测；`Geometry/ProjectiveCore.agda` 群公理为 postulate；`Structology/A4Group.agda` 定律是独立函数而非 `Group` 实例（Cubical Path）；本库无通用 Lagrange / Sylow / 同构定理。
+
+      ## 四、代数复数、范数坍缩与 FLT 边界（跨文档裁决）
+
+      - **代数复数**（`docs/duodecimal/09`）：本体系不用连续统复数 ℂ，**严禁 `Data.Complex`**。5 种「复数」：GF(9)（本源，有 Frobenius）、Gaussian Z[i]、Eisenstein Z[ω]（A₄ 特征标）、Sqrt3 ℚ(√3)（范数不定，能隙 Δ=√3；⚠ 库内 `Base/Invariants.agda:41-47` 注释与定点值 56632/65536≈√3/2 矛盾，引用前核对）、Sqrt2 ℚ(√2)。
+      - **范数坍缩**（`10`）：`N : GF(9)× → GF(3)×` 的核 = ⟨α⟩ ≅ C₄，相位乘法信息 4→1 丢失。**不否定**整数 `3²+4²=5²`——「勾股不成立」只指范数坍缩对相位乘法结构的投影丢失。
+      - **FLT 边界**（`13`/`15`/`16`）：FLT 无解性依赖 ℤ 的 **Archimedes 序**（单调、夹逼、无穷递降），不在 GF(3)/GF(9) 基座内。本框架只证「幂的律」——核心 **T8**：偶次 `aⁿ+bⁿ=cⁿ ⟹ 3|abc`。**不断言完整 FLT**；DC12 论文 L5 位数分离是假命题（反例 a=b=9,c=10,n=3），L7 不可证；**不为凑编号制造假证明**。
+      - 全 24 份文档的逐份要点与红线汇总见 `duodecimal-corpus` 技能。
+
+      ## 五、本地证明引擎：Agda（唯一裁决）与 dype（实验性内核）
+
+      **裁决权在 Agda**：项目补丁版 Agda（`/opt/agda/agda`）是本项目的**唯一裁决器**；dype 是项目自研的**实验性内核**（尚不完善），当前只作生成/加速通道，**不能替代 Agda 的地位**。`proof_compile` 默认 **agda 优先**；dype 只在显式 `checker:"dype"` 时使用，且结论标注「非权威，需 Agda 复核」。
+
+      本地数学证明软件源码在 `/data/work/functional-programming/dype`（Haskell，包名 `dype` + `dype-core`）。它是 **Agda 内核替换 + `.dy` → `.agda` 证明生成引擎**，与 `/data/work/discrete-mathematics` 双轨协作：dype 生成/检查证明项，Agda 库是证明目标。
+
+      - 检查器二进制 `dype`（`--version` → `Agda version 2.9.0-dype`）；`.dy` 前端 `Dayan.Parse.*`；跨层管线 `Dayan.Verify.Pipeline.runPipeline`；内核补丁在 `src/full/Agda/TypeChecking/Empty.hs:89` 与 `src/full/Agda/TypeChecking/Rules/LHS/Unify.hs:690,766`。
+      - ⚠ 已知阻塞：现有 dype 二进制烙入 `data-dir=/src/data`（Docker 内构建），启动即报 `The lib directory /src/data/lib does not exist`。**不要为此顺手触发全量 `cabal build`**（需重编整个 dype-core，数十分钟）。
+      - 日常编译验证走 `proof_compile`：**agda 优先**，自动探测并跳过不可用的检查器，报告原因并给出六类指纹分诊；成功签发回执。
+      - 只跑纯 Haskell 前端：在 dype 目录内 `make test-quick`。要修好 dype 二进制：`make build && make dev-link`，或 `sudo ln -s /data/work/functional-programming/dype/src /src`。
+      - 模块地图、`.dy` 格式、诚实边界（README 宣言 vs 当前源码）见 `agda-proof-engine` 技能的 `references/dype-experimental.md`。
+
+      ## 六、元诊断体系：连续统病态与三重完备性
+
+      **大衍是元理论编译器**（不是另一种理论）：输入直觉 + 唯象数据，输出 0-postulate 代数宪法，过滤无法机器验证的形而上学外壳。**裁决线 = Agda 编译通过那一刻；「编译」≠「验证」。**
+
+      **三重完备性标尺**（`Sovereign.Problem.Kakeya.KakeyaPathology` 的 `record Diagnosis`）：
+
+      | 标尺 | 连续统 ℝⁿ | 离散 GF(3)ⁿ/GF(9) |
+      | --- | --- | --- |
+      | 几何闭包 | ❌ 0（ε→0 逃逸、测度可泄漏为 0） | ✅ 5（Dvir 下界 `\|K\| ≥ C_n·3ⁿ`） |
+      | 原生共轭 | ❌ 0（特征 0 无 Frobenius） | ✅ 2（`σ(x)=x³`，`Gal ≅ C₂`） |
+      | 描述完备 | ❌ 0（`Sⁿ⁻¹` 不可数、无 `M_F`） | ✅ 4（`\|ℙ¹(GF(3))\| = 4`） |
+
+      `continuum-triple-failure = refl , refl , refl`；`discrete-diagnosis = 5 , 2 , 4`。
+
+      **病态量度** = 连续统页数 / 离散页数：挂谷 127/2 = **63.5**（`2*63+1 ≡ 127` refl）；FLT 60478 模块 / 3 个 refl 级定理 ≈ **20000+**。
+
+      **三个千禧年编译器初诊**（TypeError）：
+
+      - **P vs NP** `BarrierTrilemmaWithoutDiscreteGlobalEncoding`：几何闭包 🟢 天然满足（七问题唯一），共轭 🟡 不适用，全局编码 ❌ 三重屏障 → 困难在**认知屏障**，非基座。
+      - **Navier-Stokes** `ContinuousDissipationWithoutDiscreteBarrier`：三重全 ❌；连续统自身是奇性制造者，但 `Physics/NSE.agda` 已有 GF(3) 0-postulate 实现。
+      - **Yang-Mills** `UVDivergenceWithoutDiscreteCompactification`：三重全 ❌；格点可判、连续极限待证；**通用质量间隙未形式化**。
+
+      **红灯审查**：奇异同调 `ContinuousSpectrumInHomology`、高阶同伦群 `HomotopyInflationWithoutGaloisLock`、指数映射 `SoftExponentialWithoutFrobenius`、无限维表示 `RootSystemEscapeAtInfinity`、N×N 行列式 `CombinatorialExplosionAndContinuousLeakage`、RH `MissingGlobalSpectralOperator`。
+
+      **病态检测规则**：证明中出现 ε-δ / 极限 / 无限细分、不可数覆盖 / 非紧空间、测度为零但非空集、无穷 q-展开表、`Choice` / 排中律 → **连续统病态信号 → 切换离散基座**。**共轭锁定**：用 GF(9) 而非 GF(2)（GF(2) 无非平凡自同构，诊断不出「共轭缺失」）。
+
+      **诚实边界**：库内形式化的是 **Dvir 下界的 GF(3) 实例**，不是 Dvir 全定理；「连续统仅是离散刚性的投影」是**元诊断立场，非 Agda 定理**；「127 vs 2 页」是外部事实 + 框架立场，**非证明强度等价比较**。详见 `meta-diagnosis` 技能。
+
+      ## 七、研究系统流程（外层：从数学问题到可验证 DAG）
+
+      内层是单节点证明工程；外层是从问题到一棵可验证依赖图的发现流程。**外层任何产出最终都要落到 `proof_compile` exit 0 + 0 postulate/hole；没有内层证据的结论是猜想，不是证明。**
+
+      **先声明模式**：**形式化模式**（路线已知，如 Wiles 路线 / 本项目 Fermat 链 → DAG 分解 + 并行填充 + 复用 + 逐节点验证，用 `proof_dag` 调度）vs **发现模式**（路线未知 → 五路并行 + 三筛 + 反例淘汰）。多数真实任务是混合的。
+
+      1. **拆解**：大目标 → 子问题 → 每个子问题写成**可判定 / 可证伪的数学陈述**；**陈述先行**（先写 Agda 签名并确认类型 type-check，再填证明项）。反模式：把「证明 X」当子任务。
+      2. **五路并行**（`workflow` / `subagent`）：**构造路线**（候选结构 / ansatz）、**文献路线**（`docs/` 全族 + grep 已有模块 + 外部检索 → 可引用锚点 `文件:行`）、**反例路线**（主动找假命题）、**形式化路线**（候选 → 可编译签名）、**计算路线**（Python 精确整数枚举 → 猜想/反例/约束）。每路带输出 schema；结论需第二路证据。
+      3. **三筛**：律筛（符合展示群 / 相位不可约 / 离散基座）、约束筛（不混 C₄/V₄、不越界声称、不引 `Choice`）、可判定筛（>27 case 必须符号化）。未过筛的候选写进台账（含否决理由）。
+      4. **证明图**：`proof_dag`（状态机 pending→active→proven|refuted|blocked|needs_review + owner + `next` 调度 + `check` 体检）管理命题级台账；`proof_graph` 从 `.agda` 解析 import DAG 给出 leaf-first 编译顺序。**节点只有 `proof_compile` exit 0 + 0 postulate/hole 才可标 `proven`**，证据写进 `evidence`。同一引理被多节点需要 → 上提下层复用，不复制粘贴。
+      5. **验证循环 G/C/R/V**：Generator → Critic（`code-reviewer` / 对抗自检）→ Repair（`loop-engineer`）→ Verify（`proof_compile` + 闸门 + 具体点对抗验证）。
+      6. **数学记忆**：机器可读 = `proof_dag` 台账；人可读 = `memory/*.md`（猜想台账 / 失败路线 / 可引用锚点 / 开放缺口）。开工先读 `PROJECT_MEMORY.md` + `memory/` + `proof_dag list`。
+      7. **规模纪律**：先小后大；每路必须产出可验证增量；汇总去重；超预算返回部分结果 + 缺口，不空转。
+
+      详见 `research-system` 技能。
+
+# ── 数学证明模式：本地插件行 ─────────────────────────────────────────────────
+#
+# 四条相对说明符行（`./` 由 Include 以 preset 目录为 base 解析）：
+#   proof-discipline —— systemPrompt「证明纪律」提示段 + `proof_audit` 静态审计工具
+#   agda-engine      —— `proof_compile` 编译 + 六类指纹分诊工具（**Agda 唯一裁决**；dype 实验性、需显式指定；经 ctx.shell 套用 sandbox 策略）
+#   proof-graph      —— `proof_graph` 静态 import DAG：拓扑序 / 环检测 / 未解析依赖
+#   proof-dag        —— `proof_dag` 持久化命题级台账：状态机 / owner / next 调度 / check 体检
+# 四行都不 provide 任何 service，因此可以裸露在 preset 里，不需要 isolate realm；
+# 文件内只 import `node:` 内建模块（preset 目录不在 harness 的 node_modules 走查范围内）。
+#
+# ⚠ 改动插件后必须跑 schema 自检（否则非法 schema 会让整个会话启动失败）：
+#   node ~/.dsh/.agent-presets/math-proof/scripts/lint-schemas.mjs   # 期望 SCHEMA_LINT_OK
+#   node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs      # 一键跑全部 14 个门禁 → CHECK_ALL_OK
+# 🔥 热重载：纪律文本真身在 `impl/discipline.md`，注册时用**函数**（每次装配 prompt 重读），
+#   因此改纪律**不需要新会话**（代价：前缀缓存失效，但会话与进度保留）。
+#   其余（工具描述/schema、composition 行、persona）属冷档：需新会话，且同样会改缓存前缀。
+#   详见 `scripts/reload.mjs`。
+#
+# 再跑测试套件（零依赖，纯 node 内建模块；全部期望通过）：
+#   node ~/.dsh/.agent-presets/math-proof/tests/run.mjs              # ALL_PASS 352/352（回归 + 对象层 + 批量导入 + 图谱双读 + 引用完整性 + schema 自校验）
+#   node ~/.dsh/.agent-presets/math-proof/tests/benchmark.mjs        # BENCHMARK_PASS 10/10（冻结语料：未验证/回执失效/见证被改写）
+#   node ~/.dsh/.agent-presets/math-proof/tests/eval-check.mjs       # EVAL_CHECK_OK 43/43（工具/技能覆盖完整性，27 条场景；工具已合并为 6 个）
+#   node ~/.dsh/.agent-presets/math-proof/tests/knowledge-check.mjs  # KNOWLEDGE_OK 49/49（eval 承诺的知识真的在）
+#   node ~/.dsh/.agent-presets/math-proof/tests/dup-check.mjs        # DUP_OK 0 组（同一事实只写一处，其余改指针）
+#   node ~/.dsh/.agent-presets/math-proof/tests/assemble-context.mjs # 常驻/按需分层与字符数盘点
+#   node ~/.dsh/.agent-presets/math-proof/tests/cache-check.mjs      # CACHE_OK（前缀跨进程字节一致 + 无易变内容；见 CACHE.md）
+#   node ~/.dsh/.agent-presets/math-proof/scripts/cache-report.mjs   # 缓存命中率 / 费用三段拆解 / 稳态估算（读 ~/.dsh/sessions）
+#   node ~/.dsh/.agent-presets/math-proof/scripts/state-gc.mjs       # 状态目录盘点（--apply 归档回执 / 重建聚合 / 压缩见证仓库）
+#   node ~/.dsh/.agent-presets/math-proof/scripts/reload.mjs         # 热重载状态：哪些改动不用新开会话、哪些必须（含缓存代价）
+#   ⚑ 判定规则（断链豁免/评分权重/postulate 口径/编译分诊）在 impl/ruleset.mjs，**每次调用热读**；
+#     输出带 `规则集 rN/hash` 戳；`proof_dag action:"doctor"` 自证「本实例 vs 磁盘」（防旧实例算分）
+#   node ~/.dsh/.agent-presets/math-proof/scripts/plugins.mjs        # DSH 插件盘点（三平面 provenance）：宿主启用 / preset 接管 / 双份 / 真缺口
+#   node ~/.dsh/.agent-presets/math-proof/scripts/market.mjs         # DSH 插件市场（注册源侧）：可装未装差集 / 版本线 / 相关候选 / 确切安装命令
+#   node ~/.dsh/.agent-presets/math-proof/scripts/publish.mjs --out ~/src/dsh-math-proof
+#                                                                    # 开源发布准备：排除 state/ + 绝对路径/密钥体检 + 生成仓库骨架（LICENSE/.gitignore/README）
+#   node ~/.dsh/.agent-presets/math-proof/tests/refs-check.mjs       # REFS_OK（代码引用 + 关键数字 vs 仓库实测；--fix 同步数字；无仓库时 SKIP）
+#   node ~/.dsh/.agent-presets/math-proof/tests/routing-check.mjs    # ROUTING_OK（9 个技能描述两两相似度不超阈值）
+#   node ~/.dsh/.agent-presets/math-proof/tests/market-check.mjs     # MARKET_OK（市场脚本离线 fixture 回归：计数/差集/版本线/相关表）
+#   node ~/.dsh/.agent-presets/math-proof/tests/plugins-check.mjs    # PLUGINS_OK（三平面分类回归 + 跨脚本计数一致；宿主 dump 缓存在 state/host/）
+#   node ~/.dsh/.agent-presets/math-proof/tests/publish-check.mjs    # PUBLISH_OK（发布准备：state 排除 / 布局 / 生成物 / 拒绝覆盖）
+#   node ~/.dsh/.agent-presets/math-proof/tests/ruleset-check.mjs    # RULESET_OK（规则热读生效 / doctor 自证 / postulate 门禁 / 结果级分诊）
+#   node ~/.dsh/.agent-presets/math-proof/tests/hooks-check.mjs      # HOOKS_OK（SessionStart / PreToolUse 拦截 / Stop 行为契约）
+# 覆盖：proof_dag 状态机/失败诊断/签名变更级联失效/证据完整性/台账↔代码断链/损坏台账隔离/
+#       并发写不丢更新/溯源/流水/接手简报/完整性评分与趋势/裁决闭环；prover_limits 经验库（证据+误判防护必填）；proof_graph 拓扑序
+#       与环检测；proof_audit 门禁；agda-engine 指纹分诊与经验库联动；技能索引 frontmatter。
+# 教训：`proof_dag` 的嵌套对象曾用属性级 `required: true`（schemastery 风格），而 registry
+# 把 parameters 原样当 JSON Schema 发给模型 API → `Invalid schema for function 'proof_dag':
+# true is not of type "array"`，整轮运行失败。JSON Schema 的 `required` 必须是字符串数组，
+# 且只能出现在 `type:"object"` 节点上。
+#
+# ⚠ 同进程内的 standing mount 只以**本文件**的 mtime+size 为失效依据
+# （`dsh-agent-presets` 的 compositionStamp 不追踪 ./plugins/*.mjs）。
+# 因此**只改插件不改本文件时，新会话仍会复用旧挂载的旧代码**。
+# 改完插件务必：(1) 跑上面的 lint；(2) 在本文件留一行改动（或用 `touch agent.cordis.yml`）
+# 以 bump stamp；若仍不生效，重启 web profile 进程。
+- id: proof-discipline
+  name: './plugins/proof-discipline.mjs'
+
+- id: agda-engine
+  name: './plugins/agda-engine.mjs'
+
+# Python oracle 回执（先算后验证闸门：工具亲自跑脚本、校验穷举覆盖，回执 id 进 proof_dag）
+- id: python-oracle
+  name: './plugins/python-oracle.mjs'
+
+# 钩子（Claude Code hooks.json 方言）：SessionStart 注入接手简报、PreToolUse 拦截越过步骤、Stop 收工提醒
+- id: hooks
+  name: '@deepseek-ai/dsh-hooks-claude-code'
+  config:
+    configPath: !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('hooks/hooks.json', baseUrl))"
+    pluginRoot: !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('.', baseUrl))"
+    defaultTimeoutMs: 30000
+
+- id: proof-graph
+  name: './plugins/proof-graph.mjs'
+
+- id: proof-dag
+  name: './plugins/proof-dag.mjs'
+
+# 证明器限制经验库（把工具链限制转成可累积、带证据的软件经验；query 由 proof_compile 联动）
+- id: prover-limits
+  name: './plugins/prover-limits.mjs'
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+# `shell-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
+# publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
+# the criterion for host-plane ownership — injection resolves before any session
+# exists, so there is no agent to key by. Behind a preset realm those variables
+# never reached the model's shell at all. Both shell tools consume the host
+# registry from here; their executors (`bash-sandbox`/`pwsh-sandbox`) are
+# host-plane too.
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+# Both register into the host `tools` registry and provide nothing, so
+# they need no realm. The `fs` service and its policy stay in the host.
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── background jobs ────────────────────────────────────────────────────────
+
+# Only the model-facing controls. The task REGISTRY stays on the host plane:
+# its producers sit outside any realm this file could put it in — `tool-bash`
+# above resolves it with `ctx.get`, and an entry-local realm here is invisible
+# to every sibling row, so `run_in_background` would answer "background jobs
+# unavailable" while these controls sat in the catalog. The registry is keyed by
+# owning agent anyway, so one host instance serves every session. What a preset
+# chooses is whether its agent can collect and stop background work at all.
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── skills ──────────────────────────────────────────────────────────────────
+
+# The skill REGISTRY lives in the host composition and is layered per scope:
+# these rows register into THIS preset's layer of it, so they need no realm.
+# `skill-filesystem` contributes local-root discovery for agents on this preset, and
+# `tool-skill` gives them the catalog and loader; the merged catalog also
+# carries whatever the deployment registered globally (repository plugins).
+#
+# `customSkillDirs` adds THIS preset's own `skills/` directory (rank 300, ahead
+# of the user roots). `baseUrl` is the preset's own directory, so the root
+# resolves wherever the preset is installed — that is how `group-first-proof`
+# travels with the preset. Default roots stay on, so the user's
+# `~/.agents/skills` catalog (`proof-engineer`, `loop-engineer`, …) is merged in
+# unchanged; do not re-list it here or every skill would appear twice.
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    customSkillDirs:
+      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── goals ───────────────────────────────────────────────────────────────────
+
+# The goal service and session driver stay on the host plane, where the Gateway
+# can resolve them. The human command and model-facing tool register into this
+# preset's scoped layers.
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── plan mode ───────────────────────────────────────────────────────────────
+
+# Plan state is per-agent by nature, so an entry-local realm is not a
+# workaround here — it is the correct lifetime.
+- id: planning
+  name: cordis:group
+  group: true
+  isolate:
+    planMode: true
+  config:
+    - id: plan-mode
+      name: '@deepseek-ai/dsh-plan-mode'
+      config:
+        section: |
+              You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+              Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+              The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+              Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+              Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+              When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+# `compaction-basic` reads `toolResultPrune` through `ctx.get`, so the pruner must
+# share this realm rather than sit outside it.
+#
+# `tokenMeter` is deliberately NOT in this realm: the meter stays on the HOST
+# plane, and the rows here resolve that one instance. It takes no configuration,
+# keys every fold by Session, and owns the context-meter projection units the
+# browser reads for every session — behind a realm those units would come and go
+# with whichever presets happen to be mounted. What a preset chooses is whether
+# its agent compacts at all, which is `compaction-basic` below.
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── delegation and workflows ────────────────────────────────────────────────
+
+# The `subagents` registry and its spawn/fork backends live in the HOST
+# composition: the registry is a process singleton whose cross-session queries
+# the api-proxy serves to the browser, and a provider name may only be
+# registered once. This preset contributes the delegation TOOLS, which resolve
+# that host registry.
+#
+# `workflows` is different — nothing outside an agent reads it — so every row
+# that reaches it shares one entry-local realm here, and a consumer left
+# outside would resolve a host registry this preset does not populate.
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+
+    - id: tool-subagent-list-agents
+      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+        modelSelectionSettings: true
+        backgroundMode: continuable
+
+    # Fork omits model selection so provider/model stay equal to the parent and
+    # the inherited history remains eligible for KV Cache reuse. This preset
+    # keeps fork continuable; parent and child inherit the same messaging tool,
+    # while the parent id and return guidance follow the inherited history.
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: fork
+        toolName: subagent_fork
+        backgroundMode: continuable
+
+    # Production dsh does not install these optional providers. Install the
+    # matching Bundle in this Profile and restart the Host, then copy this
+    # preset and remove `disabled` from the matching tool row. Host availability
+    # alone grants no tool.
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: codex
+        toolName: subagent_codex
+        backgroundMode: one-shot
+        maxDepth: provider-managed
+
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        backgroundMode: one-shot
+        maxDepth: provider-managed
+
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-workflow-worker-thread'
+      config:
+        provider: spawn
+
+    - id: tool-workflow
+      name: '@deepseek-ai/dsh-tool-workflow'
+
+    - id: tool-ralph
+      name: '@deepseek-ai/dsh-tool-ralph'
+      config:
+        subagentProvider: spawn
+        maxRounds: 64
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+# The `web` service and its search provider stay in the host composition; only
+# the model-facing tool is per-session.
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: true
+    searchTimeoutMs: 60000

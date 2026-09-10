@@ -1,0 +1,286 @@
+{
+  "description": "数学证明模式 — proof_dag 完整性评分的冻结语料（确定性 benchmark）。每条含：模块源码、台账、以及独立核定的期望评分与扣分项（`receipt: \"auto\"` 表示 benchmark 会用物化后的源码签发回执，模拟真实 `proof_compile`）。任何人重跑 tests/benchmark.mjs 都应得到同一组数字。",
+  "version": 1,
+  "frozenAt": "2026-09-09",
+  "weights": {
+    "环": 25,
+    "悬空依赖": 15,
+    "proven 无证据": "10/个（上限 30）",
+    "模块文件缺失": "10/个（上限 20）",
+    "台账↔代码断链": "3/条（上限 15）",
+    "待人类裁决": "3/条（上限 9）",
+    "失败未诊断": "3/个（上限 9）",
+    "active 无 owner": "2/个（上限 6）"
+  },
+  "cases": [
+    {
+      "id": "clean",
+      "label": "干净台账：两个已证节点带证据",
+      "modules": {
+        "Sovereign.Base.Trit": ""
+      },
+      "nodes": {
+        "trit": {
+          "statement": "Trit 是 GF(3)",
+          "deps": [],
+          "state": "proven",
+          "evidence": "proof_compile exit 0",
+          "module": "Sovereign.Base.Trit",
+          "receipt": "auto"
+        }
+      },
+      "journal": [],
+      "expect": {
+        "score": 100,
+        "deductions": []
+      }
+    },
+    {
+      "id": "cycle",
+      "label": "环：a↔b，拓扑序不可定义",
+      "modules": {},
+      "nodes": {
+        "a": {
+          "statement": "A",
+          "deps": [
+            "b"
+          ],
+          "state": "pending"
+        },
+        "b": {
+          "statement": "B",
+          "deps": [
+            "a"
+          ],
+          "state": "pending"
+        }
+      },
+      "journal": [],
+      "expect": {
+        "score": 75,
+        "deductions": [
+          "环 2 个（拓扑序不可定义）（−25）"
+        ]
+      }
+    },
+    {
+      "id": "dangling",
+      "label": "悬空依赖：声明了不存在的节点",
+      "modules": {},
+      "nodes": {
+        "a": {
+          "statement": "A",
+          "deps": [
+            "ghost"
+          ],
+          "state": "pending"
+        }
+      },
+      "journal": [],
+      "expect": {
+        "score": 85,
+        "deductions": [
+          "悬空依赖 1 条（−15）"
+        ]
+      }
+    },
+    {
+      "id": "no-evidence",
+      "label": "声称已证但无内核证据（两个）",
+      "modules": {},
+      "nodes": {
+        "a": {
+          "statement": "A",
+          "deps": [],
+          "state": "proven"
+        },
+        "b": {
+          "statement": "B",
+          "deps": [],
+          "state": "proven"
+        }
+      },
+      "journal": [],
+      "expect": {
+        "score": 80,
+        "deductions": [
+          "proven 无证据 2 个（−20）"
+        ]
+      }
+    },
+    {
+      "id": "drift",
+      "label": "台账↔代码断链：声明依赖 b，但 A.agda 没有 import B",
+      "modules": {
+        "Sovereign.X.B": "",
+        "Sovereign.X.A": "-- 故意不 import B\n"
+      },
+      "nodes": {
+        "b": {
+          "statement": "B",
+          "deps": [],
+          "state": "proven",
+          "evidence": "exit 0",
+          "module": "Sovereign.X.B",
+          "receipt": "auto"
+        },
+        "a": {
+          "statement": "A 依赖 B",
+          "deps": [
+            "b"
+          ],
+          "state": "proven",
+          "evidence": "exit 0",
+          "module": "Sovereign.X.A",
+          "receipt": "auto"
+        }
+      },
+      "journal": [],
+      "expect": {
+        "score": 97,
+        "deductions": [
+          "台账↔代码断链 1 条（−3）"
+        ]
+      }
+    },
+    {
+      "id": "open-decisions",
+      "label": "两条待人类裁决",
+      "modules": {},
+      "nodes": {},
+      "journal": [
+        {
+          "ts": "2026-09-09T10:00:00.000Z",
+          "kind": "decision",
+          "text": "memory 与 T6.agda 冲突",
+          "open": true
+        },
+        {
+          "ts": "2026-09-09T10:01:00.000Z",
+          "kind": "decision",
+          "text": "是否保留 L7 口径",
+          "open": true
+        }
+      ],
+      "expect": {
+        "score": 94,
+        "deductions": [
+          "待人类裁决 2 条（−6）"
+        ]
+      }
+    },
+    {
+      "id": "mixed",
+      "label": "混合：环 + 无证据 + 未诊断失败 + 待裁决",
+      "modules": {},
+      "nodes": {
+        "a": {
+          "statement": "A",
+          "deps": [
+            "b"
+          ],
+          "state": "proven"
+        },
+        "b": {
+          "statement": "B",
+          "deps": [
+            "a"
+          ],
+          "state": "pending"
+        },
+        "c": {
+          "statement": "C",
+          "deps": [],
+          "state": "refuted"
+        }
+      },
+      "journal": [
+        {
+          "ts": "2026-09-09T11:00:00.000Z",
+          "kind": "decision",
+          "text": "口径待定",
+          "open": true
+        }
+      ],
+      "expect": {
+        "score": 59,
+        "deductions": [
+          "环 2 个（拓扑序不可定义）（−25）",
+          "proven 无证据 1 个（−10）",
+          "待人类裁决 1 条（−3）",
+          "失败未诊断 1 个（−3）"
+        ]
+      }
+    },
+    {
+      "id": "unverified-claim",
+      "label": "自报证据无回执（改记录拿分的常见路径）",
+      "modules": {},
+      "nodes": {
+        "a": {
+          "statement": "A",
+          "deps": [],
+          "state": "proven",
+          "evidence": "proof_compile exit 0（手写）"
+        }
+      },
+      "journal": [],
+      "expect": {
+        "score": 95,
+        "deductions": [
+          "未验证声明（无回执/回执失效）1 个（−5）"
+        ]
+      }
+    },
+    {
+      "id": "stale-receipt",
+      "label": "回执与当前源码不符（先编译再改文件）",
+      "modules": {
+        "Sovereign.Y.A": ""
+      },
+      "nodes": {
+        "a": {
+          "statement": "A",
+          "deps": [],
+          "state": "proven",
+          "module": "Sovereign.Y.A",
+          "receipt": "stale"
+        }
+      },
+      "journal": [],
+      "expect": {
+        "score": 95,
+        "deductions": [
+          "未验证声明（无回执/回执失效）1 个（−5）"
+        ]
+      }
+    },
+    {
+      "id": "witness-rewritten",
+      "label": "git 见证被回退（删提交）",
+      "modules": {},
+      "nodes": {},
+      "journal": [],
+      "witness": {
+        "available": true,
+        "head": "0000000000000000000000000000000000000000",
+        "count": 1,
+        "recorded": {
+          "head": "1111111111111111111111111111111111111111",
+          "count": 2
+        },
+        "rewritten": true,
+        "shrunk": true,
+        "dirty": false,
+        "suspicious": false
+      },
+      "expect": {
+        "score": 40,
+        "deductions": [
+          "git 见证：历史被改写（删/回退提交）（−30）",
+          "git 见证：提交数倒退（−30）"
+        ]
+      }
+    }
+  ]
+}

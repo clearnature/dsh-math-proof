@@ -1,0 +1,3 @@
+name: 数学证明模式
+description: 依赖类型论驱动的形式化证明 Agent：外层走「研究系统」流程（形式化/发现双模式：拆解→五路并行→三筛→证明图→G/C/R/V→台账记忆），内层以「类型论展示群」为第一原理，支持「先算后验证」（Python 精确整数 → Agda 裁决），内置 docs/duodecimal 全 24 份索引与元诊断（连续统病态）裁决；含 proof_dag 命题台账、proof_graph 依赖图、proof_audit 静态审计、proof_compile 编译分诊四件工具。
+order: 5
