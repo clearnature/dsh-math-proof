@@ -17,7 +17,7 @@ graph TB
   subgraph AGENT["agent 平面（本 preset，standing mount 每进程一次）"]
     A1["提示层<br/>persona 12,993 字符 + 纪律段 10,319 字符"]
     A2["工具层<br/>6 个工具"]
-    A3["知识层<br/>11 个技能（按需加载）"]
+    A3["知识层<br/>13 个技能（按需加载）"]
     A4["拦截层<br/>3 个钩子"]
     A5["热读层 impl/<br/>ruleset · dsh-inventory · discipline.md"]
   end
@@ -85,6 +85,8 @@ graph LR
   K --> K4["agda-proof-engine（+ references/ 三个按需文件）"]
   K --> K5["proof-engineer（库规范 + 三类已知陷阱）"]
   K --> K6["fable5-thinking（九条刚性原则）"]
+  K --> K7["loop-engineer（编译失败承接方）"]
+  K --> K8["code-reviewer（交付前审查）"]
 ```
 
 - 常驻只放**红线与判据**；领域知识、事故复盘、处方清单全部按需（见 `CACHE.md`）。
@@ -97,6 +99,26 @@ graph LR
 | `hooks/session-start.mjs` | `SessionStart` | 注入接手简报（进度/评分/证据/对象完整度/待裁决） | 跨天接手时，模型还没开口就该知道现状 |
 | `hooks/gate-dag.mjs` | `PreToolUse`（`proof_dag`） | 标 `proven` 而无回执、或依赖未 proven → **exit 2 拦截** | 工具内的校验可能被绕过（模型可以不调用工具），钩子在**调用前**挡 |
 | `hooks/stop-reminder.mjs` | `Stop` | 有未验证/断链/待裁决时提醒收工写 `handoff` | 收工时刻最容易漏记 |
+
+## M1.6 随包分发的四个外部技能（与适配政策）
+
+`proof-engineer` / `fable5-thinking` / `loop-engineer` / `code-reviewer` 原本只存在于**作者本机的
+用户级技能目录**（其中一个还是软链），而 persona 与其它技能会直接引用它们——**对 clone 仓库的人是死链**。
+现在它们随 preset 分发，且 preset 的技能根 rank（300）在用户根之前，本机不会被同名旧版本覆盖。
+
+**适配政策**（正文一字不改，只做四件事）：
+
+| 改什么 | 为什么 |
+| --- | --- |
+| frontmatter 换成 DSH 格式（`name` / `description` / `whenToUse` + **「不触发」清单**） | 技能靠描述路由，缺 `whenToUse` 会与相邻技能抢触发 |
+| harness 专有名词映射：`allowed-tools: read_file,…` → `read`/`edit`/`bash`/`grep`；`runAs: subagent` → 用 `subagent` 工具委派；`run_skill x "…"` → `subagent`；`EnterPlanMode` → 计划模式；`/memory` → 台账 `journal`/`brief` | 原写法在 DSH 里没有对应工具，照抄会让模型去调用不存在的工具 |
+| 删除/泛化**作者本机路径**（技能目录、`/data/work/...`） | 别人机器上不存在；需要保留语义的（如「技能文件不可变」）改成「任何技能根目录」 |
+| 与其它技能**重复的正文改成指针** | 两份副本必然漂移：`loop-engineer` 的「附录 A」原先与 `proof-engineer` §9 逐行重复 60 行，现只留挂载机制；`proof-engineer` 的「输出格式」原先与常驻纪律段 §8 重复，现指向 §8 |
+
+**机械保证**：`tests/skills-ref-check.mjs` 会抽取 preset 里所有技能引用，要求每个被引用的技能
+**要么在 `skills/` 里随包分发，要么在 `tests/fixtures/external-skills.json` 的显式白名单里**，
+并检查 frontmatter 规范、目录名与 `name` 一致、以及**提示词里不得出现本机技能目录路径**。
+本机没有的技能（例如用户自装的 `bug-fixer` / `doc-generator`）**不要引用**——要么打包，要么不写。
 
 ## M1.5 设计约束（改架构时必须守住）
 

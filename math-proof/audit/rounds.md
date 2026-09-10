@@ -2149,3 +2149,37 @@ npm 路线**整体撤掉**（不是「以后再说」）：留着不能跑的发
 
 `check-all` → **CHECK_ALL_OK 15/15**（run 407 / eval 47 / knowledge 55 / refs 61 断言，
 后三项上涨正是因为新技能带来了新的引用与知识断言）。
+
+## 五十七、第五十二轮：技能引用完整性——把「依赖本机技能」的死链全部打通（2026-09-10）
+
+用户指出：**「你那些技能是依赖我们本地的技能但是没有打包到上游的」**。核对属实，而且不止两个：
+`loop-engineer`（28K，编译失败的默认承接方）与 `code-reviewer`（8K，交付前审查）都只在
+`~/.agents/skills/` 里，而 persona 与技能正文里到处引用它们（「编译失败委托 `loop-engineer`」、
+「代码审查委托 `code-reviewer`」）——**对 clone 仓库的人是死链**。
+
+### 57.1 做了什么
+
+| 项 | 处理 |
+| --- | --- |
+| `skills/loop-engineer/SKILL.md` | 342 行正文保留；frontmatter 换 DSH 格式；`allowed-tools`/`runAs` 映射；§2.6「技能文件不可变」由**列举本机技能目录**泛化为「任何技能根目录」（规则更强不是更弱） |
+| `skills/code-reviewer/SKILL.md` | 审查维度原文保留；同上映射 |
+| **重复正文改指针** | `loop-engineer` 的「附录 A：Agda 专项知识库」原先与 `proof-engineer` §9 **逐行重复 60 行** → 只保留「附录挂载机制」，内容指向属主技能；适配说明也集中到 `M1 §M1.6`，四个技能各留一条**互不相同**的短注 |
+| persona | 委托说明补上「随本 preset 分发」+ 四个技能一律随仓库分发，不再依赖各自机器的用户级目录 |
+| **新门禁** `tests/skills-ref-check.mjs` | ① 抽出 preset 里所有技能引用，要求每个**要么在 `skills/` 随包分发、要么在显式白名单**（`tests/fixtures/external-skills.json`，且查陈旧条目）；② 每个技能 frontmatter 必须有 `name`（与目录名一致）/`description`/`whenToUse`/「不触发」清单；③ **提示词里不得出现本机技能目录路径**（注释不算）；④ 每个技能至少被一个评测场景期望 |
+
+### 57.2 门禁当场抓到三处真问题（都已修）
+
+1. `skills/group-first-proof/SKILL.md:142` 还写着 `proof-engineer` 技能的**本机绝对路径** → 改为 preset 自带副本；
+2. `loop-engineer` §2.6 列举了 `~/.reasonix/skills/`、`~/.agents/skills/` → 泛化；
+3. 新技能没有评测场景期望 → 补 2 条（29 → **31** 条场景）。
+
+另外把门禁的模式收紧了一次：原先 `用 \`x-y\`` 太泛，把脚本名 `refs-check` 误判成技能引用。
+
+### 57.3 代价（实测）
+
+技能数 **11 → 13**；按需正文 105k → **113k 字符**（不进常驻）；
+常驻 **30.2k → 31.0k 字符**（13 条技能索引 4.6k，四条新技能索引并入现有加载顺序句）。
+
+### 57.4 复验
+
+`check-all` → **CHECK_ALL_OK 16/16**（新增 `skills-ref-check` 57/57；run 417 / eval 51 / knowledge 61）。

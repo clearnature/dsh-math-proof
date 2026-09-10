@@ -4,18 +4,9 @@ description: Fable 5 思维模式（九条刚性原则：任务分解 / 拓扑�
 whenToUse: 任务跨度 >3 步、或改动 >50 行、或要做架构取舍时加载；开工前先按九条原则过一遍，交付前用「防虚假完成」逐项附证据。
 ---
 
-> **本文件是 DSH 化后的版本**（原技能位于用户级技能目录，随 preset 一起分发以便别人也能用）。
-> 原版的 harness 专有名词已映射到 DSH 等价物，九条原则本身**一字未改**：
->
-> | 原版写法 | DSH 等价物 |
-> | --- | --- |
-> | `claude` / `architect` / `general-purpose` agent | `subagent` 工具（把该角色职责写进 prompt；本 preset 里「审查」通常委托 `code-reviewer` 技能、「编译修复」委托 `loop-engineer` 技能） |
-> | `EnterPlanMode` | 计划模式（`exit_plan_mode`；计划模式下只读、不改文件） |
-> | `/memory` 持久记忆 | 本 preset 的**台账**（`proof_dag`：`journal` 记决策/教训/交接，`brief` 接手）+ 工作区 `memory/` 目录 |
-> | `security-reviewer` | 本 preset 无该技能：直接以「对抗自检」原则自查，或委派 `subagent` 做红队式复核 |
->
-> 与本 preset 纪律的关系：**沙盒验证**对应「先算后验证 + `proof_compile` 出回执」；
-> **防虚假完成**对应「没有工具签发的回执就不算已证」；**持久记忆**对应台账与见证 git。
+> **本文件随 preset 分发**（原为用户级技能；九条原则原文未改）。适配逐条见 `docs/maps/M1-architecture.md` §M1.6。
+> 本技能特有的映射：`claude`/`architect`/`general-purpose` agent → DSH 的 `subagent` 工具；`EnterPlanMode` → 计划模式（`exit_plan_mode`）；
+> `/memory` → 台账（`proof_dag journal` / `brief`）+ 工作区 `memory/`。与本 preset 的呼应：**沙盒验证** ↔ 先算后验证 + 回执；**防虚假完成** ↔ 没有工具回执就不算已证。
 
 # Fable 5 思维模式 v3.0
 

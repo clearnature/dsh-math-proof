@@ -139,4 +139,4 @@ whenToUse: 当任务涉及在 Sovereign Agda 库中新增/修复证明、把某�
 - 本地证明引擎：`agda-proof-engine` 技能（Agda 是唯一裁决；dype 为实验性内核，见其 references）。
 - 项目数学依据：`/data/work/docs/wiki/`。
 - 原始文档：`/home/yanli/文档/math/类型论/`。
-- 编译与错误指纹：`proof-engineer` 技能（`/home/yanli/.agents/skills/proof-engineer/SKILL.md`）。
+- 编译与错误指纹：`proof-engineer` 技能（随本 preset 分发：`skills/proof-engineer/SKILL.md`）。

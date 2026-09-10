@@ -4,17 +4,10 @@ description: 大衍/Agda 形式化证明专家 — 按 Sovereign 证明库规范
 whenToUse: 要**写或审查 Agda 证明项**时加载（模块头格式 / 五种证明策略 / 类型与导入规范 / GF(3) 语义 / 输出格式），以及撞上 `mod-helper`/`div-helper` 编译限制、递归证明项在 `cong` 中卡住、`trans` 嵌套优雅性这三类已知陷阱时。
 ---
 
-> **本文件是 DSH 化后的版本**（原技能是用户级 subagent 型技能；现随 preset 分发，别人 clone 也能用）。
-> 正文**一字未改**，只做三处 harness 适配：
->
-> | 原版写法 | DSH 等价物 |
-> | --- | --- |
-> | `allowed-tools: read_file, search_content, search_files, edit_file, run_command, directory_tree, get_symbols` | `read` / `grep` / `glob` / `edit` / `write` / `bash`（符号级查询用 `bash` 跑 `agda`/`grep`，或先 `proof_graph` 看依赖） |
-> | `run_skill loop-engineer "…"` | `subagent` 工具委派（把「六类指纹 → 批量修复 → 编译 ≤5 轮」写进 prompt；若环境中存在 `loop-engineer` 技能则按该技能执行） |
-> | `runAs: subagent` | DSH 里技能是**按需加载的知识**；要「以子代理身份运行」就用 `subagent` 工具，并在 prompt 里带上本文件的规范 |
->
-> 与本 preset 的分工：**本技能管「怎么写对」**；**编译证据与回执**由 `proof_compile` 签发（`agda-proof-engine` 技能管工具链与指纹），
-> **命题级进度**记在 `proof_dag` 台账里。三者不重复：写成什么样看这里，跑没跑过看回执，证到哪了看台账。
+> **本文件随 preset 分发**（原为用户级 subagent 型技能；正文未改）。适配逐条见 `docs/maps/M1-architecture.md` §M1.6。
+> 本技能特有的映射：`allowed-tools` → `read`/`grep`/`glob`/`edit`/`write`/`bash`；`run_skill loop-engineer "…"` → 用 `subagent` 工具委派；
+> 「输出格式」一节指向常驻纪律段 §8（交付格式的唯一事实源）。
+> 分工：**本技能管「怎么写对」**，跑没跑过看 `proof_compile` 回执，证到哪了看 `proof_dag` 台账。
 
 # proof-engineer：大衍/Agda 形式化证明专家
 
@@ -756,7 +749,6 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 ---
 
 ---
-
 
 ---
 

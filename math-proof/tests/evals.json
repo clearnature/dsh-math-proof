@@ -621,6 +621,48 @@
         ]
       },
       "avoid": []
+    },
+    {
+      "id": 30,
+      "name": "编译反复失败 → 委托承接方（不是自己逐条改）",
+      "prompt": "T6 模块我改了 4 轮还是编译不过，错误一直在变，继续改吗？",
+      "mode": "engineering",
+      "expect": {
+        "tools": [
+          "proof_compile"
+        ],
+        "skills": [
+          "loop-engineer",
+          "agda-proof-engine"
+        ],
+        "structure": [
+          "编译预算闸门",
+          "委托",
+          "指纹"
+        ]
+      },
+      "avoid": []
+    },
+    {
+      "id": 31,
+      "name": "交付前审查（代数污染 / 与既有事实冲突）",
+      "prompt": "这条定理我要写进被 20 多个模块依赖的 Structology 底层模块，先做什么？",
+      "mode": "review",
+      "expect": {
+        "tools": [
+          "proof_graph"
+        ],
+        "skills": [
+          "code-reviewer",
+          "fable5-thinking"
+        ],
+        "structure": [
+          "审查",
+          "依赖",
+          "证据"
+        ]
+      },
+      "avoid": []
     }
   ]
 }
