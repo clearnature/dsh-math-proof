@@ -47,7 +47,13 @@ try {
   if (j !== null) {
     ok('dry-run 不落盘', !existsSync(out))
     ok('dry-run 报告要发布的文件数 > 40', j.files > 40, String(j.files))
-    ok('排除 state/ 机器状态文件', j.excludedStateFiles >= 1, String(j.excludedStateFiles))
+    // 新克隆 / CI 里没有 `state/`（它本来就不进版本库）→ 期望值随文件系统走，不写死
+    const hasState = existsSync(join(PRESET, 'state'))
+    ok(
+      hasState ? '排除 state/ 机器状态文件' : '无 state/ 可排除（新克隆，符合预期）',
+      hasState ? j.excludedStateFiles >= 1 : j.excludedStateFiles === 0,
+      String(j.excludedStateFiles),
+    )
     ok('无密钥假阳性（跳过扫描器自身）', j.secretHits === 0, `hits=${j.secretHits}`)
     ok('绝对路径清单里没有扫描器自身', !j.absolutePathFiles.includes('scripts/publish.mjs'), j.absolutePathFiles.join(','))
     ok('绝对路径清单含真实文件（refs-check / persona）', j.absolutePathFiles.includes('tests/refs-check.mjs') && j.absolutePathFiles.includes('agent.cordis.yml'), j.absolutePathFiles.join(','))
