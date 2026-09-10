@@ -17,7 +17,7 @@ graph TB
   subgraph AGENT["agent 平面（本 preset，standing mount 每进程一次）"]
     A1["提示层<br/>persona 12,993 字符 + 纪律段 10,319 字符"]
     A2["工具层<br/>6 个工具"]
-    A3["知识层<br/>9 个技能（按需加载）"]
+    A3["知识层<br/>11 个技能（按需加载）"]
     A4["拦截层<br/>3 个钩子"]
     A5["热读层 impl/<br/>ruleset · dsh-inventory · discipline.md"]
   end
@@ -83,6 +83,8 @@ graph LR
   K --> K2["compute-then-verify / research-system / prove2me-method"]
   K --> K3["long-horizon-discipline / meta-diagnosis / group-first-proof"]
   K --> K4["agda-proof-engine（+ references/ 三个按需文件）"]
+  K --> K5["proof-engineer（库规范 + 三类已知陷阱）"]
+  K --> K6["fable5-thinking（九条刚性原则）"]
 ```
 
 - 常驻只放**红线与判据**；领域知识、事故复盘、处方清单全部按需（见 `CACHE.md`）。

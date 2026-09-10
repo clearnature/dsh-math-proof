@@ -3,7 +3,7 @@
 // 用法：node ~/.dsh/.agent-presets/math-proof/tests/routing-check.mjs
 // 期望：ROUTING_OK（技能描述两两相似度均低于阈值）
 //
-// 为什么：9 个技能靠 `description` + `whenToUse` 被路由。若两条描述高度重叠，
+// 为什么：全部技能靠 `description` + `whenToUse` 被路由。若两条描述高度重叠，
 // 模型会随机挑一个（或都不挑），而我们有「Do NOT trigger for」却没人验证它够不够区分。
 // 本检查用字符 bigram + 英文词做 Jaccard 相似度，超阈值就点名——提示把边界写清。
 

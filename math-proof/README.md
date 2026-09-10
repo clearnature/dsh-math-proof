@@ -6,13 +6,13 @@
 ## 一、这是什么
 
 一个 agent preset：把「依赖类型论展示群 + 先算后验证 + 长程台账 + 反刷分」的纪律
-装进 DSH，用 6 个工具 + 9 个技能 + 一条常驻纪律段，支撑**可能连续数天**的证明工作。
+装进 DSH，用 6 个工具 + **11 个技能** + 一条常驻纪律段，支撑**可能连续数天**的证明工作。
 
 | 件 | 内容 |
 | --- | --- |
-| `agent.cordis.yml` | 组合：persona（11.9k）+ 纪律段（8.7k）+ 6 个工具行 + 9 个技能索引 |
+| `agent.cordis.yml` | 组合：persona（13k）+ 纪律段（10.3k）+ 6 个工具行 + 11 个技能索引 |
 | `plugins/*.mjs` | 工具实现（零依赖，只 import `node:` 内建模块） |
-| `skills/*/SKILL.md` | 按需加载的领域知识（正文 ≈52k 字符，不进常驻） |
+| `skills/*/SKILL.md` | 按需加载的领域知识（11 个技能，正文 ≈105k 字符，不进常驻；含随 preset 分发的 `proof-engineer` 与 `fable5-thinking`） |
 | `oracle-kit/oracle_kit.py` | 先算后验证的共享 Python 库（GF(3)/T⁶/δ 基/CRT/manifest） |
 | `tests/` | 14 套门禁，共 700+ 断言（`scripts/check-all.mjs` 一键跑 15 个入口） |
 | `scripts/` | 运维：schema 自检、缓存/费用报告、状态目录维护、插件盘点 / **插件市场** |
@@ -250,7 +250,7 @@ node tests/knowledge-check.mjs# KNOWLEDGE_OK（eval 承诺的知识真的在）
 node tests/dup-check.mjs      # DUP_OK（同一事实只写一处）
 node tests/cache-check.mjs    # CACHE_OK（前缀跨进程字节一致）
 node tests/refs-check.mjs     # REFS_OK（代码引用可解析 + 仓库实测报告；无仓库时 SKIP）
-node tests/routing-check.mjs  # ROUTING_OK（9 个技能描述两两相似度不超阈值）
+node tests/routing-check.mjs  # ROUTING_OK（11 个技能描述两两相似度不超阈值）
 node tests/hooks-check.mjs    # HOOKS_OK（SessionStart / PreToolUse 拦截 / Stop 契约）
 node tests/market-check.mjs   # MARKET_OK（市场脚本离线 fixture 回归，不联网）
 node tests/plugins-check.mjs  # PLUGINS_OK（三平面分类回归 + 跨脚本计数一致）

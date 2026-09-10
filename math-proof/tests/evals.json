@@ -581,6 +581,46 @@
         "跳过 oracle 直接开 Agda",
         "用线性场抽样当验证"
       ]
+    },
+    {
+      "id": 28,
+      "name": "多步改动前的思维模式（拓扑扫描 + 多路径 + 防虚假完成）",
+      "prompt": "把 Base/Trit.agda 的 ⊗ 表从 9 项扩到 12 项（改动跨多个模块），先怎么做？",
+      "mode": "engineering",
+      "expect": {
+        "tools": [
+          "proof_compile"
+        ],
+        "skills": [
+          "fable5-thinking"
+        ],
+        "structure": [
+          "拓扑扫描",
+          "路径",
+          "证据"
+        ]
+      },
+      "avoid": []
+    },
+    {
+      "id": 29,
+      "name": "写证明项时按库规范（模块头 + 策略选择）",
+      "prompt": "给 Sovereign.Algebra.GF9 加一条定律：α⁴ = 1，怎么写？",
+      "mode": "formalize",
+      "expect": {
+        "tools": [
+          "proof_compile"
+        ],
+        "skills": [
+          "proof-engineer"
+        ],
+        "structure": [
+          "模块头",
+          "证明策略",
+          "回执"
+        ]
+      },
+      "avoid": []
     }
   ]
 }

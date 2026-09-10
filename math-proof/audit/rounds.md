@@ -2114,3 +2114,38 @@ npm 路线**整体撤掉**（不是「以后再说」）：留着不能跑的发
 所以文案从「任何 `npm publish` 直接失败」改成：「`private: true`（npm 文档语义：声明私有、不发布）
 + **实测被拒是未登录**；**真正的机器闸门是 `release.yml` 的 `grep 'npm publish'` 检查**」。
 ——规则：**只写验证过的**，未验证的部分标明未验证。
+
+## 五十六、第五十一轮：把 `fable5-thinking` 与 `proof-engineer` 打包进 preset（2026-09-10）
+
+用户：**「把 fable5 和形式化证明专家这 2 个技能也打包推送到上游。很好用」**
+
+### 56.1 为什么要打包
+
+这两个技能原先只存在于**作者本机的用户级技能目录**（`fable5-thinking` 还是指向 `~/.reasonix/skills/` 的软链，
+`proof-engineer` 在 `~/.agents/skills/`）。别人 clone 仓库拿不到它们，而 persona 里已经写着
+「开工先加载 `proof-engineer` 技能（`/home/yanli/.agents/skills/...`）」——**对别人是死链**。
+
+打包进 preset 的 `skills/` 后：随仓库分发，且 preset 的技能根 rank（300）**在用户根之前**，
+所以本机上用户级同名旧版本不会覆盖它（跨根同名按 rank 取胜）。
+
+### 56.2 做了什么（内容一字未改，只加适配层）
+
+| 技能 | 处理 |
+| --- | --- |
+| `skills/fable5-thinking/SKILL.md` | 九条刚性原则**原文保留**；frontmatter 改为 DSH 格式（`name`/`description`/`whenToUse` + 「不触发」清单）；顶部加 4 行 harness 映射表：`claude`/`architect`/`general-purpose` agent → `subagent`；`EnterPlanMode` → 计划模式（`exit_plan_mode`）；`/memory` → **台账**（`journal`/`brief`）+ 工作区 `memory/`；并说明它和本 preset 的对应关系（沙盒验证 ↔ 先算后验证 + 回执；防虚假完成 ↔ 没有回执不算已证） |
+| `skills/proof-engineer/SKILL.md` | 1289 行正文**原文保留**；去掉 Claude Code 的 `runAs: subagent` / `allowed-tools: read_file,…`，换成 DSH 工具映射；`run_skill loop-engineer "…"` → `subagent` 工具委派；**「输出格式」一节改为指向常驻纪律段 §8**（那里才是最新版，比它多了 `规则戳` 与 `收尾` 两项——避免两处漂移） |
+| persona | 加载顺序里 `proof-engineer` 的路径从作者本机绝对路径改为 `skills/proof-engineer/SKILL.md`（**修掉一处死链**）；新增「跨度 >3 步或改动 >50 行 → 先加载 `fable5-thinking`」 |
+| `tests/evals.json` | 新增 2 条场景（27 → 29），保证 eval-check 的「每个技能至少被一个场景期望」成立 |
+| 计数 | README/组合头/`M1` 地图里的「9 个技能」→ **11 个**；常驻从 28.8k → **30.2k 字符**（+1.3k：两条技能索引 + 加载顺序交代），按需正文 ≈112k 字符 |
+
+### 56.3 门禁发现的真问题（已修）
+
+1. **dup-check 报 1 组重复**：`proof-engineer` 的「输出格式」代码块与纪律段 §8 的交付格式逐行相同。
+   按「同一事实只写一处」把技能那节改为**指针**（只保留它独有的「证明策略」取值域）→ 回到 0 组重复；
+2. **eval-check 要求技能全覆盖**：新技能若没有场景期望加载会直接失败 → 补 2 条场景；
+3. **routing-check**：11 个技能的描述两两相似度最高 0.186（阈值 0.55），无歧义。
+
+### 56.4 复验
+
+`check-all` → **CHECK_ALL_OK 15/15**（run 407 / eval 47 / knowledge 55 / refs 61 断言，
+后三项上涨正是因为新技能带来了新的引用与知识断言）。
