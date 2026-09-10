@@ -106,6 +106,12 @@ export function discoverCandidates() {
   return out.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'agda' ? -1 : 1))
 }
 
+/**
+ * 编译失败时的「换手」提示：默认指向本 preset 自带的批量修复协议；
+ * 只有在环境里确实存在该技能时才提 loop-engineer（它不随本仓库分发）。
+ */
+const batchRepairHint = '`skills/agda-proof-engine/SKILL.md` §5.9「编译失败的批量修复协议」（若环境存在 `loop-engineer` 技能亦可委托它，该技能不随本仓库分发）'
+
 /** 六类指纹 + 性能/规则类别的分诊表。 */
 export const FINGERPRINTS = [
   {
@@ -580,7 +586,7 @@ export async function compileModule(ctx, args, exec) {
     // 编译预算闸门：同一模块累计失败 ≥3 次 → 停止 whack-a-mole，强制委托
     if (hist.failures >= 3) {
       lines.push(
-        `- 🛑 **编译预算闸门**：本模块已累计失败 ${hist.failures} 次 → 停止逐条改错，**委托 \`loop-engineer\`**（纪律 §1 第 9 条），或改用「探针模块」缩小编译面。`,
+        `- 🛑 **编译预算闸门**：本模块已累计失败 ${hist.failures} 次 → 停止逐条改错，改走 ${batchRepairHint}`,
       )
     }
   }
@@ -630,7 +636,7 @@ export async function compileModule(ctx, args, exec) {
     lines.push('## 下一步')
     lines.push('- 按上表指纹修复；同类错误批量处理，不要逐条 whack-a-mole。')
     lines.push('- 表中带「经验库」标记的错误是**工具链固有限制**：先 `prover_limits query "<报错原文>"`，不要把限制当成自己的证明失败。')
-    lines.push('- 编译错误闭环修复委托 `loop-engineer`；修复后重跑本工具确认 exit 0。')
+    lines.push(`- 编译错误闭环修复走 ${batchRepairHint}；修复后重跑本工具确认 exit 0。`)
     lines.push('- 声称证明通过前必须有本工具或 `agda` 的 exit 0 证据。')
     const tail = output.split('\n').filter((l) => l.trim() !== '').slice(-25).join('\n')
     lines.push('')

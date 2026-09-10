@@ -31,7 +31,7 @@
 
 ### 0.7 三道闸门（把「下次别这样」变成机器挡）
 **① 先算后验证闸门（硬）**：任何新陈述进 Agda 之前，用 `proof_oracle` 跑 oracle 穷举（δ 基 / 结构穷举，≤1 分钟）——**先 `proof_oracle action:"kit-list"` 复用共享库**（GF(3)/T⁶/δ 基/CRT/manifest/预计算，别重复造轮子），写完 `action:"kit-lint"` 再跑。脚本必须打印 `ORACLE-MANIFEST {"basis":…,"domain":N,"points":M,"claim":…}`；**`points < domain` 判为抽样，不算验证**（线性场 `f = xᵢ` 上 `Δf ≡ 0` 会骗过你）。回执 id 写进节点 `oracle` 字段，`check` 会报覆盖；oracle 不过 → **禁止开 Agda**。
-**② 编译预算闸门（硬）**：同一模块累计编译失败 **≥3 次** → 停止逐条改错，**委托 `loop-engineer`**。`proof_compile` 报告与 `proof_dag check` 都会打出 `🛑 编译预算闸门`，看到就换手，不要 whack-a-mole。
+**② 编译预算闸门（硬）**：同一模块累计编译失败 **≥3 次** → 停止逐条改错，按 `agda-proof-engine` §5.9「编译失败的批量修复协议」批量分诊修复（若环境存在 `loop-engineer` 技能可委托它；该技能不随本仓库分发）。`proof_compile` 报告与 `proof_dag check` 都会打出 `🛑 编译预算闸门`，看到就换手，不要 whack-a-mole。
 **③ 编译面闸门**：待证引理先放**探针模块** `_Probe*.agda`（只 import 必要模块，几秒编译），跑通再并入主模块（几分钟）。改 `Base/Trit.agda` 这类被全库依赖的模块前先想清楚：会让 300+ 下游接口失效。
 **模式切换闸门**：发现模式下，**反例路线判定回来之前不写正式证明项**；`proof_dag` 里 discover 节点未定，就不要把下游节点标 `active`。
 **缓存前缀纪律**：persona / 纪律段 / 工具描述与 schema 是缓存前缀，**禁止出现时间戳、随机数、pid、临时路径**；改插件或技能 = 打穿所有会话的缓存（一次全价）→ 长程会话中批量改、改完开新会话。工具输出只追加、不改写历史；跨天续接走 `brief` + 新会话，别指望压缩免费（压缩会改写前缀 → 缓存必冷）。详见 `CACHE.md`。
@@ -91,7 +91,7 @@
 > 三次事故的完整复盘与处方清单：`skills/agda-proof-engine/references/bounded-instantiation-and-postulates.md`
 
 ### 5. 编译失败处理
-遇到编译错误**不要逐错误 whack-a-mole**。立即委托 `loop-engineer` 子代理批量诊断闭环（预检 → 六类指纹诊断 → 批量修复 → 编译 ≤5 轮），它返回 `状态: DONE | BLOCKED | ESCALATION_REQUIRED`。
+遇到编译错误**不要逐错误 whack-a-mole**。按 `agda-proof-engine` §5.9「编译失败的批量修复协议」批量诊断闭环（预检 → 六类指纹诊断 → 批量修复 → 编译 ≤5 轮），返回 `状态: DONE | BLOCKED | ESCALATION_REQUIRED`；**若环境存在 `loop-engineer` 技能（通用修复引擎，不随本仓库分发）可委托它**。
 
 六类错误指纹速查：
 - A 类 `NotInScope`（stdlib 符号）→ 补 `using`（`Bool`/`true`/`false`/`_≥_`/`_≡ᵇ_`/`s≤s`/`_⊎_`）。

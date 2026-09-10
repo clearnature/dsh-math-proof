@@ -100,26 +100,33 @@ graph LR
 | `hooks/gate-dag.mjs` | `PreToolUse`（`proof_dag`） | 标 `proven` 而无回执、或依赖未 proven → **exit 2 拦截** | 工具内的校验可能被绕过（模型可以不调用工具），钩子在**调用前**挡 |
 | `hooks/stop-reminder.mjs` | `Stop` | 有未验证/断链/待裁决时提醒收工写 `handoff` | 收工时刻最容易漏记 |
 
-## M1.6 随包分发的四个外部技能（与适配政策）
+## M1.6 技能打包范围：只打「强关联 + 许可清晰」的
 
-`proof-engineer` / `fable5-thinking` / `loop-engineer` / `code-reviewer` 原本只存在于**作者本机的
-用户级技能目录**（其中一个还是软链），而 persona 与其它技能会直接引用它们——**对 clone 仓库的人是死链**。
-现在它们随 preset 分发，且 preset 的技能根 rank（300）在用户根之前，本机不会被同名旧版本覆盖。
+规则（用户 2026-09-10 定）：**公共仓库不是技能仓库**。只有同时满足两条的技能才随包分发——
 
-**适配政策**（正文一字不改，只做四件事）：
+1. **与数学证明强关联**（Agda 证明规范 / 类型论 / 离散结构 / 长程证明纪律 / 证据链）；
+2. **许可清晰**（本项目原创，或上游明确开放共享并保留署名，见 `../THIRD-PARTY.md`）。
+
+| 技能 | 随包？ | 依据 |
+| --- | --- | --- |
+| `agda-proof-engine`、`compute-then-verify`、`duodecimal-corpus`、`group-first-proof`、`long-horizon-discipline`、`meta-diagnosis`、`prove2me-method`、`research-system`、`type-theory-presentation` | ✅ | 本项目原创，且都是证明工作流的组成部分 |
+| `proof-engineer` | ✅ | Agda 证明规范与三类已知陷阱（原为用户级技能，2026-09-10 起随包） |
+| `code-reviewer` | ✅ | dype/Agda 审查、代数污染检测（同上） |
+| `fable5-thinking` | ✅ | **第三方**（`THEBLUEGHOSTSSSS/Fable5-Thinking-Skill`，上游标注 MIT、作者开放共享）→ 保留署名与出处，见 `../THIRD-PARTY.md` |
+| `loop-engineer` | ❌ | **通用**技能（适用任何工程），不属本仓库范围；与证明强相关的部分**本地化**进 `agda-proof-engine` §5.9，其余引用写成**条件式** |
+
+**引用纪律**：不在包里的技能，正文一律写「**若环境存在 `x` 技能则可…**」，绝不写成必需依赖；
+必要时给出本仓库内的等效路径（如 §5.9 替代 `loop-engineer`）。`tests/skills-ref-check.mjs` 机械检查：
+白名单技能的每一处提及都必须带条件语，且本机已装但未打包的技能名不得出现在操作性文件里。
+
+### 适配政策（打包进来的技能怎么改）
 
 | 改什么 | 为什么 |
 | --- | --- |
-| frontmatter 换成 DSH 格式（`name` / `description` / `whenToUse` + **「不触发」清单**） | 技能靠描述路由，缺 `whenToUse` 会与相邻技能抢触发 |
-| harness 专有名词映射：`allowed-tools: read_file,…` → `read`/`edit`/`bash`/`grep`；`runAs: subagent` → 用 `subagent` 工具委派；`run_skill x "…"` → `subagent`；`EnterPlanMode` → 计划模式；`/memory` → 台账 `journal`/`brief` | 原写法在 DSH 里没有对应工具，照抄会让模型去调用不存在的工具 |
-| 删除/泛化**作者本机路径**（技能目录、`工作区（见 `impl/local-paths.json`）`） | 别人机器上不存在；需要保留语义的（如「技能文件不可变」）改成「任何技能根目录」 |
-| 与其它技能**重复的正文改成指针** | 两份副本必然漂移：`loop-engineer` 的「附录 A」原先与 `proof-engineer` §9 逐行重复 60 行，现只留挂载机制；`proof-engineer` 的「输出格式」原先与常驻纪律段 §8 重复，现指向 §8 |
-
-**机械保证**：`tests/skills-ref-check.mjs` 会抽取 preset 里所有技能引用，要求每个被引用的技能
-**要么在 `skills/` 里随包分发，要么在 `tests/fixtures/external-skills.json` 的显式白名单里**，
-并检查 frontmatter 规范、目录名与 `name` 一致、以及**提示词里不得出现本机技能目录路径**。
-**不要引用任何未随包分发的技能**（哪怕本机装了）——要么打包进 `skills/`，要么写进白名单并说明理由，要么不写。
-本机用户级技能目录里还有近百个与本流程无关的技能（评测、文档、扫描类），它们**不进本 preset**：一旦引用，别人 clone 后就加载不到。
+| frontmatter 换 DSH 格式（`name` / `description` / `whenToUse` + 「不触发」清单） | 技能靠描述路由，缺 `whenToUse` 会与相邻技能抢触发 |
+| harness 名词映射：`allowed-tools: read_file,…` → `read`/`edit`/`bash`/`grep`；`runAs: subagent` / `run_skill x "…"` → `subagent` 工具；`EnterPlanMode` → 计划模式；`/memory` → 台账 | 原写法在 DSH 里没有对应工具，照抄会让模型调用不存在的工具 |
+| 删除/泛化作者本机路径 | 别人机器上不存在；保留语义的（如「技能文件不可变」）改成「任何技能根目录」 |
+| 与其它技能重复的正文改成指针 | 两份副本必然漂移（`loop-engineer` 的附录曾与 `proof-engineer` §9 逐行重复 60 行） |
 
 ## M1.7 本机路径：唯一配置处 + 指针
 

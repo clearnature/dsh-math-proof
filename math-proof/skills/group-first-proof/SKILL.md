@@ -130,7 +130,7 @@ whenToUse: 当任务涉及在 Sovereign Agda 库中新增/修复证明、把某�
 3. 全库门禁：`engineering/check_all_modules_parallel.sh`。
 4. 静态审计：`proof_audit`（本 preset 自带工具）→ postulate/hole/sorry、浮点禁令、fixity、`let`、`trans` 深度、显式导入。
 5. **对抗验证**：构造性定理必须在具体点（原点 / 生成元 / 混合点 / 同态 / 结合律）用独立 `refl` 计算交叉比对。
-6. 编译失败 → 委托 `loop-engineer`，不要逐错误修复。
+6. 编译失败 → 按 `agda-proof-engine` §5.9 批量修复协议处理，不要逐错误修复（若环境存在 `loop-engineer` 技能可委托它，它不随本仓库分发）。
 
 ## 7. 参考资源
 

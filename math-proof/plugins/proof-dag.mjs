@@ -1328,7 +1328,7 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
       `- 失败未诊断: ${d.undiagnosed.length === 0 ? '无 ✅' : `⚠ ${d.undiagnosed.join(', ')}`}`,
       `- 诊断: statement_wrong ${diag.statement_wrong} / proof_too_hard ${diag.proof_too_hard} / 未诊断 ${diag.none}`,
       `- 待裁决决策: ${d.openDecisions.length === 0 ? '无 ✅' : `⚠ ${d.openDecisions.length} 条`}｜流水: ${journal.length} 条`,
-      `- 编译预算闸门: ${d.compileBudget.length === 0 ? '无超限 ✅' : `🛑 ${d.compileBudget.length} 个模块累计失败 ≥3 次 → 强制委托 \`loop-engineer\``}`,
+      `- 编译预算闸门: ${d.compileBudget.length === 0 ? '无超限 ✅' : `🛑 ${d.compileBudget.length} 个模块累计失败 ≥3 次 → 走批量修复协议（agda-proof-engine 技能 §5.9；若环境存在 loop-engineer 技能亦可委托，它不随本仓库分发）`}`,
       `- postulate 分类: ${
         d.postulateDeclared.length === 0 && d.postulateUndeclared.length === 0
           ? '无 postulate ✅'
@@ -1430,7 +1430,7 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
         d.postulateUndeclared.length === 0 ? ' ✅' : ' ⚠'
       }｜草稿文件 ${d.scratch.length === 0 ? '无 ✅' : `⚠ ${d.scratch.join(', ')}`}`,
       `- 证据可信度: ${d.verifiedCount}/${d.totalProven}（工具回执）${d.unverified.length === 0 ? ' ✅' : `｜⚠ 未验证 ${d.unverified.length}`}`,
-      `- 编译预算闸门: ${d.compileBudget.length === 0 ? '无超限 ✅' : `🛑 ${d.compileBudget.map((x) => `${x.id}（失败 ${x.failures} 次）`).join('、')} → 委托 \`loop-engineer\``}`,
+      `- 编译预算闸门: ${d.compileBudget.length === 0 ? '无超限 ✅' : `🛑 ${d.compileBudget.map((x) => `${x.id}（失败 ${x.failures} 次）`).join('、')} → 走批量修复协议（agda-proof-engine §5.9；若环境存在 loop-engineer 技能亦可委托）`}`,
       `- oracle 覆盖: ${d.oracleVerified} 个节点有有效回执${d.noOracle.length === 0 ? ' ✅' : `｜⚠ active 未跑 oracle: ${d.noOracle.join(', ')}`}`,
       `- postulate 分类: ${
         d.postulateDeclared.length === 0 && d.postulateUndeclared.length === 0

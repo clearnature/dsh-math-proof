@@ -135,6 +135,33 @@ ok(
   crossHits.slice(0, 5).join(' | '),
 )
 
+// ── 2.5) 白名单技能：引用必须是**条件式**（不得预设别人环境里有） ─────────
+// 为什么：白名单里的技能（第三方 / 通用）别人不一定有。如果正文写成「加载 `x`」「委托 `x`」，
+// 读者会以为这是必需依赖。规则：每一处提及都必须带上条件语（若/如果/存在/否则/不随本仓库分发/可加载）。
+const CONDITIONAL = /(若|如果|存在|否则|不随本仓库|可加载|可选|你的环境)/; 
+const unconditional = []
+for (const name of allow) {
+  for (const file of promptFiles) {
+    const lines = readFileSync(file, 'utf8').split('\n')
+    lines.forEach((line, i) => {
+      const hit = name.includes('-')
+        ? new RegExp(`(^|[^A-Za-z0-9_-])${name}([^A-Za-z0-9_-]|$)`).test(line)
+        : line.includes('`' + name + '`')
+      if (!hit) return
+      // 注释行（composition 的 # / mjs 的 //）是给维护者看的说明，不要求条件式
+      if (/^\s*[#]/.test(line) || /^\s*\/\//.test(line)) return
+      // 条件语可能落在相邻行（长句换行很常见）→ 看 ±1 行窗口
+      const window = [lines[i - 1] ?? '', line, lines[i + 1] ?? ''].join(' ')
+      if (!CONDITIONAL.test(window)) unconditional.push(`${file.slice(PRESET.length + 1)}:${i + 1} → ${name}`)
+    })
+  }
+}
+ok(
+  allow.size === 0 ? '无白名单技能（跳过条件式检查）' : `白名单技能的引用都是条件式（${[...allow].join(', ')}）`,
+  unconditional.length === 0,
+  unconditional.slice(0, 5).join(' | '),
+)
+
 // ── 3) 每个技能 frontmatter 规范 ──────────────────────────────────────────
 for (const name of [...shipped].sort()) {
   const file = join(skillsDir, name, 'SKILL.md')

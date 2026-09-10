@@ -102,7 +102,7 @@
       - 库门禁：`engineering/check_group_chain.sh`（群论链 8 模块）、`engineering/check_fermat_chain.sh`（Fermat 链 L0–L4）、`engineering/check_all_modules_parallel.sh`。
       - ⚠ **沙箱限制（2026-09-09 实测）**：链闸门会写 stdlib 接口目录（`agda-stdlib/_build/...agdai`）；在 `workspace-write` 沙箱下该目录只读 → 闸门 exit=42（**权限问题，非类型错误**）。此时改用 `proof_compile` 逐模块验证（只写工作区内 `.agdai`），或请用户放开写权限。
       - 证明策略优先级、硬性禁令、六类错误指纹、对抗验证协议：见下一条「证明纪律」提示段，务必逐条遵守。
-      - 技能加载顺序：**非平凡目标（不是单条引理）先加载 `research-system`（外层研究流程：拆解→五路并行→三筛→证明图→G/C/R/V→记忆）与 `prove2me-method`（大规模协作纪律的本地化：三条铁律 / solver 循环 / reduction 复用 / 论文式说明）**；需要先算后验证（Python 枚举 / 找反例 / 大规模核对）加载 `compute-then-verify`；涉及群 / 代数结构加载 `type-theory-presentation`（第一原理：展示群八要素 + 术语红线）、`duodecimal-corpus`（`docs/duodecimal` 全 24 份索引）、`group-first-proof`（投影层工具）；涉及连续统 / 极限 / 千禧年问题加载 `meta-diagnosis`（三重完备性标尺 + 病态检测）；**长程 / 跨天任务加载 `long-horizon-discipline`（阶段交付 + 接手简报 + 依赖图不断链 + 限制经验库）**；**要写/审查证明项时加载 `proof-engineer`（随本 preset 分发：`skills/proof-engineer/SKILL.md`）**：模块头格式 + 五种证明策略 + 类型/导入规范 + GF(3) 语义 + 三类已知陷阱（`mod-helper` 编译限制与 REWRITE、递归证明项在 `cong` 中卡住、`trans` 嵌套优雅性）。**任何跨度 >3 步或改动 >50 行的任务，开工前加载 `fable5-thinking`（九条刚性原则：分解 / 拓扑扫描 / 多路径推演 / 沙盒验证+递归修正 / 防虚假完成）**，交付前用「防虚假完成」逐项附证据。编译失败**委托 `loop-engineer`**（随本 preset 分发：`skills/loop-engineer/SKILL.md`，不要逐错误 whack-a-mole）；交付前/动底层模块前委托 `code-reviewer`（随本 preset 分发：`skills/code-reviewer/SKILL.md`）。**这四个技能（`proof-engineer` / `fable5-thinking` / `loop-engineer` / `code-reviewer`）都随仓库分发，不再依赖各自机器上的用户级技能目录。**
+      - 技能加载顺序：**非平凡目标（不是单条引理）先加载 `research-system`（外层研究流程：拆解→五路并行→三筛→证明图→G/C/R/V→记忆）与 `prove2me-method`（大规模协作纪律的本地化：三条铁律 / solver 循环 / reduction 复用 / 论文式说明）**；需要先算后验证（Python 枚举 / 找反例 / 大规模核对）加载 `compute-then-verify`；涉及群 / 代数结构加载 `type-theory-presentation`（第一原理：展示群八要素 + 术语红线）、`duodecimal-corpus`（`docs/duodecimal` 全 24 份索引）、`group-first-proof`（投影层工具）；涉及连续统 / 极限 / 千禧年问题加载 `meta-diagnosis`（三重完备性标尺 + 病态检测）；**长程 / 跨天任务加载 `long-horizon-discipline`（阶段交付 + 接手简报 + 依赖图不断链 + 限制经验库）**；**要写/审查证明项时加载 `proof-engineer`（随本 preset 分发：`skills/proof-engineer/SKILL.md`）**：模块头格式 + 五种证明策略 + 类型/导入规范 + GF(3) 语义 + 三类已知陷阱（`mod-helper` 编译限制与 REWRITE、递归证明项在 `cong` 中卡住、`trans` 嵌套优雅性）。**任何跨度 >3 步或改动 >50 行的任务：开工先做分解与拓扑扫描**（本 preset 自带路径：纪律 §0 分解纪律 + `research-system` 的「拆解→并行→三筛」+ 纪律 §0.5 长程纪律）；**若你的环境里另有 `fable5-thinking` 技能（第三方技能，**不随本仓库分发**），可加载它作为补充**。交付前逐项附证据（「防虚假完成」纪律见 §0.6）。编译失败**不要逐错误 whack-a-mole**：按 `agda-proof-engine` §5.9「编译失败的批量修复协议」批量分诊修复（最多 5 轮，超过标 BLOCKED 交人）；**若环境里另有 `loop-engineer` 技能（通用迭代修复引擎，**不随本仓库分发**）可委托它**。交付前 / 动底层模块前委托 `code-reviewer`（随本 preset 分发：`skills/code-reviewer/SKILL.md`）。**随本仓库分发的技能只有 `skills/` 下那 12 个（含 `proof-engineer` / `code-reviewer`）；别处的技能（含第三方 `fable5-thinking`、通用 `loop-engineer`）不保证存在，引用一律写成条件式。**
       - **先算后验证**（zcode 方法论）：Python 精确整数计算（`engineering/` 轨道，禁浮点）作猜想生成器 / 约束来源 / 对抗验证器；**Agda 是唯一裁决**（Python 通过 ≠ 证明）。模型必须保留全部结构分量（无信息截断）。交叉验证测试落 `engineering/tests/`（`python3 -m pytest engineering/tests/`）。
       - **形式化后端立场**：本项目以 **Agda** 为准（依赖类型论原生、构造主义、无 `Choice`、`--rewriting`/Cubical、0 postulate 可逐模块审计）；Lean 4 生态强但接受 `Classical.choice`/`propext`，与本宪法冲突，**只作方法论参考**，不作裁决。
       - 数学依据：wiki 与类型论文档的路径见**纪律段的「本机路径」表**（键名 `wiki` / `typeTheoryDocs`；唯一配置处 `impl/local-paths.json`）。
@@ -166,7 +166,7 @@
       2. **五路并行**（`workflow` / `subagent`）：**构造路线**（候选结构 / ansatz）、**文献路线**（`docs/` 全族 + grep 已有模块 + 外部检索 → 可引用锚点 `文件:行`）、**反例路线**（主动找假命题）、**形式化路线**（候选 → 可编译签名）、**计算路线**（Python 精确整数枚举 → 猜想/反例/约束）。每路带输出 schema；结论需第二路证据。
       3. **三筛**：律筛（符合展示群 / 相位不可约 / 离散基座）、约束筛（不混 C₄/V₄、不越界声称、不引 `Choice`）、可判定筛（>27 case 必须符号化）。未过筛的候选写进台账（含否决理由）。
       4. **证明图**：`proof_dag`（状态机 pending→active→proven|refuted|blocked|needs_review + owner + `next` 调度 + `check` 体检）管理命题级台账；`proof_graph` 从 `.agda` 解析 import DAG 给出 leaf-first 编译顺序。**节点只有 `proof_compile` exit 0 + 0 postulate/hole 才可标 `proven`**，证据写进 `evidence`。同一引理被多节点需要 → 上提下层复用，不复制粘贴。
-      5. **验证循环 G/C/R/V**：Generator → Critic（`code-reviewer` / 对抗自检）→ Repair（`loop-engineer`）→ Verify（`proof_compile` + 闸门 + 具体点对抗验证）。
+      5. **验证循环 G/C/R/V**：Generator → Critic（`code-reviewer` / 对抗自检）→ Repair（`agda-proof-engine` §5.9 批量修复协议）→ Verify（`proof_compile` + 闸门 + 具体点对抗验证）。
       6. **数学记忆**：机器可读 = `proof_dag` 台账；人可读 = `memory/*.md`（猜想台账 / 失败路线 / 可引用锚点 / 开放缺口）。开工先读 `PROJECT_MEMORY.md` + `memory/` + `proof_dag list`。
       7. **规模纪律**：先小后大；每路必须产出可验证增量；汇总去重；超预算返回部分结果 + 缺口，不空转。
 
@@ -208,7 +208,7 @@
 #   node ~/.dsh/.agent-presets/math-proof/scripts/publish.mjs --out ~/src/dsh-math-proof
 #                                                                    # 开源发布准备：排除 state/ + 绝对路径/密钥体检 + 生成仓库骨架（LICENSE/.gitignore/README）
 #   node ~/.dsh/.agent-presets/math-proof/tests/refs-check.mjs       # REFS_OK（代码引用 + 关键数字 vs 仓库实测；--fix 同步数字；无仓库时 SKIP）
-#   node ~/.dsh/.agent-presets/math-proof/tests/routing-check.mjs    # ROUTING_OK（13 个技能描述两两相似度不超阈值）
+#   node ~/.dsh/.agent-presets/math-proof/tests/routing-check.mjs    # ROUTING_OK（12 个技能描述两两相似度不超阈值）
 #   node ~/.dsh/.agent-presets/math-proof/tests/market-check.mjs     # MARKET_OK（市场脚本离线 fixture 回归：计数/差集/版本线/相关表）
 #   node ~/.dsh/.agent-presets/math-proof/tests/plugins-check.mjs    # PLUGINS_OK（三平面分类回归 + 跨脚本计数一致；宿主 dump 缓存在 state/host/）
 #   node ~/.dsh/.agent-presets/math-proof/tests/publish-check.mjs    # PUBLISH_OK（发布准备：state 排除 / 布局 / 生成物 / 拒绝覆盖）
@@ -313,13 +313,16 @@
 #
 # `customSkillDirs` adds THIS preset's own `skills/` directory (rank 300, ahead
 # of the user roots). `baseUrl` is the preset's own directory, so the root
-# resolves wherever the preset is installed — that is how `group-first-proof`,
-# `proof-engineer` and `fable5-thinking` travel with the preset (别人 clone 就有，
-# 不依赖各自机器上的用户级技能目录). Default roots stay on, so the user's
-# `~/.agents/skills` catalog (`loop-engineer`, `code-reviewer`, …) is merged in
-# unchanged; do not re-list it here or every skill would appear twice.
+# resolves wherever the preset is installed — that is how the 11 shipped skills
+# (`group-first-proof`, `proof-engineer`, `code-reviewer`, …) travel with the
+# preset (别人 clone 就有，不依赖各自机器上的用户级技能目录). Default roots stay
+# on, so the user's own catalog (`~/.agents/skills` 里的 `loop-engineer` 等) is
+# merged in unchanged; do not re-list it here or every skill would appear twice.
 # 同名技能跨根重复时按 rank 取胜（preset 的 rank 300 在用户根之前）→ 本 preset
-# 带着 DSH 化的 `proof-engineer` / `fable5-thinking`，用户机器上的同名旧版本不会覆盖它。
+# 带着 DSH 化的 `proof-engineer` / `code-reviewer`，用户机器上的同名旧版本不会覆盖它。
+# **只打包与数学证明强关联、且许可清晰的技能**：通用技能（`loop-engineer`）与第三方技能
+# （`fable5-thinking`，来自 github.com/THEBLUEGHOSTSSSS/Fable5-Thinking-Skill，无 LICENSE 文件）
+# 一律不随仓库分发，引用写成条件式——见 docs/maps/M1-architecture.md §M1.6。
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
   config:

@@ -648,7 +648,7 @@ function scratch(label) {
     contains('预算: check 打出闸门', chk, '编译预算闸门')
     contains('预算: 列出超限模块', chk, '失败 3/3 次')
     const brief = await call({ action: 'brief' }, ws)
-    contains('预算: brief 也提示', brief, '委托 `loop-engineer`')
+    contains('预算: brief 也提示（改走自带批量修复协议）', brief, '批量修复协议')
 
     // 只失败 2 次不触发
     const { ws: ws2, done: done2 } = scratch('budget2')

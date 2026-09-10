@@ -1,11 +1,11 @@
 ---
 name: proof-engineer
-description: 大衍/Agda 形式化证明专家 — 按 Sovereign 证明库规范编写和审查 Agda 形式化证明。编译错误修复委托 loop-engineer。 不触发（Do NOT trigger for）: 工具链限制判定与经验库（用 agda-proof-engine / prover_limits）；外层研究流程与阶段设计（用 research-system / long-horizon-discipline）；技能路由与任务分解（用 fable5-thinking）。
+description: 大衍/Agda 形式化证明专家 — 按 Sovereign 证明库规范编写和审查 Agda 形式化证明。编译错误按 agda-proof-engine §5.9 协议批量修复（若环境存在 loop-engineer 技能可委托它，它不随本仓库分发）。 不触发（Do NOT trigger for）: 工具链限制判定与经验库（用 agda-proof-engine / prover_limits）；外层研究流程与阶段设计（用 research-system / long-horizon-discipline）；技能路由与任务分解（用 fable5-thinking）。
 whenToUse: 要**写或审查 Agda 证明项**时加载（模块头格式 / 五种证明策略 / 类型与导入规范 / GF(3) 语义 / 输出格式），以及撞上 `mod-helper`/`div-helper` 编译限制、递归证明项在 `cong` 中卡住、`trans` 嵌套优雅性这三类已知陷阱时。
 ---
 
-> **本文件随 preset 分发**（原为用户级 subagent 型技能；正文未改）。适配逐条见 `docs/maps/M1-architecture.md` §M1.6。
-> 本技能特有的映射：`allowed-tools` → `read`/`grep`/`glob`/`edit`/`write`/`bash`；`run_skill loop-engineer "…"` → 用 `subagent` 工具委派；
+> **本文件随 preset 分发**（原为用户级 subagent 型技能）。正文仅一处适配：「编译失败委托」由写死的外部技能改为**条件式 + 自带协议兜底**（见 `docs/maps/M1-architecture.md` §M1.6）。适配逐条见 `docs/maps/M1-architecture.md` §M1.6。
+> 本技能特有的映射：`allowed-tools` → `read`/`grep`/`glob`/`edit`/`write`/`bash`；`run_skill <技能> "…"`（原版的子技能调用语法）→ 用 `subagent` 工具委派，或按 `agda-proof-engine` §5.9 的协议自己批量修复；
 > 「输出格式」一节指向常驻纪律段 §8（交付格式的唯一事实源）。
 > 分工：**本技能管「怎么写对」**，跑没跑过看 `proof_compile` 回执，证到哪了看 `proof_dag` 台账。
 
@@ -208,28 +208,28 @@ real-eq = trans r-step1 (trans r-step2 (trans r-step3 (trans r-step4 r-step5)))
 4. 编写证明 → 选择正确的证明策略（穷举/代数链/¬/postulate/CRT正交分解）
 5. agda 编译验证
    ├── ✅ 通过 → 进入步骤6
-   └── ❌ 失败 → 委托 loop-engineer 诊断修复
-       ├── loop-engineer 执行：预检 → 六类诊断 → 批量修复 → 编译 ≤5轮
+   └── ❌ 失败 → 按批量修复协议诊断修复（本 preset 自带：`agda-proof-engine` §5.9；若环境存在 loop-engineer 技能可委托它，它不随本仓库分发）
+       ├── 执行：预检 → 六类诊断 → 批量修复 → 编译 ≤5轮
        ├── ✅ DONE → 回到步骤5重新验证
        ├── ⚠️ BLOCKED → 记录预存错误指纹，更新附录A
        └── 🚨 ESCALATION → 通知人工审查
 6. 审查：postulate 数量、实验来源标注、范式合规
 ```
 
-### loop-engineer 委托协议
+### 编译失败委托协议
 
-当编译失败时，**不要自己逐错误修复**。立即调用 loop-engineer：
+当编译失败时，**不要自己逐错误修复**。默认按本 preset 自带的
+`agda-proof-engine` §5.9「编译失败的批量修复协议」执行；**若你的环境里存在 `loop-engineer` 技能
+（通用迭代修复引擎，**不随本仓库分发**）**，委托它也可以（原版写法是 `run_skill loop-engineer "修复 <模块>"`，
+在 DSH 里用 `subagent` 工具委派）。
 
-```
-run_skill loop-engineer "修复 src/Sovereign/Path/To/File.agda"
-```
-
-loop-engineer 返回标准化报告：
+无论谁执行，返回的报告格式一致：
 - `状态: DONE` → 文件已修复，继续流程
 - `状态: BLOCKED` → 记录预存，标注到文件注释和 docs/INDEX.md
 - `状态: ESCALATION_REQUIRED` → 暂停，报告人工审查
 
-每次 BLOCKED 的失败指纹自动更新到 `loop-engineer` 附录A。
+每次 BLOCKED 的失败指纹都要沉淀：本 preset 里落进 `prover_limits`（症状 → 判据 → 做法 → 证据）；
+若环境存在 `loop-engineer` 技能，也可按其附录机制更新。
 
 ## 核心原则
 
@@ -243,7 +243,7 @@ loop-engineer 返回标准化报告：
 - **禁止代数污染**：不引入 `Double`/`Float`/`pi`/`sqrt`/`cos`/`sin`
 - **≤3 层 trans 嵌套**：超过 3 层必须分离为辅助引理
 - **左结合分组精确匹配**：辅助引理的括号结构必须与被操作函数的定义一致
-- **编译错误修复委托 loop-engineer**：遇到编译错误时调用 `loop-engineer` 子代理，由其执行批量诊断闭环修复。
+- **编译错误修复按批量协议执行**：遇到编译错误时，默认走 `agda-proof-engine` §5.9 的批量诊断闭环（若环境存在 `loop-engineer` 技能可委托它，它不随本仓库分发）。
 
 ## 输出格式
 

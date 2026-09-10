@@ -2271,3 +2271,55 @@ npm 路线**整体撤掉**（不是「以后再说」）：留着不能跑的发
 
 `check-all` → **CHECK_ALL_OK 17/17**（`skills-ref-check` **58/58**，报告里会打印
 「本机用户级技能目录可见：988（交叉核对已启用）」）。
+
+## 六十、第五十五轮：技能打包范围收紧 + 第三方来源声明（2026-09-10）
+
+用户先指出「**不能把所有的技能开放到公共仓库**，是哪些和数学证明强关联的可以打包到上游进行开发」，
+随后补充「**fable5-thinking 放进去，作者是开放的**」。据此确立取舍标准并落实。
+
+### 60.1 取舍标准（写进 `docs/maps/M1-architecture.md` §M1.6）
+
+**只有同时满足两条才随包分发**：① 与数学证明强关联；② 许可清晰（原创，或上游明确开放共享并保留署名）。
+
+| 技能 | 结论 | 依据 |
+| --- | --- | --- |
+| 9 个原创技能 + `proof-engineer` + `code-reviewer` | ✅ 随包 | 证明工作流组成部分；两份原是作者用户级技能，2026-09-10 起随包 |
+| `fable5-thinking` | ✅ 随包（**第三方**） | 上游 `github.com/THEBLUEGHOSTSSSS/Fable5-Thinking-Skill`，README 标 MIT、作者开放共享 → **保留出处与署名** |
+| `loop-engineer` | ❌ 移出 | **通用**技能（适用任何工程），不属本仓库范围 |
+
+### 60.2 移出 `loop-engineer` 后的自足性（关键）
+
+不能只删不补——它承担的是「编译失败不要逐条改」。做法：把**与证明强相关**的部分**本地化**进
+`skills/agda-proof-engine/SKILL.md` **§5.9「编译失败的批量修复协议」**（预检 → 六类指纹批量分诊 →
+置信度分流 → 批量修复 → **≤5 轮**，12 轮上限 → 回归冲击波 → `DONE`/`BLOCKED`(必带证据)/`ESCALATION_REQUIRED`；
+第 N 次失败换维度；与 `prover_limits` 联动）。其余引用一律改成**条件式**
+（「若环境存在 `loop-engineer` 技能可委托它，它不随本仓库分发」）——persona、纪律段、4 个技能、
+2 个插件（`agda-engine` / `proof-dag` 的编译预算闸门提示）全部改到位。
+
+### 60.3 新增 `docs/THIRD-PARTY.md`（公共仓库的必要件）
+
+逐条写明：`fable5-thinking` 的来源仓库、同步 commit（`8af252f` v3.0）、上游许可（MIT 徽章 + 作者开放共享，
+上游当时无 LICENSE 文件）、本仓库改了哪几处（frontmatter + harness 适配段，**九条原则原文未改**）、
+上游更新怎么办；并声明「曾引入现已移出的 `loop-engineer` 仍留在 git 历史里，需要清除请告知」；
+最后给出判断标准与「只打包强关联 + 许可清晰」的规则。
+
+### 60.4 门禁新增一条（把这条纪律变成机器检查）
+
+白名单里的技能（当前只有 `loop-engineer`），其在操作性文件中的**每一处提及都必须带条件语**
+（若/如果/存在/否则/不随本仓库/可加载/可选/你的环境）——否则失败。条件语允许落在相邻行（长句换行常见）。
+
+**它当场抓出 12 处**原来写死的引用：persona 的「委托 `loop-engineer`」、纪律段 §5 开头、
+`proof-engineer` 的正文流程与「委托协议」节、`research-system` 的 G/C/R/V 表、`group-first-proof` 第 6 条、
+`long-horizon-discipline` 的闸门表、`code-reviewer` 的 frontmatter 不触发清单、两个插件的闸门提示、
+以及 `tests/run.mjs` 的断言与 `evals.json` 的场景期望。全部改为条件式或指向 §5.9。
+
+### 60.5 一处自伤与修复
+
+改 `proof-dag.mjs` 的闸门提示时，我在**模板字符串里嵌了未转义的反引号** → 整个插件加载失败
+（`Missing } in template expression`）。改为不带反引号的纯文本后恢复。教训与纪律一致：
+**改完插件必须跑门禁**——`run.mjs` 的 412 条断言就是在这种情况下挡住我的。
+
+### 60.6 复验
+
+技能数 **13 → 12**（移出 `loop-engineer`，保留 `fable5-thinking`）；`check-all` → **CHECK_ALL_OK 17/17**
+（`skills-ref-check` **55/55**：新增条件式检查；`run` 412/412；`eval-check` 50/50）。

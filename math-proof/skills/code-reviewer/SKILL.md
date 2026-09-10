@@ -1,12 +1,12 @@
 ---
 name: code-reviewer
-description: dype/Agda 代码审查 — 四极框架合规、Agda 证明库对齐、代数污染检测、dype 架构一致性；输出按严重级别分档并给裁决（Verdict）。 不触发（Do NOT trigger for）: 编译错误批量修复（用 loop-engineer）；证明策略选择与模块头规范（用 proof-engineer）；数据与证据链体检（用 proof_dag check / proof_audit）。
+description: dype/Agda 代码审查 — 四极框架合规、Agda 证明库对齐、代数污染检测、dype 架构一致性；输出按严重级别分档并给裁决（Verdict）。 不触发（Do NOT trigger for）: 编译错误批量修复（用 `agda-proof-engine` §5.9 的批量修复协议）；证明策略选择与模块头规范（用 proof-engineer）；数据与证据链体检（用 proof_dag check / proof_audit）。
 whenToUse: 交付前审查、或对被 20+ 模块依赖的底层模块动手之前加载；重点看「代数污染」（把结构降格成集合/元素计数）与「与证明库既有事实冲突」。
 ---
 
 > **本文件随 preset 分发**（原为用户级 subagent 型技能；审查维度原文未改）。适配逐条见 `docs/maps/M1-architecture.md` §M1.6。
 > 本技能特有的映射：`allowed-tools: read_file/search_content/search_files/directory_tree/get_symbols` → `read`/`grep`/`glob`/`bash`
-> （结构用 `glob`+`grep`，符号与依赖可先跑 `proof_graph`）；`runAs: subagent` → 用 `subagent` 工具委派，或按 `fable5-thinking` 的「对抗自检」自查。
+> （结构用 `glob`+`grep`，符号与依赖可先跑 `proof_graph`）；`runAs: subagent` → 用 `subagent` 工具委派，或按本 preset 纪律 §0.6「反刷分」与「对抗自检」原则自查（若环境里另有 `fable5-thinking` 技能——第三方、不随本仓库分发——也可用它）。
 > 分工：**本技能审「写得对不对」**（语义/结构/代数污染），`proof_audit` 只管静态合规。
 
 # code-reviewer：dype/Agda 代码审查

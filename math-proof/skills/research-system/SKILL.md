@@ -25,7 +25,7 @@ whenToUse: 面对一个非平凡数学目标（不是单条引理）时；需要
 | 3 搜索空间 | 百万候选 | 候选 ansatz/命题生成 → **三筛** → 只留可形式化者 |
 | 4 证明图 | 依赖 DAG | `proof_graph` 工具建 DAG / 拓扑序 / 环检测 + 独立编译闸门 |
 | 5 形式化 | Lean | Agda（本项目）+ `proof_compile`；先算后验证见 `compute-then-verify` |
-| 6 验证 | Generator/Critic/Repair/Verify | 生成 → `code-reviewer`/对抗自检 → `loop-engineer` → `proof_compile` + 闸门 |
+| 6 验证 | Generator/Critic/Repair/Verify | 生成 → `code-reviewer`/对抗自检 → 批量修复协议（`agda-proof-engine` §5.9；若环境存在 `loop-engineer` 技能亦可委托，它不随本仓库分发）→ `proof_compile` + 闸门 |
 
 ## 1b. 双模式：先判断你在哪一模式
 
@@ -101,7 +101,7 @@ whenToUse: 面对一个非平凡数学目标（不是单条引理）时；需要
 ## 7. 第 6 层：验证循环（G/C/R/V）
 
 ```
-Generator(本 agent) → Critic(code-reviewer / 对抗自检) → Repair(loop-engineer) → Verify(proof_compile + 闸门)
+Generator(本 agent) → Critic(code-reviewer / 对抗自检) → Repair(批量修复协议，见 agda-proof-engine §5.9；若环境存在 loop-engineer 亦可委托，不随本仓库分发) → Verify(proof_compile + 闸门)
 ```
 
 - **Critic 必须主动攻击**：找反例、找隐藏前提、查证明项是否真闭合、查是否越界声称。

@@ -4,9 +4,15 @@ description: Fable 5 思维模式（九条刚性原则：任务分解 / 拓扑�
 whenToUse: 任务跨度 >3 步、或改动 >50 行、或要做架构取舍时加载；开工前先按九条原则过一遍，交付前用「防虚假完成」逐项附证据。
 ---
 
-> **本文件随 preset 分发**（原为用户级技能；九条原则原文未改）。适配逐条见 `docs/maps/M1-architecture.md` §M1.6。
-> 本技能特有的映射：`claude`/`architect`/`general-purpose` agent → DSH 的 `subagent` 工具；`EnterPlanMode` → 计划模式（`exit_plan_mode`）；
-> `/memory` → 台账（`proof_dag journal` / `brief`）+ 工作区 `memory/`。与本 preset 的呼应：**沙盒验证** ↔ 先算后验证 + 回执；**防虚假完成** ↔ 没有工具回执就不算已证。
+> **第三方内容（随本 preset 分发，见 `docs/THIRD-PARTY.md`）**
+>
+> - 来源：<https://github.com/THEBLUEGHOSTSSSS/Fable5-Thinking-Skill>（作者开放共享；仓库 README 标注 MIT）
+> - 本仓库同步的版本：commit `8af252f`（v3.0）；**九条原则原文一字未改**
+> - 本地适配（仅这几处）：frontmatter 换成 DSH 格式；原版 harness 名词映射到 DSH 等价物——
+>   `claude`/`architect`/`general-purpose` agent → `subagent` 工具；`EnterPlanMode` → 计划模式（`exit_plan_mode`）；
+>   `/memory` → 台账（`proof_dag journal` / `brief`）+ 工作区 `memory/`；`security-reviewer` → 用「对抗自检」原则或委派 `subagent` 红队复核。
+> - 与本 preset 的呼应：**沙盒验证** ↔ 先算后验证 + `proof_compile` 回执；**防虚假完成** ↔ 没有工具签发的回执就不算已证；**持久记忆** ↔ 台账与见证 git。
+> - 若上游更新：直接覆盖本文件正文（保留本段与 frontmatter），或删除本目录改用你自己的用户级技能副本。
 
 # Fable 5 思维模式 v3.0
 

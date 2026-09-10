@@ -550,7 +550,7 @@
         ],
         "structure": [
           "编译预算闸门",
-          "loop-engineer"
+          "批量修复协议"
         ]
       },
       "avoid": [
@@ -624,7 +624,7 @@
     },
     {
       "id": 30,
-      "name": "编译反复失败 → 委托承接方（不是自己逐条改）",
+      "name": "编译反复失败 → 按批量修复协议（不是自己逐条改）",
       "prompt": "T6 模块我改了 4 轮还是编译不过，错误一直在变，继续改吗？",
       "mode": "engineering",
       "expect": {
@@ -632,12 +632,11 @@
           "proof_compile"
         ],
         "skills": [
-          "loop-engineer",
           "agda-proof-engine"
         ],
         "structure": [
           "编译预算闸门",
-          "委托",
+          "协议",
           "指纹"
         ]
       },
