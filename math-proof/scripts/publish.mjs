@@ -55,8 +55,9 @@ if (!/^[a-z0-9][a-z0-9-]*$/.test(PRESET_ID)) {
 
 // ── 1) 收集要发布的文件（排除本机状态）────────────────────────────────────
 
-const EXCLUDE_DIRS = new Set(['state', 'node_modules', '.git'])
-const EXCLUDE_FILE = /(?:\.tmp-\d+|\.corrupt-\d+|~)$/
+// 机器生成的产物一律不进发布树：`state/`（本机台账/缓存）、`:pycache`、.agdai 等
+const EXCLUDE_DIRS = new Set(['state', 'node_modules', '.git', '__pycache__', '_build', '.agdai', '.pytest_cache'])
+const EXCLUDE_FILE = /(?:\.tmp-\d+|\.corrupt-\d+|~|\.pyc|\.pyo|\.agdai|\.hi|\.o|DS_Store)$/
 
 /** 递归收集相对路径（发布树里要保留的相对位置）。 */
 function collect(dir, prefix = '') {
@@ -117,8 +118,12 @@ try {
 const GITIGNORE = `# 机器状态与缓存：不进版本库（发布树本来就不含它们）
 state/
 node_modules/
+__pycache__/
+*.pyc
+*.agdai
 *.tmp-*
 *.corrupt-*
+.DS_Store
 `
 
 const LICENSE = `MIT License

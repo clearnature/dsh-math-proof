@@ -1,5 +1,9 @@
 # 机器状态与缓存：不进版本库（发布树本来就不含它们）
 state/
 node_modules/
+__pycache__/
+*.pyc
+*.agdai
 *.tmp-*
 *.corrupt-*
+.DS_Store

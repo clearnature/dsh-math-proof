@@ -83,6 +83,8 @@ try {
   const all = walk(out)
   ok('发布树里没有 state/ 目录', !all.some((f) => f.includes(`/${'state'}/`)), all.filter((f) => f.includes('state')).join(','))
   ok('发布树里没有临时文件', !all.some((f) => /\.tmp-\d+$/.test(f)))
+  ok('发布树里没有机器生成物（__pycache__ / .pyc / .agdai）', !all.some((f) => /__pycache__|\.pyc$|\.agdai$/.test(f)), all.filter((f) => /__pycache__|\.pyc$/.test(f)).join(','))
+  ok('.gitignore 挡住机器生成物', readFileSync(join(out, '.gitignore'), 'utf8').includes('__pycache__'))
   ok('发布树里有 check-all（用户可自检）', all.some((f) => f.endsWith('scripts/check-all.mjs')))
 
   // ── 4) 非空目录必须拒绝覆盖 ─────────────────────────────────────────────
