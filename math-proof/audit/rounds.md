@@ -2679,3 +2679,44 @@ text: typeof section.text === "function" ? section.text(context) : section.text 
 ### 67.4 复验
 
 `check-all` → **CHECK_ALL_OK 21/21**（`ruleset-check` 51/51、`reload-check` 15/15）；挂载校验 ✅。
+
+## 六十八、第六十三轮：**批量登记通道的证据洞**（`import` 静默丢回执）（2026-09-10）
+
+用户转来块 3（Burnside）的工作报告，并对其中一处发问：**「你这个哪里出现问题了，没有持久化吗？？」**
+报告里写：用 `import` 批量登记已证节点后，**9 个节点从「有证据」变成「proven 无证据」**，评分一度从 100 → **55**，
+而报告只写「更新 9」，看不出原因。
+
+### 68.1 复现（临时工作区，未动生产台账）
+
+```
+① import 带 receipt:'deadbeef' → {"state":"proven","receipt":null,"verified":false}   ← 静默丢掉
+② import 无回执写 state:"proven" → 接受；check 报「proven 无证据 2 个（−20）」→ 80/100
+```
+
+**结论：不是「没有持久化」**。台账是**原子写**（tmp + rename）、并有**见证 git**（每次关键变更提交
+`ledger.json` + `journal.jsonl` + **全部 `receipts/*.json`**）——持久化是好的。
+问题在**批量通道本身**：`import` 的字段白名单里**没有** `receipt`/`oracle`/`evidence`/`postulates`，
+所以条目带的回执被无声忽略；同时它**允许直接写 `state:"proven"`**，绕过了 `add`/`update` 的全部证据门禁。
+（`update` 与 `add` 一直是正确的——所以「改用 update 逐节点带证据」能救回来，正是报告里做的。）
+
+**数据能找回**：见证仓库里有变更前的台账快照 + 回执原件，必要时可从历史恢复。
+
+### 68.2 修复：批量通道不再豁免证据
+
+| 改动 | 内容 |
+| --- | --- |
+| 接受证据字段 | 条目可带 `receipt`（**校验源码哈希**，无效即拒）、`oracle`（校验回执）、`postulates`（规范化 + 门禁）、`evidence` |
+| `proven` 门禁 | 写 `state:"proven"` 必须带**有效回执**（或该节点已有有效回执），否则**该条目被拒**并给出三选一：① 带 `receipt`；② 先按 `active`/`needs_review` 导入再 `update` 带回执；③ 历史迁移用调用级 `allowUnevidencedProven: true` |
+| 显式逃生 | `allowUnevidencedProven: true` 放行的节点在报告里**单独列出**，且 `check` 照常扣分（不静默） |
+| 覆盖保证据 | 覆盖既有节点时，条目省略证据字段 → **保留原 receipt/oracle/evidence + 已验证标记**（这是当初「丢失」的那三项，已加回归断言钉死） |
+| schema | 新增 `allowUnevidencedProven` 参数（`additionalProperties:false` 下不加会被拒收）；`items` 描述写明「批量通道不豁免证据」 |
+| 纪律段 | 增一条：「批量登记不豁免证据……登记完必须跑 `check` 看『proven 无证据』是否为 0」 |
+
+### 68.3 回归（`tests/run.mjs` +10 条断言，423/423）
+
+有效回执被记录并标记已验证｜无效回执被拒且**不落盘**｜无回执写 proven 被拒且不落盘｜显式放行会被单独列出且
+check 照常扣分｜**覆盖时保留 receipt / evidenceVerified / evidence 文本**。
+
+### 68.4 复验
+
+`check-all` → **CHECK_ALL_OK 21/21**（`run` **423/423**）；挂载校验 ✅。

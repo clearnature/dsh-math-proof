@@ -505,6 +505,49 @@ function scratch(label) {
     await call({ action: 'add', node: { id: 'a', statement: 'A', module: 'Sovereign.R.A', state: 'proven', receipt: hash } }, ws)
     const chk = await call({ action: 'check' }, ws)
     contains('回执: 可信证据计数', chk, '证据可信度: 1/1')
+
+    // ── import 批量通道不豁免证据（真实事故：import 静默丢 receipt → 9 个 proven 变无证据）──
+    const wsImp = mkdtempSync(join(tmpdir(), 'math-proof-import-'))
+    const dagMod = (await toolOf('proof-dag.mjs', 'proof_dag')).mod
+    try {
+      mkdirSync(join(wsImp, 'src', 'Sovereign'), { recursive: true })
+      const mfile2 = join(wsImp, 'src', 'Sovereign', 'M.agda')
+      writeFileSync(mfile2, 'module Sovereign.M where\n\ntheoremX : Set\ntheoremX = Set\n')
+      const h2 = dype.sourceHashOf(readFileSync(mfile2, 'utf8'))
+      dype.writeReceipt({ sourceHash: h2, path: mfile2, checker: 'agda', exitCode: 0, ts: '2026-09-10T00:00:00.000Z' })
+      receiptFiles.push(join(dype.receiptDir(), `${h2}.json`))
+
+      // ① 带有效回执：必须真的落盘 + 标记已验证
+      await call({ action: 'import', items: [{ id: 'I1', statement: 's', module: 'Sovereign.M', state: 'proven', receipt: h2 }] }, wsImp)
+      const l1 = dagMod.readLedger(wsImp)
+      eq('import: 有效回执被记录', l1.nodes.I1.evidenceReceipt, h2)
+      eq('import: 有效回执标记已验证', l1.nodes.I1.evidenceVerified, true)
+
+      // ② 无效回执：拒绝该条目
+      const bad = await call({ action: 'import', items: [{ id: 'I2', statement: 't', module: 'Sovereign.M', state: 'proven', receipt: 'deadbeef' }] }, wsImp)
+      contains('import: 无效回执被拒', bad, 'receipt 无效')
+      ok('import: 无效回执不落盘', dagMod.readLedger(wsImp).nodes.I2 === undefined)
+
+      // ③ 无回执写 proven：拒绝并给出三选一
+      const noev = await call({ action: 'import', items: [{ id: 'I3', statement: 'u', module: 'Sovereign.M', state: 'proven' }] }, wsImp)
+      contains('import: 无回执 proven 被拒', noev, '批量通道不豁免证据')
+      ok('import: 无回执 proven 不落盘', dagMod.readLedger(wsImp).nodes.I3 === undefined)
+
+      // ④ 迁移逃生：显式放行 + 明确列出 + check 扣分
+      const allowed = await call({ action: 'import', allowUnevidencedProven: true, items: [{ id: 'I4', statement: 'v', module: 'Sovereign.M', state: 'proven' }] }, wsImp)
+      contains('import: 显式放行会单独列出', allowed, 'proven 但无回执')
+      const chkImp = await call({ action: 'check' }, wsImp)
+      contains('import: 放行的节点在 check 里照样扣分', chkImp, 'proven 无证据')
+
+      // ⑤ 覆盖既有节点时**证据必须保留**（这就是当初丢失的那三个字段）
+      await call({ action: 'import', items: [{ id: 'I1', statement: 's（改名）', module: 'Sovereign.M' }] }, wsImp)
+      const l2 = dagMod.readLedger(wsImp)
+      eq('import: 覆盖时保留 receipt', l2.nodes.I1.evidenceReceipt, h2)
+      eq('import: 覆盖时保留 evidenceVerified', l2.nodes.I1.evidenceVerified, true)
+      ok('import: 覆盖时保留 evidence 文本', String(l2.nodes.I1.evidence ?? '').includes('工具签发'))
+    } finally {
+      rmSync(wsImp, { recursive: true, force: true })
+    }
     contains('回执: 无未验证告警', chk, '未验证声明: 无 ✅')
     contains('回执: 满分', chk, '完整性评分: 100/100')
 

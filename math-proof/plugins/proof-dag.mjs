@@ -1580,6 +1580,7 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
     const added = []
     const updated = []
     const errors = []
+    const unevidenced = [] // 经 allowUnevidencedProven 放行的「proven 但无回执」节点
     for (const raw of items) {
       if (raw === null || typeof raw !== 'object') {
         errors.push('非对象条目已跳过')
@@ -1611,9 +1612,83 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
         source: raw.source === undefined ? undefined : String(raw.source),
         state: raw.state === undefined ? undefined : String(raw.state),
       }
-      if (Object.hasOwn(nodes, id)) {
-        for (const [k, v] of Object.entries(fields)) if (v !== undefined) nodes[id][k] = v
-        nodes[id].updatedAt = new Date().toISOString()
+      // ── 证据字段：批量通道**不许绕过**证据纪律 ──────────────────────────
+      // 真实事故（2026-09-10，另一会话）：`import` 原先**不接受** receipt/oracle/evidence，
+      // 却允许直接写 state:"proven" → 9 个节点变成「proven 但无证据」，评分从 100 掉到 55，
+      // 而报告只写「更新 9」，看不出原因。现在：给了就校验，写 proven 必须有有效回执。
+      const existing = Object.hasOwn(nodes, id) ? nodes[id] : null
+      const allowUnevidenced = args?.allowUnevidencedProven === true
+      const modName = String(fields.module ?? existing?.module ?? '').trim()
+      const modText = modName === '' ? null : moduleText(workspace, modName)
+
+      let newReceipt = null
+      if (raw.receipt !== undefined && raw.receipt !== null && String(raw.receipt).trim() !== '') {
+        const rid = String(raw.receipt).trim()
+        if (modText === null) {
+          errors.push(`${id}: 给了 receipt 但 module 读不到（无法核对源码哈希）→ 先补 module 或该模块文件`)
+          continue
+        }
+        const v = verifyReceipt(rid, modText)
+        if (!v.ok) {
+          errors.push(`${id}: receipt 无效（${v.why}）→ 先跑 proof_compile 拿新回执，不要手写`)
+          continue
+        }
+        newReceipt = rid
+      }
+      let newOracle = null
+      if (raw.oracle !== undefined && raw.oracle !== null && String(raw.oracle).trim() !== '') {
+        const oid = String(raw.oracle).trim()
+        const v = verifyOracleReceipt(oid, '')
+        if (!v.ok) {
+          errors.push(`${id}: oracle 回执无效（${v.why}）→ 用 proof_oracle 重跑`)
+          continue
+        }
+        newOracle = oid
+      }
+      let newPostulates = existing?.postulates
+      if (raw.postulates !== undefined) {
+        try {
+          newPostulates = normalizePostulates(raw.postulates)
+        } catch (e) {
+          errors.push(`${id}: ${e instanceof Error ? e.message : String(e)}`)
+          continue
+        }
+      }
+      const hasEvidence = newReceipt !== null || existing?.evidenceReceipt !== undefined
+      if (fields.state === 'proven') {
+        if (modText !== null) {
+          const reason = postulateGate(workspace, modName, newPostulates)
+          if (reason !== null) {
+            errors.push(`${id}: ${reason}`)
+            continue
+          }
+        }
+        if (!hasEvidence && !allowUnevidenced) {
+          errors.push(
+            `${id}: state="proven" 但**没有有效回执** → 批量通道不豁免证据。三选一：` +
+              '① 条目里带 `receipt`（proof_compile 签发）；② 先按 `active`/`needs_review` 导入，再用 `update` 带回执；' +
+              '③ 确属历史数据迁移，调用时加 `allowUnevidencedProven: true`（会照常在 check 里扣分并被单独列出）',
+          )
+          continue
+        }
+        if (!hasEvidence) unevidenced.push(id)
+      }
+
+      if (existing !== null) {
+        for (const [k, v] of Object.entries(fields)) if (v !== undefined) existing[k] = v
+        if (newPostulates !== undefined) existing.postulates = newPostulates
+        if (newReceipt !== null) {
+          existing.evidenceReceipt = newReceipt
+          existing.evidenceVerified = true
+          const prev = String(existing.evidence ?? '').trim()
+          const stamp = `回执 \`${newReceipt.slice(0, 12)}…\` exit 0（工具签发）`
+          existing.evidence = prev === '' ? stamp : `${prev}；${stamp}` // 追加，不覆盖人类写的反例说明
+        }
+        if (newOracle !== null) {
+          existing.oracle = newOracle
+          existing.oracleVerified = true
+        }
+        existing.updatedAt = new Date().toISOString()
         updated.push(id)
       } else {
         if (fields.statement === undefined || fields.statement.trim() === '') {
@@ -1630,9 +1705,14 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
           relations: fields.relations,
           deps: fields.deps ?? [],
           module: fields.module,
+          postulates: newPostulates,
           source: fields.source,
           state: fields.state !== undefined && STATES.includes(fields.state) ? fields.state : 'pending',
-          evidenceVerified: false,
+          evidence: newReceipt === null ? undefined : `回执 \`${newReceipt.slice(0, 12)}…\` exit 0（工具签发）`,
+          evidenceReceipt: newReceipt ?? undefined,
+          evidenceVerified: newReceipt !== null,
+          oracle: newOracle ?? undefined,
+          oracleVerified: newOracle !== null,
           updatedAt: new Date().toISOString(),
         }
         added.push(id)
@@ -1646,6 +1726,9 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
       `- 更新: **${updated.length}**${updated.length === 0 ? '' : `（${updated.slice(0, 12).join(', ')}${updated.length > 12 ? ' …' : ''}）`}`,
       `- 跳过/报错: ${errors.length === 0 ? '无 ✅' : `⚠ ${errors.length}`}`,
       ...errors.slice(0, 8).map((e) => `  - ${e}`),
+      ...(unevidenced.length === 0
+        ? []
+        : ['', `- ⚠ **proven 但无回执（按 allowUnevidencedProven 放行）** ${unevidenced.length} 个：${unevidenced.slice(0, 8).join(', ')}${unevidenced.length > 8 ? ' …' : ''}（action:"check" 会扣分）`]),
       '',
       '> 导入后跑 `action:"check"` 看对象信息完整度与断链；再 `action:"graph"` 导出知识图谱。',
     ].join('\n')
@@ -1830,7 +1913,7 @@ export function apply(ctx) {
   ctx.tools.register({
     name: 'proof_dag',
     description:
-      '持久化证明 DAG 台账（长程任务的可审计记忆）：节点=可验证命题或**信息完整对象**（`kind:"object"` 必须带 `construction` 生成方式与 `relations` 关系）、边=deps、状态机 pending→active→proven|refuted|blocked|needs_review|abandoned（放弃需理由，记录不删）、owner 指派、`source` 溯源。**先算后验证闸门**：`oracle` 字段写 `proof_oracle` 回执 id，`check` 报 oracle 覆盖与失效；**编译预算闸门**：同一模块失败 ≥3 次自动报警并提示委托。**证据分档**：只有 `proof_compile` 签发的 `receipt` 算「已验证」（回执与源码哈希绑定，改文件即失效）；模型自报的 `evidence` 字符串一律标「未验证」，照样扣分——分数不可通过改记录提高。`next` 派发依赖已证的待办；`check` 做环/悬空/证据/模块/**台账↔代码断链**体检；`brief` 生成跨天接手简报；`journal` 记决策与来源流水（`open:true` = 待人类裁决）；`graph` 把台账导出为**信息完整对象**的知识图谱 JSON（AI 接口，落盘 + 摘要）。**postulate 口径**：模块可以有 postulate，但标 proven 前必须用 `postulates` 逐个声明 kind（rewrite/unreachable/gap）——`gap` 不能 proven，rewrite/unreachable 要有人类裁决流水；未声明的按「用公理冒充证明」重罚。`doctor` 自证本实例跑的是哪版插件与规则（引用分数前先跑）。失败必须落 `diagnosis`：statement_wrong（陈述有误→修形式化）/ proof_too_hard（证明太难→拆子引理）。改 `statement`/`deps` = 改签名 → 该节点与全部下游退回 needs_review（blueprint refinement）。台账在 ~/.dsh/state/math-proof/（不写进项目仓库）。',
+      '持久化证明 DAG 台账（长程任务的可审计记忆）：节点=可验证命题或**信息完整对象**（`kind:"object"` 必须带 `construction` 生成方式与 `relations` 关系）、边=deps、状态机 pending→active→proven|refuted|blocked|needs_review|abandoned（放弃需理由，记录不删）、owner 指派、`source` 溯源。**先算后验证闸门**：`oracle` 字段写 `proof_oracle` 回执 id，`check` 报 oracle 覆盖与失效；**编译预算闸门**：同一模块失败 ≥3 次自动报警并提示委托。**证据分档**：只有 `proof_compile` 签发的 `receipt` 算「已验证」（回执与源码哈希绑定，改文件即失效）；模型自报的 `evidence` 字符串一律标「未验证」，照样扣分——分数不可通过改记录提高。`next` 派发依赖已证的待办；`check` 做环/悬空/证据/模块/**台账↔代码断链**体检；`brief` 生成跨天接手简报；`journal` 记决策与来源流水（`open:true` = 待人类裁决）；`graph` 把台账导出为**信息完整对象**的知识图谱 JSON（AI 接口，落盘 + 摘要）。**postulate 口径**：模块可以有 postulate，但标 proven 前必须用 `postulates` 逐个声明 kind（rewrite/unreachable/gap）——`gap` 不能 proven，rewrite/unreachable 要有人类裁决流水；未声明的按「用公理冒充证明」重罚。`doctor` 自证本实例跑的是哪版插件与规则（引用分数前先跑）。**批量登记（`import`）不豁免证据**：条目可带 `receipt`/`oracle`/`postulates`，写 `state:"proven"` 必须带有效回执，否则该条目被拒（真实事故：早期 import 静默丢掉 receipt，9 个 proven 变「无证据」→ 评分从 100 掉到 55 且看不出原因）。失败必须落 `diagnosis`：statement_wrong（陈述有误→修形式化）/ proof_too_hard（证明太难→拆子引理）。改 `statement`/`deps` = 改签名 → 该节点与全部下游退回 needs_review（blueprint refinement）。台账在 ~/.dsh/state/math-proof/（不写进项目仓库）。',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -1905,7 +1988,17 @@ export function apply(ctx) {
         },
         oracle: { type: 'string', description: 'update 的 `proof_oracle` 回执 id；回执无效（不存在/退出非 0/抽样/脚本已改）会报错。' },
         resolve: { type: 'string', description: 'journal 用：裁决并关闭一条待裁决决策——条目 ts 或 `last`（最近一条 open 决策）。' },
-        items: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'import 用：节点对象数组（与 add 的 node 同形）。' },
+        items: {
+          type: 'array',
+          items: { type: 'object', additionalProperties: true },
+          description:
+            'import 用：节点对象数组（与 add 的 node 同形，另接受 receipt / oracle / postulates / evidence）。注意：批量通道**不豁免证据** —— 条目写 state:"proven" 必须带有效 receipt（或该节点已有有效回执），否则该条目被拒。',
+        },
+        allowUnevidencedProven: {
+          type: 'boolean',
+          description:
+            'import 用：显式放行「proven 但无回执」的条目（历史数据迁移才用）。放行的节点会在报告里单独列出、并照常在 check 里扣分——**不要用它绕过证据纪律**。',
+        },
         query: { type: 'string', description: 'search 用：关键词 / 符号名 / 模块名（大小写不敏感）。' },
         file: { type: 'string', description: 'import 用：JSON 文件路径（内容为数组或 `{nodes:[…]}`）。' },
         entry: {
