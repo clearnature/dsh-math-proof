@@ -14,8 +14,9 @@
 | `plugins/*.mjs` | 工具实现（零依赖，只 import `node:` 内建模块） |
 | `skills/*/SKILL.md` | 按需加载的领域知识（正文 ≈52k 字符，不进常驻） |
 | `oracle-kit/oracle_kit.py` | 先算后验证的共享 Python 库（GF(3)/T⁶/δ 基/CRT/manifest） |
-| `tests/` | 13 套门禁，共 700+ 断言（`scripts/check-all.mjs` 一键跑 14 个入口） |
+| `tests/` | 14 套门禁，共 700+ 断言（`scripts/check-all.mjs` 一键跑 15 个入口） |
 | `scripts/` | 运维：schema 自检、缓存/费用报告、状态目录维护、插件盘点 / **插件市场** |
+| `docs/` | **架构地图 M1–M6**（功能架构 / 依赖图 / 数据流 / 状态管理 / 生命周期 / 证据链）|
 | `CACHE.md` | 缓存前缀纪律（为什么「改插件 = 打穿缓存」） |
 | `AUDIT.md` + `audit/rounds.md` | 结论与逐轮记录（含每次被否证的判断） |
 
@@ -210,7 +211,7 @@ node scripts/publish.mjs --out ~/src/dsh-math-proof             # 生成仓库�
 # 1) 改插件后必须过 schema 自检（否则整个会话启动失败）
 node ~/.dsh/.agent-presets/math-proof/scripts/lint-schemas.mjs   # SCHEMA_LINT_OK
 
-# 2) 十三套门禁（全部期望通过）
+# 2) 十四套门禁（全部期望通过）
 node tests/run.mjs            # ALL_PASS（插件回归）
 node tests/benchmark.mjs      # BENCHMARK_PASS（冻结语料：评分权重不许漂移）
 node tests/eval-check.mjs     # EVAL_CHECK_OK（工具/技能覆盖）
@@ -224,8 +225,9 @@ node tests/market-check.mjs   # MARKET_OK（市场脚本离线 fixture 回归，
 node tests/plugins-check.mjs  # PLUGINS_OK（三平面分类回归 + 跨脚本计数一致）
 node tests/publish-check.mjs  # PUBLISH_OK（发布准备：state 排除 / 布局 / 生成物）
 node tests/ruleset-check.mjs  # RULESET_OK（规则热读真的生效 / doctor 自证 / postulate 门禁 / 结果级分诊）
+node tests/docs-check.mjs     # DOCS_OK（M2 依赖图与源码一致 / 地图齐 / Mermaid 闭合 / 无死链）
 
-# 3) 一键跑全部门禁（14 个入口汇总成一张表）
+# 3) 一键跑全部门禁（15 个入口汇总成一张表）
 node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs   # CHECK_ALL_OK
 
 # 4) 运维

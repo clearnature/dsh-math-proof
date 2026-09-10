@@ -1864,3 +1864,42 @@ gh repo edit --description … --add-topic dsh --add-topic agda …（9 个 topi
 - CI：`gates` **success**（Node 20/22/24 三腿全过）；
 - 本地 preset ↔ 仓库副本 **diff 一致**（只差 `state/` 与 `__pycache__`，两者都不进版本库）；
 - 复验：`check-all` → **CHECK_ALL_OK 14/14**（publish-check 26/26）。
+
+## 五十一、第四十六轮：补架构文档（地图 M1–M6）（2026-09-10）
+
+用户：**「math-proof 里面没有 docs 文档说明吗？功能架构图 maps，依赖图，数据流。」**——确实没有：
+此前只有 `README.md`（人类入口）、`CACHE.md`、`AUDIT.md`，**没有架构/依赖/数据流文档**。
+
+### 51.1 交付：`docs/` + 六张地图
+
+| 地图 | 回答的问题 | 手写 / 生成 |
+| --- | --- | --- |
+| `M1-architecture.md` | 五个平面（宿主 / agent / 工作区 / 状态 / 外部裁决器）、6 个工具分工、提示层常驻与按需、3 个钩子、5 条设计约束 | 手写 |
+| `M2-dependency.md` | 组合行（34 行 / 28 spec / 24 包 / 6 本地插件 / 3 分组）、**模块依赖图（Mermaid）**、外部依赖（**全部是 `node:` 内建 = 零外部包**）、工具→实现、数据文件→写入者 | **脚本生成** |
+| `M3-data-flow.md` | 一次证明任务的时序（oracle → 编译 → 回执 → 台账 → 见证 → 图谱）、每步留下什么、证据三档与失效条件、闸门位置、失败路径 | 手写 |
+| `M4-state-and-storage.md` | 两个状态位置（`~/.dsh/state/math-proof/` vs preset 的 `state/`）、每类数据生命周期与清理策略、锁/原子写/损坏隔离、备份恢复、**已知缺口** | 手写 |
+| `M5-lifecycle.md` | 挂载 → SessionStart → 工作循环 → Stop → 跨天接手；压缩后靠什么接上；热/可热/冷三档 | 手写 |
+| `M6-evidence-chain.md` | 证据三档判定树、评分扣分表（快照自 `impl/ruleset.mjs`）、三道机器闸门、见证能/不能证明什么 | 手写 |
+
+`docs/README.md` 是索引：每张图回答什么问题、什么时候看、三条读法建议、维护约定。
+
+### 51.2 关键设计：**结构类文档不许手写**
+
+依赖图这种「结构事实」手写必漂移，所以 `docs/maps/M2-dependency.md` 整篇由
+`scripts/docs-gen.mjs` 从源码生成（组合行 + 相对 import + 内建依赖 + 工具注册 + 状态文件写入者），
+并由 `tests/docs-check.mjs` 做**逐字节漂移门禁**（`docs-gen --check`）。
+门禁还检查：六张地图齐且被索引、每图至少一个非空 Mermaid 块、代码围栏成对、**相对链接无死链**、
+以及「文档里不得写死会漂移的计数」（`knowledge-check` 管技能知识，本门禁管架构文档结构）。
+
+### 51.3 文档化过程中发现的真缺口（已修）
+
+写 M4 时核对状态目录，发现 **`graph-<ws>.{json,md}` 知识图谱导出无上限**：实测已累积 **68 个文件 / 65 组**
+（每次 `action:"graph"` 落一组，`state-gc.mjs` 原先只管回执/见证/历史，不管图谱）。
+修法：`state-gc.mjs` 新增图谱盘点与 `--apply --graph-keep N`（每 workspace 留最新 N 组，
+其余移到 `graph-archive/`——**派生物可重建，归档不删除**）。
+
+> 这正是「文档驱动发现」的例子：不写 M4 就不会去逐类核对数据生命周期。
+
+### 51.4 复验
+
+新增 `tests/docs-check.mjs`（69 断言）；`check-all` → **CHECK_ALL_OK 15/15**。

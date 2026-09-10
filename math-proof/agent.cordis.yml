@@ -184,7 +184,7 @@
 #
 # ⚠ 改动插件后必须跑 schema 自检（否则非法 schema 会让整个会话启动失败）：
 #   node ~/.dsh/.agent-presets/math-proof/scripts/lint-schemas.mjs   # 期望 SCHEMA_LINT_OK
-#   node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs      # 一键跑全部 14 个门禁 → CHECK_ALL_OK
+#   node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs      # 一键跑全部 15 个门禁 → CHECK_ALL_OK
 # 🔥 热重载：纪律文本真身在 `impl/discipline.md`，注册时用**函数**（每次装配 prompt 重读），
 #   因此改纪律**不需要新会话**（代价：前缀缓存失效，但会话与进度保留）。
 #   其余（工具描述/schema、composition 行、persona）属冷档：需新会话，且同样会改缓存前缀。
@@ -213,6 +213,8 @@
 #   node ~/.dsh/.agent-presets/math-proof/tests/plugins-check.mjs    # PLUGINS_OK（三平面分类回归 + 跨脚本计数一致；宿主 dump 缓存在 state/host/）
 #   node ~/.dsh/.agent-presets/math-proof/tests/publish-check.mjs    # PUBLISH_OK（发布准备：state 排除 / 布局 / 生成物 / 拒绝覆盖）
 #   node ~/.dsh/.agent-presets/math-proof/tests/ruleset-check.mjs    # RULESET_OK（规则热读生效 / doctor 自证 / postulate 门禁 / 结果级分诊）
+#   node ~/.dsh/.agent-presets/math-proof/scripts/docs-gen.mjs       # 生成 docs/maps/M2-dependency.md（依赖图，从源码生成，勿手改）
+#   node ~/.dsh/.agent-presets/math-proof/tests/docs-check.mjs       # DOCS_OK（M2 与源码一致 / 地图齐 / Mermaid 闭合 / 链接可解析）
 #   node ~/.dsh/.agent-presets/math-proof/tests/hooks-check.mjs      # HOOKS_OK（SessionStart / PreToolUse 拦截 / Stop 行为契约）
 # 覆盖：proof_dag 状态机/失败诊断/签名变更级联失效/证据完整性/台账↔代码断链/损坏台账隔离/
 #       并发写不丢更新/溯源/流水/接手简报/完整性评分与趋势/裁决闭环；prover_limits 经验库（证据+误判防护必填）；proof_graph 拓扑序

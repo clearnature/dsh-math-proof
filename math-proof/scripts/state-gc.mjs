@@ -5,6 +5,7 @@
 //   node ... --apply --archive-days 90    # 把 90 天前的回执归档成 jsonl 并删除原件
 //   node ... --apply --rebuild-index      # 用回执重建每模块聚合索引
 //   node ... --apply --witness-gc         # 对每个见证仓库做 git gc（压缩历史）
+//   node ... --apply --graph-keep 3       # 知识图谱导出每 workspace 只留最新 3 组，其余归档
 //   node ... --json                       # 机器可读输出
 //
 // 状态目录里有什么、为什么要管：
@@ -13,7 +14,8 @@
 //   history-*.json      评分历史（已限 200 条）
 //   witness-*/          每个 workspace 一个 git 见证仓库（每次关键变更一个 commit）
 //   checkpoint-*.json   见证检查点
-// 长期运行的风险：回执无限增长、见证仓库快照累积、聚合索引与回执脱节。
+//   graph-<ws>.{json,md}知识图谱导出（**可重建的派生物**，会随每次 graph 调用累积）
+// 长期运行的风险：回执无限增长、见证仓库快照累积、聚合索引与回执脱节、图谱导出堆积。
 // 本脚本是唯一的维护入口——**归档不删除**（数据留档，热目录瘦身）。
 
 import { spawnSync } from 'node:child_process'
@@ -31,6 +33,7 @@ const APPLY = argv.includes('--apply')
 const REBUILD = argv.includes('--rebuild-index')
 const WITNESS_GC = argv.includes('--witness-gc')
 const DAYS = Number(flag('archive-days', 0)) || 0
+const GRAPH_KEEP = Number(flag('graph-keep', 0)) || 0
 const AS_JSON = argv.includes('--json')
 
 const STATE = join(homedir(), '.dsh', 'state', 'math-proof')
@@ -70,7 +73,9 @@ const report = {
   witness: { repos: 0, bytes: 0 },
   checkpoints: 0,
   ledgers: 0,
+  graphs: { files: 0, bytes: 0, groups: 0 },
 }
+const graphFiles = []
 for (const e of entries) {
   const p = join(STATE, e)
   const st = statSync(p)
@@ -105,8 +110,13 @@ for (const e of entries) {
     report.checkpoints += 1
   } else if (e.startsWith('dag-') && e.endsWith('.json')) {
     report.ledgers += 1
+  } else if (e.startsWith('graph-')) {
+    report.graphs.files += 1
+    report.graphs.bytes += st.size
+    graphFiles.push(e)
   }
 }
+report.graphs.groups = new Set(graphFiles.map((f) => f.replace(/^graph-/, '').replace(/\.[a-z]+$/, ''))).size
 
 // ── 2. 归档旧回执（默认不动）───────────────────────────────────────────────
 const archived = { receipts: 0, oracle: 0 }
@@ -183,6 +193,25 @@ if (APPLY && REBUILD) {
   }
 }
 
+// ── 3.5 图谱导出瘦身（派生物；按 workspace 保留最新 N 组，其余归档）──────────
+let graphsArchived = 0
+if (APPLY && GRAPH_KEEP > 0 && graphFiles.length > 0) {
+  const byGroup = new Map()
+  for (const f of graphFiles) {
+    const key = f.replace(/^graph-/, '').replace(/\.[a-z]+$/, '')
+    if (!byGroup.has(key)) byGroup.set(key, [])
+    byGroup.get(key).push({ f, mtimeMs: statSync(join(STATE, f)).mtimeMs })
+  }
+  mkdirSync(join(STATE, 'graph-archive'), { recursive: true })
+  for (const [, list] of byGroup) {
+    list.sort((a, b) => b.mtimeMs - a.mtimeMs)
+    for (const { f } of list.slice(GRAPH_KEEP)) {
+      renameSync(join(STATE, f), join(STATE, 'graph-archive', f))
+      graphsArchived += 1
+    }
+  }
+}
+
 // ── 4. 见证仓库压缩 ───────────────────────────────────────────────────────
 let witnessGc = 0
 if (APPLY && WITNESS_GC) {
@@ -197,7 +226,7 @@ if (APPLY && WITNESS_GC) {
 }
 
 if (AS_JSON) {
-  console.log(JSON.stringify({ ...report, applied: APPLY, archived, rebuilt, witnessGc }, null, 2))
+  console.log(JSON.stringify({ ...report, applied: APPLY, archived, rebuilt, witnessGc, graphsArchived }, null, 2))
   process.exit(0)
 }
 
@@ -210,13 +239,17 @@ console.log(`| oracle 回执 | ${report.oracle.files} 条 | ${mb(report.oracle.b
 console.log(`| 评分历史 | ${report.history.files} 个 | ${mb(report.history.bytes)} | 每 workspace 上限 200 条 |`)
 console.log(`| 见证仓库 | ${report.witness.repos} 个 | ${mb(report.witness.bytes)} | 每次关键变更一个 commit |`)
 console.log(`| 检查点 / 台账 | ${report.checkpoints} / ${report.ledgers} | — | — |`)
+console.log(`| 知识图谱导出 | ${report.graphs.files} 个文件（${report.graphs.groups} 组） | ${mb(report.graphs.bytes)} | **派生物**（可由台账重建，可归档） |`)
 console.log('')
 if (!APPLY) {
   console.log('（dry-run）常用维护：')
   console.log('  --apply --archive-days 90   归档 90 天前的回执（写入 receipts/archive/*.jsonl，不删数据）')
   console.log('  --apply --rebuild-index     用回执重建每模块聚合索引（聚合与回执脱节时用）')
   console.log('  --apply --witness-gc        压缩见证仓库历史（reflog expire + git gc）')
+  console.log('  --apply --graph-keep 3      图谱导出每 workspace 只留最新 3 组，其余移到 graph-archive/（不删）')
 } else {
-  console.log(`已执行：归档编译回执 ${archived.receipts} 条 / oracle 回执 ${archived.oracle} 条｜重建聚合 ${rebuilt} 个｜见证仓库压缩 ${witnessGc} 个`)
+  console.log(
+    `已执行：归档编译回执 ${archived.receipts} 条 / oracle 回执 ${archived.oracle} 条｜重建聚合 ${rebuilt} 个｜见证仓库压缩 ${witnessGc} 个｜图谱导出归档 ${graphsArchived} 个`,
+  )
 }
 console.log(`\nSTATE_GC_OK（${APPLY ? '已应用' : 'dry-run'}）`)
