@@ -321,7 +321,8 @@
 # 同名技能跨根重复时按 rank 取胜（preset 的 rank 300 在用户根之前）→ 本 preset
 # 带着 DSH 化的 `proof-engineer` / `code-reviewer`，用户机器上的同名旧版本不会覆盖它。
 # **只打包与数学证明强关联、且许可清晰的技能**：通用技能（`loop-engineer`）与第三方技能
-# （`fable5-thinking`，来自 github.com/THEBLUEGHOSTSSSS/Fable5-Thinking-Skill，无 LICENSE 文件）
+# （`fable5-thinking`，来自 github.com/THEBLUEGHOSTSSSS/Fable5-Thinking-Skill；**上游 README 的 `## License`
+# 段明确写 MIT © 2026**——仓库里没有独立的 LICENSE 文件，许可声明在说明文件里，见 docs/THIRD-PARTY.md）
 # 一律不随仓库分发，引用写成条件式——见 docs/maps/M1-architecture.md §M1.6。
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'

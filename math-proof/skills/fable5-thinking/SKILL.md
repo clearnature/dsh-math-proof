@@ -6,7 +6,7 @@ whenToUse: 任务跨度 >3 步、或改动 >50 行、或要做架构取舍时加
 
 > **第三方内容（随本 preset 分发，见 `docs/THIRD-PARTY.md`）**
 >
-> - 来源：<https://github.com/THEBLUEGHOSTSSSS/Fable5-Thinking-Skill>（作者开放共享；仓库 README 标注 MIT）
+> - 来源：<https://github.com/THEBLUEGHOSTSSSS/Fable5-Thinking-Skill>（**MIT**：上游 README 的 `## License` 段写「MIT © 2026」）
 > - 本仓库同步的版本：commit `8af252f`（v3.0）；**九条原则原文一字未改**
 > - **它是流程，不只是知识**：上游仓库（全历史）只有 `README.md` + `SKILL.md`，**没有 hooks/commands 文件**；
 >   但其 README 明确把「九步闭环工作流」作为用法（Claude Code 里 `/fable5-thinking` 调用）。

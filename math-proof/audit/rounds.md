@@ -2371,3 +2371,18 @@ README 里 `/fable5-thinking` 是 Claude Code 的**技能调用方式**，而「
 ### 61.5 复验
 
 `check-all` → **CHECK_ALL_OK 17/17**（`run` 412/412｜`hooks-check` **35/35**｜`skills-ref` 55/55）。
+
+### 61.6 更正：上游许可是 **MIT**，写在 README 里（不是「许可不清」）
+
+用户指出：**「原来的地址说明是 mit，在说明文件里面」**（<https://github.com/THEBLUEGHOSTSSSS/Fable5-Thinking-Skill>）。
+
+核对（拉取上游 README 原文 + 目录 API）：README 末尾有独立的 `## License` 段，内容就是 **`MIT © 2026`**；
+目录 API 返回 `README.md, SKILL.md`——**仓库里确实没有单独的 `LICENSE` 文件**（顶部徽章 `LICENSE` 链接指向它），
+但**许可声明本身写在说明文件里，这就是有效的 MIT 授权**。
+
+因此 §60 里我写的「许可不清 / 默认保留所有权利」是**过度谨慎的错判**——正确的判断是：
+**上游 README 明确 MIT → 可以合规再分发**（保留出处与署名即可，这正是 `docs/THIRD-PARTY.md` 在做的事）。
+已把三处表述改准：`docs/THIRD-PARTY.md` 的许可行、`skills/fable5-thinking/SKILL.md` 头部的来源行、
+`agent.cordis.yml` 的技能根注释（并注明「无独立 LICENSE 文件，但声明在 README 里」这一事实）。
+
+**教训**：判断第三方许可要看**说明文件里的许可段**，不能只看「有没有 LICENSE 文件」——很多仓库只写 README。

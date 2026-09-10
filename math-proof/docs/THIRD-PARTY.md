@@ -9,7 +9,7 @@
 | --- | --- |
 | 来源 | <https://github.com/THEBLUEGHOSTSSSS/Fable5-Thinking-Skill>（作者开放共享） |
 | 同步版本 | commit `8af252f`（v3.0，2026-08-15 之后同步到本仓库） |
-| 许可 | 上游 README 标注 **MIT**（徽章）；作者明确表示开放共享。上游仓库当时没有 `LICENSE` 文件，本仓库据此**按 MIT 处理并保留出处** |
+| 许可 | **MIT**——上游 README 的 `## License` 段明确写「MIT © 2026」（README 顶部还有 MIT 徽章）。上游仓库内**没有独立的 `LICENSE` 文件**（徽章链接指向它），但**许可声明就在说明文件里**，本仓库按 MIT 再分发，保留出处与署名 |
 | 改动 | **九条原则原文一字未改**；仅：① frontmatter 换成本 preset 的 DSH 技能格式（`name`/`description`/`whenToUse` + 不触发清单）；② 顶部加一段 DSH 适配说明（`claude`/`architect` agent → `subagent` 工具；`EnterPlanMode` → 计划模式；`/memory` → 台账与工作区 `memory/`） |
 | 上游更新怎么办 | 直接覆盖该文件正文（保留本仓库加的 frontmatter 与适配说明段），或删掉目录改用你本机的用户级副本 |
 
