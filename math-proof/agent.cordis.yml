@@ -203,8 +203,9 @@
 #   node ~/.dsh/.agent-presets/math-proof/scripts/cache-report.mjs   # 缓存命中率 / 费用三段拆解 / 稳态估算（读 ~/.dsh/sessions）
 #   node ~/.dsh/.agent-presets/math-proof/scripts/state-gc.mjs       # 状态目录盘点（--apply 归档回执 / 重建聚合 / 压缩见证仓库）
 #   node ~/.dsh/.agent-presets/math-proof/scripts/reload.mjs         # 热重载状态：哪些改动不用新开会话、哪些必须（含缓存代价）
-#   ⚑ 判定规则（断链豁免/评分权重/postulate 口径/编译分诊）在 impl/ruleset.mjs，**每次调用热读**；
-#     输出带 `规则集 rN/hash` 戳；`proof_dag action:"doctor"` 自证「本实例 vs 磁盘」（防旧实例算分）
+#   ⚑ 判定规则（断链豁免/评分权重/postulate 口径/编译分诊）在 impl/ruleset.mjs，**静态 import（冷档）**：
+#     改规则要**重启 dsh 进程**；输出带 `规则集 rN/hash` 戳，`proof_dag action:"doctor"` 比对「磁盘 vs 进程内」
+#     （不同 = 改了规则但没重启）。真热的只有数据/文本：impl/discipline.md、impl/path-section.md、impl/local-paths.json。
 #   node ~/.dsh/.agent-presets/math-proof/scripts/plugins.mjs        # DSH 插件盘点（三平面 provenance）：宿主启用 / preset 接管 / 双份 / 真缺口
 #   node ~/.dsh/.agent-presets/math-proof/scripts/market.mjs         # DSH 插件市场（注册源侧）：可装未装差集 / 版本线 / 相关候选 / 确切安装命令
 #   node ~/.dsh/.agent-presets/math-proof/scripts/publish.mjs --out ~/src/dsh-math-proof
@@ -214,7 +215,7 @@
 #   node ~/.dsh/.agent-presets/math-proof/tests/market-check.mjs     # MARKET_OK（市场脚本离线 fixture 回归：计数/差集/版本线/相关表）
 #   node ~/.dsh/.agent-presets/math-proof/tests/plugins-check.mjs    # PLUGINS_OK（三平面分类回归 + 跨脚本计数一致；宿主 dump 缓存在 state/host/）
 #   node ~/.dsh/.agent-presets/math-proof/tests/publish-check.mjs    # PUBLISH_OK（发布准备：state 排除 / 布局 / 生成物 / 拒绝覆盖）
-#   node ~/.dsh/.agent-presets/math-proof/tests/ruleset-check.mjs    # RULESET_OK（规则热读生效 / doctor 自证 / postulate 门禁 / 结果级分诊）
+#   node ~/.dsh/.agent-presets/math-proof/tests/ruleset-check.mjs    # RULESET_OK（规则为冷档静态加载 / doctor 自证 / postulate 门禁 / 结果级分诊）
 #   node ~/.dsh/.agent-presets/math-proof/scripts/docs-gen.mjs       # 生成 docs/maps/M2-dependency.md（依赖图，从源码生成，勿手改）
 #   node ~/.dsh/.agent-presets/math-proof/tests/docs-check.mjs       # DOCS_OK（M2 与源码一致 / 地图齐 / Mermaid 闭合 / 链接可解析）
 #   node ~/.dsh/.agent-presets/math-proof/tests/hooks-check.mjs      # HOOKS_OK（SessionStart / UserPromptSubmit / PreToolUse 拦截 / Stop 行为契约）

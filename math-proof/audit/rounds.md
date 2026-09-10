@@ -2636,3 +2636,46 @@ text: typeof section.text === "function" ? section.text(context) : section.text 
 ### 66.5 复验
 
 `check-all` → **CHECK_ALL_OK 21/21**。
+
+## 六十七、第六十二轮：把判定规则**退回冷档**，删掉唯一自造机制（2026-09-10）
+
+用户先问了一个架构问题：**「这个冷的是符合标准的插件化，你的热的是什么？」** 我如实分类后给出结论：
+冷的（`plugins/**`、`hooks/hooks.json`、composition、persona、工具 schema）＝**标准插件契约**；
+热的里面，`impl/discipline.md`、`impl/path-section.md`、`impl/local-paths.json` 是「插件运行时读的**数据/文本**」
+（`dsh-system-prompt` 官方就支持 `text` 为函数、每次装配求值），而
+**`impl/ruleset.mjs` 的 `?v=<mtime>` 动态 import 是本 preset 唯一自造的机制**。
+用户回：**「冷的」** —— 即：**退回冷档**。
+
+### 67.1 改了什么
+
+| 件 | 变化 |
+| --- | --- |
+| `impl/ruleset.mjs` | 删掉 `loadRules` / `loadRulesFrom` / `rulesetStatus` 与 mtime 辅助；只留**常量表 + `RULESET_PATH` + `moduleHash`**；`RULESET_VERSION` **r6 → r7**（加载语义变了） |
+| `plugins/proof-dag.mjs` | 不再每次调用动态加载；规则来自**静态 import**；`doctor` 改为比对「**磁盘 hash vs 进程内加载的 hash**」，落后就报「改过规则但没重启进程」；`check` 的规则集戳同源 |
+| `plugins/agda-engine.mjs` | 结果级分诊表同样改为静态 `RESULT_TRIAGE` |
+| 文档 6 处 | `reload.mjs` 档位表（规则从 🔥 移到 ❄️）、`README §一.9`、`docs/maps/M5`、`impl/discipline.md`、`agent.cordis.yml` 头部、`§一.13` 复盘表 —— 一律改为「静态 import（冷档）：改规则要重启进程」 |
+| 门禁 | `ruleset-check` 的「热读生效」断言换成**冷档断言**（无 `loadRules`/`?v=`、`RULESET_PATH`/`moduleHash` 在场、doctor 报冷档）；`reload-check` 增加「规则行必须是冷档口径、不得再说立即生效」 |
+
+### 67.2 行为验证（同进程）
+
+```
+改动前: 判定规则 r7/a8429041（静态 import，冷档；✅ 与磁盘一致）
+磁盘改一行后再调（同进程）:
+        判定规则 r7/a8429041（…；⚠ 磁盘上是 6980ee91 → 改过规则但没重启进程，本次结果仍按进程内那一版解释）
+        check: 规则集 r7/a8429041 ⚠ 磁盘上的规则与进程内不同（改规则后需重启 dsh 进程才生效）
+```
+
+即：**规则不再「有时生效」**，而是「改了没重启 = 明确报出来」——比原先的隐式热读更可预期。
+
+### 67.3 现在的热/冷边界（原则：契约优先，不造机制）
+
+| 档 | 内容 | 机制 |
+| --- | --- | --- |
+| 🔥 热 | `impl/discipline.md`、`impl/path-section.md`（提示段文字）、`impl/local-paths.json`（值）、`hooks/*.mjs`（外部命令，每次 spawn） | **官方缝**：section text 为函数（每次装配求值）+ 读文件；命令钩子每次执行 |
+| ❄️ 冷 | `plugins/**.mjs`、`impl/ruleset.mjs`、`hooks/hooks.json`、`agent.cordis.yml`、persona、工具 schema | **标准插件契约**（Loader 静态 import）；改了一律**重启进程**，`reload.mjs` 给判定 |
+
+**结论**：`plugins/` 里再无自造机制；热路径只剩官方的「数据/文本读盘」。
+
+### 67.4 复验
+
+`check-all` → **CHECK_ALL_OK 21/21**（`ruleset-check` 51/51、`reload-check` 15/15）；挂载校验 ✅。

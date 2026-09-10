@@ -1,26 +1,24 @@
-// 数学证明模式 — **可热读的判定规则**（零依赖，只 import `node:` 内建模块）
+// 数学证明模式 — **判定规则**（零依赖，只 import `node:` 内建模块）
 //
-// 为什么单独一个文件：工具插件的代码在 standing mount 时被加载一次，**改磁盘不会改变本进程里
-// 已挂载的实例**。2026-09-10 的实际事故：会话里跑的 `proof_dag` 是旧规则（把同模块依赖、传递依赖、
-// 未登记模块都算成断链 → 报 85/100、断链 25 条），而磁盘上的新规则算出来是 0 条。会话里无法自证，
-// 只能靠人肉 diff 工具输出与磁盘源码。
+// 定位：这是**被插件静态 import 的普通模块**（冷档），不是「热读数据」。
+// 2026-09-10 决策（用户：「冷的」）：**退回冷档**——原先用 `?v=<mtime>` 动态 import 破除 ESM 缓存实现
+// 「改规则立即生效」，那是本 preset 唯一自造的机制；按「契约优先、不造机制」的原则删掉。
 //
-// 本文件把**判定规则**（断链豁免、评分权重、postulate 分类、编译爆炸处方、草稿文件模式）抽出来，
-// 由工具**每次调用重新 import**（带 `?v=<mtime>` 打破 ESM 缓存）→ 改规则**不需要重开会话**，
-// 也不需要重挂载；同时把 `RULESET_VERSION` 与源码哈希写进每次输出，让分数可比、可追溯。
+// 现在的规矩：
+//   · 改本文件的**任何内容**（权重 / 处方 / 分诊表）→ **必须重启 dsh 进程**（Cordis 用无 query 的
+//     `import(url)`，Node 的 ESM 缓存按 URL 在进程内固化，同进程重挂载拿不到新模块）；
+//   · 改动后请 bump `RULESET_VERSION`——分数与断链数带 `规则集 rN/hash` 戳，跨版本不可比；
+//   · `proof_dag action:"doctor"` 会比对「本文件磁盘 hash vs 进程内加载的 hash」，落后就明确报出来。
 //
-// 规矩：
-//   · 改这里的**数值/开关/模式** → 立即生效（热）。改完请把 `RULESET_VERSION` 加一，否则
-//     两次不同规则的分数会被当成同一条曲线。
-//   · 改**工具本体**（`plugins/*.mjs` 的结构、schema、输出格式）→ 仍然需要重挂载；
-//     这种情况由 `proof_dag action:"doctor"` 明确报「插件本体落后于磁盘」，不要装作没事。
+// 为什么要独立成一个模块（而不是塞进插件）：这些规则被 `proof-dag` 与 `agda-engine` 共用，
+// 且它们是**数值与开关**，集中一处便于门禁核对（`tests/ruleset-check.mjs`）。
 
 import { createHash } from 'node:crypto'
-import { readFileSync, statSync } from 'node:fs'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 /** 规则语义版本：**规则一变就加一**（进输出日志，保证分数可比）。 */
-export const RULESET_VERSION = 'r6'
+export const RULESET_VERSION = 'r7'
 
 /** 台账↔代码断链的判定开关。 */
 export const DRIFT = {
@@ -150,7 +148,7 @@ export const RESULT_TRIAGE = [
   },
 ]
 
-/** 规则模块自身的路径与哈希。 */
+/** 规则模块自身的路径与哈希（`doctor` 用它比对「磁盘 vs 进程内」）。 */
 export const RULESET_PATH = fileURLToPath(import.meta.url)
 
 /** 任意文件的短哈希（8 位）；读不到返回 `null`。 */
@@ -160,43 +158,4 @@ export function moduleHash(file) {
   } catch {
     return null
   }
-}
-
-/** 文件 mtimeMs；读不到返回 0。 */
-function mtimeOf(file) {
-  try {
-    return statSync(file).mtimeMs
-  } catch {
-    return 0
-  }
-}
-
-/**
- * 重新加载规则（**热**）。带 `?v=<mtime>` 打破 ESM 模块缓存：
- * 同一个 mtime 只会加载一次，改了文件立刻换新实例。
- * @returns {Promise<{version:string,hash:string|null,mtime:number,rules:object}>}
- */
-export async function loadRules() {
-  return loadRulesFrom(RULESET_PATH)
-}
-
-/**
- * 同 `loadRules`，但可指定文件——**为了测试「热读真的生效」**：写一份临时规则文件，
- * 改一次内容再加载，断言第二次拿到的是新值（不是 ESM 缓存里的旧模块）。
- * @param {string} file
- */
-export async function loadRulesFrom(file) {
-  const mtime = mtimeOf(file)
-  const mod = await import(`${pathToFileURL(file).href}?v=${String(mtime)}`)
-  return { version: mod.RULESET_VERSION, hash: moduleHash(file), mtime, rules: mod }
-}
-
-/**
- * 判定规则集是否变化（用来在输出里如实标注）。
- * @param {{hash:string|null}} loaded 挂载时加载的规则集
- * @param {{hash:string|null}} live 本次调用加载的规则集
- */
-export function rulesetStatus(loaded, live) {
-  if (loaded?.hash === null || loaded?.hash === undefined) return 'unknown'
-  return loaded.hash === live.hash ? 'current' : 'changed'
 }

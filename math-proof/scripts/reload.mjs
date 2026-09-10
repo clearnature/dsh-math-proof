@@ -48,8 +48,8 @@ function dshProcessStart() {
 
 const proc = dshProcessStart()
 // **凡是会被静态 import 的代码都算冷档**：plugins/*.mjs、hooks/*.mjs，以及被它们静态 import 的 impl/*.mjs。
-// （`impl/ruleset.mjs` 虽被动态 `?v=` 热读，但它同时被静态 import 过，所以这里保守地一并计入——
-//  漏掉 impl/ 会让判定**误报「进程内已是当前代码」**，2026-09-10 实测踩到过。）
+// 漏掉 impl/ 会让判定**误报「进程内已是当前代码」**（2026-09-10 实测踩到过：
+// `impl/local-paths.mjs` 比进程新，却被报成「已是当前代码」）。
 function codeFiles() {
   const out = []
   for (const dir of ['plugins', 'hooks', 'impl']) {
@@ -104,7 +104,7 @@ console.log('')
 add('🔥 热', '`impl/discipline.md`（纪律文本）', '直接编辑即可；每次装配 prompt 重读（按 mtime 失效缓存）。**无需重启、不丢进度**')
 add('🔥 热', '`impl/path-section.md`（「本机路径」小节的**文字模板**）', '每次装配同步读盘 + mtime 缓存 → **改这段文字不用重启进程**（真实事故：这段文字曾写在代码里，一个 `{{key}}` 示例让整轮运行失败，且因 ESM 缓存必须重启才能修；搬到模板文件后同类问题改文件即生效）。占位符 `{paths}` 展开成键值清单；模板里也可用 `{{键名}}` 引用真值')
 add('🔥 热', '任何「每次使用时读文件」的实现', '把易变内容放 `impl/` 下，运行时读取（见本 preset 的 `disciplineText()`）')
-add('🔥 热', '**判定规则**：`impl/ruleset.mjs`（断链豁免 / 评分权重 / postulate 口径 / 编译爆炸分诊 / 草稿文件模式）', '工具每次调用带 `?v=<mtime>` 动态 import → **改规则立即生效，不重挂载、缓存不失效**；输出里带 `规则集 rN/hash` 戳，改规则请同时 bump `RULESET_VERSION`（否则两次不同规则的分数会被当成同一条曲线）')
+add('❄️ 冷', '**判定规则**：`impl/ruleset.mjs`（断链豁免 / 评分权重 / postulate 口径 / 编译爆炸分诊 / 草稿文件模式）', '**静态 import**：改规则要**重启 dsh 进程**（2026-09-10 决策：「冷的」——原先用 `?v=<mtime>` 动态 import 即时生效，那个 cache-busting 是本 preset 唯一自造的机制，已删除）。改规则请 bump `RULESET_VERSION`；`proof_dag action:"doctor"` 会报「磁盘 hash vs 进程内 hash」，落后就说明没重启')
 add('🟡 可热', '工具**执行逻辑**（结构已抽出规则的部分）', '规则已抽到 `impl/ruleset.mjs`；**剩余结构改动**（新 action、字段语义、输出格式）仍属冷档，但 `proof_dag action:"doctor"` 会明确报「插件本体落后于磁盘」，不再靠人肉 diff')
 add('🔥 热', '`prover_limits` / 台账 / 见证（数据，非代码）', '数据层本来就每次读写磁盘；改的是内容不是规则')
 add('❄️ 冷', '`plugins/**`、`hooks/**`、`hooks.json` 的**代码**', '**必须重启 dsh 进程**——Cordis 用无 query 的 `import(url)`，Node 的 ESM 缓存按 URL 固化：同进程重挂载拿到的仍是旧模块（实测：改文件后再 import 仍是旧值，只有 `?v=` 能打破）。**「新会话」在这里不够**（2026-09-10 更正）')

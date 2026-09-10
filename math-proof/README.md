@@ -48,7 +48,7 @@
 | --- | --- | --- |
 | 🔥 热 | `impl/discipline.md`（纪律文本） | **不需要**——每次装配 prompt 重读（按 mtime） |
 | 🔥 热 | `impl/path-section.md`（「本机路径」小节的文字模板） | **不需要**——同步读盘 + mtime 缓存；改文字不必重启（`{paths}` 展开成键值清单） |
-| 🔥 热 | `impl/ruleset.mjs`（判定规则：断链豁免/评分权重/postulate 口径/编译分诊） | **不需要**——工具每次调用带 `?v=<mtime>` 重新 import；输出带 `规则集 rN/hash` 戳 |
+| ❄️ 冷 | `impl/ruleset.mjs`（判定规则：断链豁免/评分权重/postulate 口径/编译分诊） | **必须重启进程**——静态 import（2026-09-10 决策：删掉 `?v=` 自造机制）；`doctor` 会报「磁盘 vs 进程内」哈希差 |
 | 🟡 可热 | 工具执行逻辑（若迁到 `impl/`） | 改造后不需要，且**缓存不失效**（描述未变） |
 | ❄️ 冷 | **`plugins/**`、`hooks/**` 的代码** | **必须重启 dsh 进程**——Cordis 用无 query 的 `import(url)`，Node 的 ESM 缓存按 URL 固化：同进程重挂载拿到的仍是**旧模块**（实测：改文件后再 import 仍是旧值，只有 `?v=` 能打破）。**「新会话」在这里不够**（2026-09-10 实测更正） |
 | ❄️ 冷 | 工具描述/schema、`agent.cordis.yml`、persona | 需要**重启进程**（顺带解决上面的 ESM 缓存），且必然改缓存前缀 |
@@ -61,7 +61,7 @@ node scripts/reload.mjs   # 看当前状态与操作指引
 改工具逻辑（不动描述）= **缓存完全不失效**。
 
 > ⚠ **改代码 ≠ 改文本**：只有「每次用时读文件」的文本/规则是真热（`impl/discipline.md`、`impl/ruleset.mjs`、
-> `impl/local-paths.json` 的值）。**改 `plugins/**` 或 `hooks/**` 的代码必须重启 dsh 进程**——
+> `impl/local-paths.json` 的值）。**改 `plugins/**`、`hooks/**` 或 `impl/ruleset.mjs` 必须重启 dsh 进程**——
 > 跑 `node scripts/reload.mjs` 它会比对「代码文件 mtime vs dsh 进程启动时间」并直接告诉你是否必须重启。
 
 ## 一.10 DSH 插件：三平面 provenance（谁在提供，谁只是被禁用）
@@ -202,7 +202,7 @@ node scripts/publish.mjs --out ~/src/dsh-math-proof             # 生成仓库�
 
 | 问题（现场证据） | 根因 | 修法 |
 | --- | --- | --- |
-| 会话里 `check` 报 **85/100、断链 25 条**，磁盘新规则算出来是 **0 条**；会话内**无法自证** | 插件实例在挂载时固定，改磁盘不影响本进程；规则与实现混在一起，没有版本痕 | 判定规则抽到 `impl/ruleset.mjs`，**每次调用热读**；所有输出带 `规则集 rN/hash` 与插件本体 hash；新增 `proof_dag action:"doctor"` **自证**「本实例 vs 磁盘」 |
+| 会话里 `check` 报 **85/100、断链 25 条**，磁盘新规则算出来是 **0 条**；会话内**无法自证** | 插件实例在挂载时固定，改磁盘不影响本进程；规则与实现混在一起，没有版本痕 | 判定规则抽到 `impl/ruleset.mjs`（**冷档**：改规则要重启进程）；所有输出带 `规则集 rN/hash` 与插件本体 hash；新增 `proof_dag action:"doctor"` **自证**「磁盘 vs 进程内」 |
 | `T6` 含 3 个 postulate（是 `--rewriting` 规则族，不是缺口）却被旧口径压成 `blocked`，还要人类裁决 | 门禁一刀切「0 postulate」 | 新增 `postulates:[{name,kind,reason}]`：`rewrite`/`unreachable`/`gap` 三分类，**工具按源码核对名字**；门禁看「0 **未声明**」；`gap` 不能 proven；豁免需一条人类裁决流水（§4.7） |
 | 同一引理符号版 **3.4s** 过，写死 `12 ^ 729` 的版本 **346s 后 heap exhausted**（exit 251） | 「界」在证明项里被真的求值（鸽巢/`any?` 枚举） | `proof_compile` 新增**结果级分诊**（堆爆/被杀/超时**没有诊断行**，只有退出码）→ 直接给「符号化优先 / opaque 阻断 / 使用点实例化 / 小界探针」处方（§4.6） |
 
@@ -290,7 +290,7 @@ node tests/hooks-check.mjs    # HOOKS_OK（SessionStart / PreToolUse 拦截 / St
 node tests/market-check.mjs   # MARKET_OK（市场脚本离线 fixture 回归，不联网）
 node tests/plugins-check.mjs  # PLUGINS_OK（三平面分类回归 + 跨脚本计数一致）
 node tests/publish-check.mjs  # PUBLISH_OK（发布准备：state 排除 / 布局 / 生成物）
-node tests/ruleset-check.mjs  # RULESET_OK（规则热读真的生效 / doctor 自证 / postulate 门禁 / 结果级分诊）
+node tests/ruleset-check.mjs  # RULESET_OK（规则静态加载为冷档 / doctor 自证 / postulate 门禁 / 结果级分诊）
 node tests/docs-check.mjs     # DOCS_OK（M2 依赖图与源码一致 / 地图齐 / Mermaid 闭合 / 无死链）
 
 # 3) 一键跑全部门禁（15 个入口汇总成一张表）

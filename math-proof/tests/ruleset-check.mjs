@@ -31,32 +31,24 @@ const ruleset = await import(join(PRESET, 'impl', 'ruleset.mjs'))
 const dag = await import(join(PRESET, 'plugins', 'proof-dag.mjs'))
 const engine = await import(join(PRESET, 'plugins', 'agda-engine.mjs'))
 
-// ── 1) 热读：改规则文件后必须拿到新值 ──────────────────────────────────────
+// ── 1) 冷档：规则是静态模块，不得有任何「动态重载」机制 ────────────────────
+// 2026-09-10 决策（用户：「冷的」）：原先用 `?v=<mtime>` 动态 import 让改规则即时生效，
+// 那是本 preset 唯一自造的机制；按「契约优先、不造机制」删掉 → 改规则必须重启 dsh 进程。
 {
-  const dir = mkdtempSync(join(tmpdir(), 'math-proof-rules-'))
-  try {
-    const file = join(dir, 'rules.mjs')
-    writeFileSync(file, 'export const RULESET_VERSION = "t1"\nexport const SCORE = { cyclic: 1 }\n')
-    const before = await ruleset.loadRulesFrom(file)
-    ok('loadRulesFrom 返回版本与哈希', before.version === 't1' && typeof before.hash === 'string', JSON.stringify({ v: before.version, h: before.hash }))
-    await sleep(1100) // mtime 秒级分辨率：确保下次 mtime 确实变了
-    writeFileSync(file, 'export const RULESET_VERSION = "t2"\nexport const SCORE = { cyclic: 99 }\n')
-    const after = await ruleset.loadRulesFrom(file)
-    ok('改规则后拿到新版本（ESM 缓存被打破）', after.version === 't2', after.version)
-    ok('改规则后新数值生效', after.rules.SCORE.cyclic === 99, String(after.rules.SCORE.cyclic))
-    ok('哈希随内容变化', before.hash !== after.hash)
-    ok('rulesetStatus 能判「变了」', ruleset.rulesetStatus(before, after) === 'changed')
-    ok('rulesetStatus 对同版返回 current', ruleset.rulesetStatus(after, after) === 'current')
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
+  // 剥注释再查：注释里保留「曾经用过 ?v=」的历史说明是**文档**，不算机制
+  const stripComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*/gm, '')
+  const rulesetSrc = stripComments(readFileSync(join(PRESET, 'impl', 'ruleset.mjs'), 'utf8'))
+  ok('ruleset 已无 loadRules / loadRulesFrom', !/export (async )?function loadRules/.test(rulesetSrc), '')
+  ok('ruleset 源码里没有任何 `?v=` cache-busting', !/\?v=/.test(rulesetSrc), '')
+  ok('ruleset 仍导出 RULESET_PATH / moduleHash（doctor 自证要用）', /export const RULESET_PATH/.test(rulesetSrc) && /export function moduleHash/.test(rulesetSrc))
+  for (const f of ['proof-dag.mjs', 'agda-engine.mjs']) {
+    const src = stripComments(readFileSync(join(PRESET, 'plugins', f), 'utf8'))
+    ok(`${f} 不动态重载规则（无 loadRules / ?v=）`, !/loadRules|\?v=/.test(src), '')
   }
-}
-
-// 真规则文件可加载且有版本
-{
-  const live = await ruleset.loadRules()
-  ok('真规则集可加载（版本非空）', typeof live.version === 'string' && live.version !== '', live.version)
-  ok('真规则集含四张表', ['DRIFT', 'SCORE', 'POSTULATE', 'RESULT_TRIAGE'].every((k) => live.rules[k] !== undefined))
+  const live = await import(join(PRESET, 'impl', 'ruleset.mjs'))
+  ok('真规则集含四张表', ['DRIFT', 'SCORE', 'POSTULATE', 'RESULT_TRIAGE'].every((k) => live[k] !== undefined))
+  ok('规则集版本非空', typeof live.RULESET_VERSION === 'string' && live.RULESET_VERSION !== '', live.RULESET_VERSION)
+  ok('moduleHash 能算出 8 位哈希（doctor 比对用）', /^[0-9a-f]{8}$/.test(live.moduleHash(live.RULESET_PATH) ?? ''), String(live.moduleHash(live.RULESET_PATH)))
 }
 
 // ── 2) 规则真的被 diagnose 用上 ────────────────────────────────────────────
@@ -163,9 +155,10 @@ const engine = await import(join(PRESET, 'plugins', 'agda-engine.mjs'))
     const out = await dag.runDag(ws, { action: 'doctor' }, null, null)
     ok('doctor 退出并可读', typeof out === 'string' && out.includes('doctor'))
     ok('doctor 报插件本体哈希（本实例 vs 磁盘）', /插件本体.*本实例 \*\*[0-9a-f]{8}\*\* \/ 磁盘 \*\*[0-9a-f]{8}\*\*/.test(out), out.split('\n')[2] ?? '')
-    ok('doctor 报规则集版本', /判定规则.*\*\*r\d+\/[0-9a-f]+\*\*/.test(out), out.split('\n')[3] ?? '')
+    ok('doctor 报规则集版本 + 冷档标记', /判定规则.*r\d+\/[0-9a-f]+.*冷档/.test(out), out.split('\n')[3] ?? '')
     ok('doctor 报台账路径与状态目录', out.includes('台账:') && out.includes('state/math-proof'))
     ok('doctor 明确「一致/落后」结论', out.includes('✅ 一致') || out.includes('⚠ **落后于磁盘**'))
+  ok('doctor 说明改规则要重启（冷档）', out.includes('冷档') || out.includes('重启'), out.split('\n').filter((l) => l.includes('判定规则')).join(''))
   } finally {
     rmSync(ws, { recursive: true, force: true })
   }

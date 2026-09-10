@@ -21,7 +21,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { RESULT_TRIAGE, loadRules } from '../impl/ruleset.mjs'
+import { RESULT_TRIAGE } from '../impl/ruleset.mjs'
 import { path as localPath } from '../impl/local-paths.mjs'
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
 
@@ -164,7 +164,7 @@ export const FINGERPRINTS = [
  * 结果级分诊：`Heap exhausted` / `Killed` / `timed out` 这类失败**不会**产生
  * `file:line: error:` 诊断行，只在进程输出与退出码上体现 → 必须在结果层判，
  * 否则模型看到的是「失败但没有指纹」，只能瞎试。
- * 规则表在 `impl/ruleset.mjs`（热读）。
+ * 规则表在 `impl/ruleset.mjs`（静态 import，冷档）。
  * @returns {{limit:string, prescription:string}|null}
  */
 export function triageResult(result, output = '', table = RESULT_TRIAGE, options = {}) {
@@ -528,10 +528,8 @@ export async function compileModule(ctx, args, exec) {
     return { report: `# proof_compile: ${target}\n\n**无法编译：没有可用检查器**\n\n- ${why}` }
   }
 
-  // 结果级分诊表**热读**（改 `impl/ruleset.mjs` 立刻生效，不用重开会话）
-  const triageTable = await loadRules()
-    .then((live) => live.rules.RESULT_TRIAGE)
-    .catch(() => RESULT_TRIAGE)
+  // 结果级分诊表来自静态 import（冷档）：改 `impl/ruleset.mjs` 需**重启 dsh 进程**才生效
+  const triageTable = RESULT_TRIAGE
   const command = [shellQuote(wanted.bin), '--guardedness', ...extraArgs.map(shellQuote), shellQuote(target)].join(' ')
   const started = Date.now()
   const result = await runShell(ctx, exec, command, cwd, timeoutMs)

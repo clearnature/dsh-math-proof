@@ -42,6 +42,18 @@ const src = readFileSync(join(PRESET, 'scripts', 'reload.mjs'), 'utf8')
 ok('codeFiles() 覆盖 plugins / hooks / impl 三目录', /for \(const dir of \['plugins', 'hooks', 'impl'\]\)/.test(src), '')
 ok('codeFiles() 把 hooks.json 也算进冷档', /hooks\/hooks\.json/.test(src))
 
+// 规则已退回冷档（2026-09-10 决策「冷的」）：reload 输出里不得再把规则说成热读
+ok('reload 不再把 impl/ruleset.mjs 说成热读', !/ruleset\.mjs[^\n]*热读|热读[^\n]*ruleset/.test(out), '')
+ok('reload 把规则列为冷档（需重启）', /❄️ 冷[^\n]*ruleset\.mjs/.test(out.replace(/\n/g, '\n')) || /判定规则[^\n]*静态 import/.test(out), '')
+{
+  const src = readFileSync(join(PRESET, 'scripts', 'reload.mjs'), 'utf8')
+  // 只查**肯定式**：规则那行不得再说「动态 import → 立即生效」（历史说明允许保留）
+  // 只取**档位表那一行**（以 add(' 开头），不要误取说明性段落
+  const ruleRow = src.split('\n').find((l) => l.trim().startsWith("add('") && l.includes('ruleset.mjs')) ?? ''
+  ok('reload.mjs 的规则行是冷档口径（静态 import + 重启）', ruleRow.includes('静态 import') && ruleRow.includes('重启'), ruleRow.slice(0, 60))
+  ok('reload.mjs 的规则行不再宣称「立即生效」', !/立即生效/.test(ruleRow), ruleRow.slice(0, 60))
+}
+
 // 文档更正：不得再出现「新会话即可」的旧说法
 for (const rel of ['README.md', 'docs/maps/M5-lifecycle.md', 'agent.cordis.yml']) {
   const text = readFileSync(join(PRESET, rel), 'utf8')

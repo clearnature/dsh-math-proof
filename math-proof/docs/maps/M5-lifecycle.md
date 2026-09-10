@@ -54,12 +54,12 @@ sequenceDiagram
 graph LR
   subgraph HOT["🔥 热（立即生效，缓存不失效）"]
     H1["impl/discipline.md<br/>（纪律文本，每次装配 prompt 重读）"]
-    H2["impl/ruleset.mjs<br/>（判定规则：断链豁免/评分权重/postulate 口径/编译分诊）"]
+    H2["impl/ruleset.mjs<br/>（判定规则；**冷档**：改要重启）"]
     H2b["impl/path-section.md<br/>（提示段文字模板）"]
     H3["impl/dsh-inventory.mjs<br/>（共享事实层）"]
   end
   subgraph COLD["❄️ 冷（**需重启 dsh 进程**；文本类改动另说）"]
-    C1["plugins/*.mjs、hooks/*.mjs 的**代码**（ESM 缓存：新会话不够）"]
+    C1["plugins/*.mjs、hooks/*.mjs 的**代码** 与 impl/ruleset.mjs（ESM 缓存：新会话不够，要重启进程）"]
     C2["agent.cordis.yml 行 / persona"]
     C3["技能描述（frontmatter）——正文改动只影响之后新加载的技能"]
   end

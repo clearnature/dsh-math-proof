@@ -23,8 +23,9 @@
 // 台账落盘在 ~/.dsh/state/math-proof/dag-<workspace-hash>.json，
 // **不写进项目仓库**（避免污染 git status）；按 workspace 路径分桶。
 //
-// **判定规则可热读**：断链豁免 / 评分权重 / postulate 分类 / 编译爆炸处方都在
-// `impl/ruleset.mjs`，每次调用重新 import（带 `?v=<mtime>`）→ 改规则**不需要重开会话**。
+// **判定规则**（断链豁免 / 评分权重 / postulate 分类 / 编译爆炸处方）在 `impl/ruleset.mjs`，
+// **静态 import（冷档）**：改规则要**重启 dsh 进程**（ESM 缓存，新会话不够）。
+// 本次结果按进程内加载的那一版规则解释，输出带 `规则集 rN/hash` 戳；`doctor` 会报「磁盘 vs 进程内」哈希差。
 // 每次输出带 `ruleset rN/hash` 戳；`action:"doctor"` 报「插件本体是否落后于磁盘」，
 // 避免再次出现「本会话实例用旧规则算出 85/100、磁盘新规则算出 0 条」那种无法自证的尴尬。
 //
@@ -406,7 +407,8 @@ export function writeCheckpoint(workspace, info) {
 export function renderDoctor(workspace, live) {
   const diskPlugin = RULESET.moduleHash(PLUGIN_FILE)
   const bodyStale = diskPlugin !== LOADED_PLUGIN_HASH
-  const rulesStale = RULESET.rulesetStatus(LOADED_RULESET, live) === 'changed'
+  const diskRulesHash = RULESET.moduleHash(RULESET.RULESET_PATH)
+  const rulesStale = diskRulesHash !== null && diskRulesHash !== LOADED_RULESET.hash
   const ledger = readLedger(workspace)
   const nodes = ledger.nodes ?? {}
   const st = stats(nodes)
@@ -423,8 +425,8 @@ export function renderDoctor(workspace, live) {
     `- 插件本体 \`proof-dag.mjs\`: 本实例 **${LOADED_PLUGIN_HASH ?? 'unknown'}** / 磁盘 **${diskPlugin ?? 'unknown'}**${
       bodyStale ? ' ⚠ **落后于磁盘**' : ' ✅ 一致'
     }`,
-    `- 判定规则 \`impl/ruleset.mjs\`: **${live.version}/${live.hash ?? 'unknown'}**（每次调用热读；${
-      rulesStale ? '⚠ 本会话启动后已变更，本次结果按新规则解释' : '✅ 与挂载时一致'
+    `- 判定规则 \`impl/ruleset.mjs\`: **${live.version}/${live.hash ?? 'unknown'}**（静态 import，冷档；${
+      rulesStale ? `⚠ **磁盘上是 ${diskRulesHash}** → 改过规则但**没重启进程**，本次结果仍按进程内那一版解释` : '✅ 与磁盘一致'
     }）`,
     `- 台账: \`${ledgerPath(workspace)}\`｜节点 ${st.total}（proven ${st.proven} / refuted ${st.refuted} / blocked ${st.blocked} / needs_review ${st.needs_review} / pending ${st.pending}）`,
     `- 工具签发回执: **${receipts.length}** 条｜状态目录: \`${join(homedir(), '.dsh', 'state', 'math-proof')}\``,
@@ -433,8 +435,8 @@ export function renderDoctor(workspace, live) {
     ...others,
     '',
     bodyStale
-      ? '> ⚠ **插件本体落后**：本实例的结构/schema/输出格式是旧版。判定规则（断链豁免、评分权重、postulate 口径、编译分诊）已经热读，不受影响；但**结构性改动**（如新增 action、字段含义变化）要新开会话或触发一次重挂载才会生效。在此之前，引用分数请连同上面的哈希一起引用。'
-      : '> ✅ 插件本体与磁盘一致；判定规则热读。本实例输出可以放心引用。',
+      ? '> ⚠ **插件本体落后**：本实例的结构/schema/输出格式是旧版——**必须重启 dsh 进程**才会加载新代码（Cordis 用无 query 的 `import(url)`，Node 的 ESM 缓存按 URL 在进程内固化；「新会话」不够）。在此之前，引用分数请连同上面的哈希一起引用。'
+      : '> ✅ 插件本体与磁盘一致；判定规则为冷档（改规则需重启进程）。本实例输出可以放心引用。',
   ].join('\n')
 }
 
@@ -957,10 +959,11 @@ export async function runDag(workspace, args, runtime, exec) {
   const raw = args?.action
   const action = typeof raw === 'string' && raw !== '' ? raw : 'list'
   const hasShell = runtime?.shell !== undefined
-  // **热规则**：每次调用重新加载 `impl/ruleset.mjs`（判定规则改了立刻生效，不用重挂载）
-  const live = await RULESET.loadRules()
-  const rulesetLine = `- 规则集: \`${live.version}/${live.hash ?? 'unknown'}\`（热读 ${new Date(live.mtime).toISOString().slice(11, 19)}）${
-    RULESET.rulesetStatus(LOADED_RULESET, live) === 'changed' ? ' ⚠ 本会话启动后规则**已变更**（本次结果按新规则解释）' : ''
+  // 规则来自**进程内静态 import**（冷档）：不再动态重载，改了规则必须重启进程
+  const diskHash = RULESET.moduleHash(RULESET.RULESET_PATH)
+  const live = { version: RULESET.RULESET_VERSION, hash: LOADED_RULESET.hash, diskHash }
+  const rulesetLine = `- 规则集: \`${live.version}/${live.hash ?? 'unknown'}\`${
+    diskHash !== null && diskHash !== live.hash ? ' ⚠ **磁盘上的规则与进程内不同**（改规则后需**重启 dsh 进程**才生效）' : ''
   }`
   if (action === 'doctor') return renderDoctor(workspace, live)
   // check / brief 先取见证状态（读操作，不持锁），让它进入评分与简报
