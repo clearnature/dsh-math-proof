@@ -215,7 +215,7 @@
 #   node ~/.dsh/.agent-presets/math-proof/tests/ruleset-check.mjs    # RULESET_OK（规则热读生效 / doctor 自证 / postulate 门禁 / 结果级分诊）
 #   node ~/.dsh/.agent-presets/math-proof/scripts/docs-gen.mjs       # 生成 docs/maps/M2-dependency.md（依赖图，从源码生成，勿手改）
 #   node ~/.dsh/.agent-presets/math-proof/tests/docs-check.mjs       # DOCS_OK（M2 与源码一致 / 地图齐 / Mermaid 闭合 / 链接可解析）
-#   node ~/.dsh/.agent-presets/math-proof/tests/hooks-check.mjs      # HOOKS_OK（SessionStart / PreToolUse 拦截 / Stop 行为契约）
+#   node ~/.dsh/.agent-presets/math-proof/tests/hooks-check.mjs      # HOOKS_OK（SessionStart / UserPromptSubmit / PreToolUse 拦截 / Stop 行为契约）
 # 覆盖：proof_dag 状态机/失败诊断/签名变更级联失效/证据完整性/台账↔代码断链/损坏台账隔离/
 #       并发写不丢更新/溯源/流水/接手简报/完整性评分与趋势/裁决闭环；prover_limits 经验库（证据+误判防护必填）；proof_graph 拓扑序
 #       与环检测；proof_audit 门禁；agda-engine 指纹分诊与经验库联动；技能索引 frontmatter。

@@ -13,6 +13,12 @@
 | 改动 | **九条原则原文一字未改**；仅：① frontmatter 换成本 preset 的 DSH 技能格式（`name`/`description`/`whenToUse` + 不触发清单）；② 顶部加一段 DSH 适配说明（`claude`/`architect` agent → `subagent` 工具；`EnterPlanMode` → 计划模式；`/memory` → 台账与工作区 `memory/`） |
 | 上游更新怎么办 | 直接覆盖该文件正文（保留本仓库加的 frontmatter 与适配说明段），或删掉目录改用你本机的用户级副本 |
 
+**关于「钩子」**：上游仓库（含全部历史）**只有 `README.md` 与 `SKILL.md`，没有任何 hooks/commands 文件**；
+`/fable5-thinking` 是 Claude Code 里对该技能的调用方式，README 描述的「九步闭环工作流」是**用法约定**。
+本仓库据此把流程里可机械拦截的两步**自行实现**为 `math-proof/hooks/fable5-flow.mjs`
+（`UserPromptSubmit` 注入开工四项、`Stop` 注入收工三项），并**没有**声称上游提供了这些钩子；
+该钩子脚本是本项目原创代码，按本仓库 MIT 分发。
+
 > 若上游作者对再分发有不同意见，请联系仓库维护者，我们会立即移除或按其要求调整署名方式。
 
 ## 2. 曾经引入、现已移出的内容

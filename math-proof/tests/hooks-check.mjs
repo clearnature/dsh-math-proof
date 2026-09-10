@@ -104,12 +104,36 @@ try {
   ok('Stop exit 0', stop.code === 0)
   ok('Stop 提醒待裁决', stop.out.includes('待人类裁决'), stop.out.slice(0, 160))
   ok('Stop 提醒写交接', stop.out.includes('handoff'), stop.out.slice(0, 200))
+
+  // ── fable5 流程钩子：把「流程」当流程，而不是只当知识文件 ──────────────
+  const intake = runHook('fable5-flow.mjs', { hook_event_name: 'UserPromptSubmit', prompt: '把 NSEFinalClosure 里的 C7 实例化问题解决掉，并补齐 T6 的对象层' })
+  ok('fable5: 多步任务 → 注入开工四项', intake.code === 0 && intake.out.includes('开工四项'), intake.out.slice(0, 120))
+  ok('fable5: 开工清单含分解/拓扑扫描/台账', intake.out.includes('分解') && intake.out.includes('拓扑扫描') && intake.out.includes('台账'))
+
+  const quiet = runHook('fable5-flow.mjs', { hook_event_name: 'UserPromptSubmit', prompt: 'exit 0 是什么意思？' })
+  ok('fable5: 短问句不打扰', quiet.code === 0 && quiet.out.includes('"additionalContext":""'), quiet.out.slice(0, 120))
+
+  const ack = runHook('fable5-flow.mjs', { hook_event_name: 'UserPromptSubmit', prompt: '继续' })
+  ok('fable5: 纯应答不打扰', ack.out.includes('"additionalContext":""'))
+
+  const wrap = runHook('fable5-flow.mjs', { hook_event_name: 'Stop' })
+  ok('fable5: Stop → 收工三项', wrap.code === 0 && wrap.out.includes('收工三项'), wrap.out.slice(0, 120))
+  ok('fable5: 收工含持久记忆/对抗自检/防虚假完成', wrap.out.includes('持久记忆') && wrap.out.includes('对抗自检') && wrap.out.includes('防虚假完成'))
 } finally {
   purge()
   rmSync(ws, { recursive: true, force: true })
 }
 
-console.log('# 钩子回归（SessionStart / PreToolUse / Stop）\n')
+{
+  const cfg = JSON.parse(readFileSync(join(HOOKS, 'hooks.json'), 'utf8')).hooks
+  ok('hooks.json 注册了 UserPromptSubmit', Array.isArray(cfg.UserPromptSubmit) && cfg.UserPromptSubmit.length > 0)
+  const commands = Object.values(cfg).flat().flatMap((g) => g.hooks.map((h) => h.command))
+  for (const f of ['session-start.mjs', 'gate-dag.mjs', 'stop-reminder.mjs', 'fable5-flow.mjs']) {
+    ok(`hooks.json 指向真实脚本 ${f}`, commands.some((c) => c.includes(f)) && existsSync(join(HOOKS, f)))
+  }
+}
+
+console.log('# 钩子回归（SessionStart / UserPromptSubmit / PreToolUse / Stop）\n')
 console.log(results.join('\n'))
 console.log(`\n${failures === 0 ? 'HOOKS_OK' : 'HOOKS_FAIL'} ${results.length - failures}/${results.length}`)
 process.exit(failures === 0 ? 0 : 1)

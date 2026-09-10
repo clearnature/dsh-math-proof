@@ -8,6 +8,21 @@ whenToUse: 任务跨度 >3 步、或改动 >50 行、或要做架构取舍时加
 >
 > - 来源：<https://github.com/THEBLUEGHOSTSSSS/Fable5-Thinking-Skill>（作者开放共享；仓库 README 标注 MIT）
 > - 本仓库同步的版本：commit `8af252f`（v3.0）；**九条原则原文一字未改**
+> - **它是流程，不只是知识**：上游仓库（全历史）只有 `README.md` + `SKILL.md`，**没有 hooks/commands 文件**；
+>   但其 README 明确把「九步闭环工作流」作为用法（Claude Code 里 `/fable5-thinking` 调用）。
+>   本 preset 因此把流程里**能机械拦截**的部分做成钩子 `hooks/fable5-flow.mjs`（`UserPromptSubmit` 注入开工四项、
+>   `Stop` 注入收工三项），其余步骤绑定到本 preset 既有机制（见下表）——**不假装上游带了钩子**。
+>
+> | 九步 | 本 preset 的落点 | 谁在管 |
+> | --- | --- | --- |
+> | 1 分解 / 2 拓扑扫描 | 纪律 §0 + **`UserPromptSubmit` 钩子注入开工四项** + `proof_graph` | 机器提醒 |
+> | 3 多路径推演 | 本技能正文（知识） | 模型 |
+> | 4 自我验证 / 5 沙盒验证 | **先算后验证闸门** + `proof_compile` 回执 + 编译预算闸门 | 机器挡 |
+> | 6 分级路由 | `subagent` / 直接执行（本技能正文） | 模型 |
+> | 7 持久记忆 | `proof_dag journal` / `brief` + **`Stop` 钩子提醒** | 机器提醒 |
+> | 8 对抗自检 | `code-reviewer` + 具体点 `refl` 对抗验证 | 知识 + 技能 |
+> | 9 防虚假完成 | **证据分档（只有工具回执算已证）** + **`Stop` 钩子提醒** | 机器挡 + 提醒 |
+>
 > - 本地适配（仅这几处）：frontmatter 换成 DSH 格式；原版 harness 名词映射到 DSH 等价物——
 >   `claude`/`architect`/`general-purpose` agent → `subagent` 工具；`EnterPlanMode` → 计划模式（`exit_plan_mode`）；
 >   `/memory` → 台账（`proof_dag journal` / `brief`）+ 工作区 `memory/`；`security-reviewer` → 用「对抗自检」原则或委派 `subagent` 红队复核。

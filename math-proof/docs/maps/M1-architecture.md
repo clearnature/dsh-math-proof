@@ -99,6 +99,7 @@ graph LR
 | `hooks/session-start.mjs` | `SessionStart` | 注入接手简报（进度/评分/证据/对象完整度/待裁决） | 跨天接手时，模型还没开口就该知道现状 |
 | `hooks/gate-dag.mjs` | `PreToolUse`（`proof_dag`） | 标 `proven` 而无回执、或依赖未 proven → **exit 2 拦截** | 工具内的校验可能被绕过（模型可以不调用工具），钩子在**调用前**挡 |
 | `hooks/stop-reminder.mjs` | `Stop` | 有未验证/断链/待裁决时提醒收工写 `handoff` | 收工时刻最容易漏记 |
+| `hooks/fable5-flow.mjs` | `UserPromptSubmit` + `Stop` | 多步新任务 → 注入「开工四项」（分解/拓扑扫描/多路径/落台账）；收工 → 注入「收工三项」（持久记忆/对抗自检/防虚假完成） | fable5 九步流程里**能拦截**的两步；短问句与纯应答不打扰 |
 
 ## M1.6 技能打包范围：只打「强关联 + 许可清晰」的
 
@@ -112,7 +113,7 @@ graph LR
 | `agda-proof-engine`、`compute-then-verify`、`duodecimal-corpus`、`group-first-proof`、`long-horizon-discipline`、`meta-diagnosis`、`prove2me-method`、`research-system`、`type-theory-presentation` | ✅ | 本项目原创，且都是证明工作流的组成部分 |
 | `proof-engineer` | ✅ | Agda 证明规范与三类已知陷阱（原为用户级技能，2026-09-10 起随包） |
 | `code-reviewer` | ✅ | dype/Agda 审查、代数污染检测（同上） |
-| `fable5-thinking` | ✅ | **第三方**（`THEBLUEGHOSTSSSS/Fable5-Thinking-Skill`，上游标注 MIT、作者开放共享）→ 保留署名与出处，见 `../THIRD-PARTY.md` |
+| `fable5-thinking` | ✅ | **第三方**（`THEBLUEGHOSTSSSS/Fable5-Thinking-Skill`，上游标注 MIT、作者开放共享）→ 保留署名与出处，见 `../THIRD-PARTY.md`。**注意它是「流程」不是纯知识**：上游只有 README + SKILL.md（无 hooks），九步闭环里能机械拦截的两步由本 preset 的 `hooks/fable5-flow.mjs` 承担 |
 | `loop-engineer` | ❌ | **通用**技能（适用任何工程），不属本仓库范围；与证明强相关的部分**本地化**进 `agda-proof-engine` §5.9，其余引用写成**条件式** |
 
 **引用纪律**：不在包里的技能，正文一律写「**若环境存在 `x` 技能则可…**」，绝不写成必需依赖；
