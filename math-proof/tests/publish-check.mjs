@@ -70,6 +70,8 @@ try {
   ok('布局：plugins 目录存在', existsSync(join(out, ID, 'plugins')))
   ok('布局：preset 目录在仓库根之下（根不是 preset 目录）', !existsSync(join(out, 'agent.cordis.yml')))
 
+  const gates = existsSync(join(out, '.github', 'workflows', 'gates.yml')) ? readFileSync(join(out, '.github', 'workflows', 'gates.yml'), 'utf8') : ''
+  ok('工作流不依赖已弃用的 action 主版本（v4 目标 Node 20）', !/@v4\b/.test(gates) && !/@v4\b/.test(readFileSync(join(out, '.github', 'workflows', 'publish.yml'), 'utf8')), (gates.match(/actions\/[a-z-]+@v\d+/g) ?? []).join(' '))
   ok('生成 CI 工作流（仓库骨架可复现）', existsSync(join(out, '.github', 'workflows', 'gates.yml')) && readFileSync(join(out, '.github', 'workflows', 'gates.yml'), 'utf8').includes('check-all.mjs'))
   const pkg = existsSync(join(out, 'package.json')) ? JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')) : null
   ok('生成 package.json（scoped 名 + files 白名单）', pkg !== null && pkg.name.startsWith('@') && Array.isArray(pkg.files) && pkg.files.includes(`${ID}/`), JSON.stringify(pkg?.name))

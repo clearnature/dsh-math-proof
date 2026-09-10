@@ -1966,3 +1966,19 @@ gh repo edit --description … --add-topic dsh --add-topic agda …（9 个 topi
 **不要在 Actions 选择器里再生成一个发布工作流**——那会变成第二个发布者，
 同样 `release: published` 触发，两边发同一个版本号 → 后到的 `EPUBLISHCONFLICT`。
 已写进 README §一.14 的显式警告。
+
+### 52.6 发布流水线 dry-run 实测（2026-09-10）
+
+手工触发 `publish`（`dry-run: true`，run `34425237048`）**通过（13s）**，三步都真跑了：
+
+| 步 | 证据（CI 日志原文） |
+| --- | --- |
+| ① 门禁必须全绿 | `# 数学证明模式 — 一键门禁（3.6s）` → `CHECK_ALL_OK 15/15` |
+| ② `npm pack --dry-run` | `total files: 74`｜`package size: 362.5 kB`｜`unpacked size: 974.2 kB` |
+| ③ `npm publish --dry-run --provenance` | `Publishing to https://registry.npmjs.org/ with tag latest and public access (dry-run)`｜`+ @clearnature/dsh-math-proof@0.1.0` |
+
+**没有真发布**（dry-run 不接触注册源、不产生版本）。同时确认：手工触发时 `release` 分支的正式发布步被跳过（条件互斥）。
+
+**顺带修一个 CI 警告**：`actions/checkout@v4` 与 `actions/setup-node@v4` 目标 Node 20，GitHub 已弃用并
+强制其跑在 Node 24（日志里两条 deprecation notice）。已把**生成器里的工作流**升到 `@v7`（实测
+`refs/tags/v7` 存在），`publish-check` 增加一条断言：工作流里不得再出现 `@v4`。32/32。
