@@ -76,6 +76,7 @@ try {
   const pkg = existsSync(join(out, 'package.json')) ? JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')) : null
   ok('生成 package.json（scoped 名 + files 白名单）', pkg !== null && pkg.name.startsWith('@') && Array.isArray(pkg.files) && pkg.files.includes(`${ID}/`), JSON.stringify(pkg?.name))
   ok('package.json 声明零运行时依赖', pkg !== null && Object.keys(pkg.dependencies).length === 0)
+  ok('发布工作流自带「唯一发布者」检查', readFileSync(join(out, '.github', 'workflows', 'publish.yml'), 'utf8').includes('发布工作流数量'))
   ok('生成 npm 发布工作流', existsSync(join(out, '.github', 'workflows', 'publish.yml')) && readFileSync(join(out, '.github', 'workflows', 'publish.yml'), 'utf8').includes('--provenance'))
   ok('生成 .npmignore（挡住 state/ 与机器生成物）', existsSync(join(out, '.npmignore')) && readFileSync(join(out, '.npmignore'), 'utf8').includes('state/'))
   ok('生成 .gitignore', existsSync(join(out, '.gitignore')) && readFileSync(join(out, '.gitignore'), 'utf8').includes('state/'))

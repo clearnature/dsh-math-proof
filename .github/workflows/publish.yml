@@ -31,6 +31,11 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+      - name: 只能有一个发布工作流（防选择器再生成一个重复发布者）
+        run: |
+          n=$(grep -l 'npm publish' .github/workflows/*.yml | wc -l)
+          echo "发布工作流数量: $n"
+          test "$n" -eq 1 || { echo '::error::检测到多个发布工作流；release 触发会重复发布并 EPUBLISHCONFLICT'; exit 1; }
       - name: 门禁必须全绿才允许发布
         run: node math-proof/scripts/check-all.mjs
       - name: 检查将要发布的文件清单
