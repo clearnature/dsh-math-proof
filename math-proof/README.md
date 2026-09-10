@@ -386,8 +386,9 @@ node tests/prompt-vars-check.mjs # PROMPT_VARS_OK（提示段里的 {{变量}} �
 node tests/reload-check.mjs   # RELOAD_OK（代码改动是否需要重启 dsh 进程的判断）
 node tests/hot-section-check.mjs # HOT_SECTION_OK（热档只认官方数据/文本缝）
 node tests/budget-check.mjs   # BUDGET_OK（预算：规则表自洽 / 判定 / 结算 / 投递契约）
+node tests/state-check.mjs    # STATE_OK（数据保留：每个累积型存储都要有上限或被维护脚本报告）
 
-# 3) 一键跑全部门禁（22 个入口汇总成一张表）
+# 3) 一键跑全部门禁（23 个入口汇总成一张表）
 node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs   # CHECK_ALL_OK
 
 # 4) 运维

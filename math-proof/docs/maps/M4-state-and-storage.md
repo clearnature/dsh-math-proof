@@ -131,6 +131,43 @@ git -C ~/.dsh/state/math-proof/witness-<ws> show <commit>:dag.json | head
 门禁：`tests/paths-check.mjs` 新增 6 条——唯一实现存在、支持 env 覆盖、覆盖生效、默认回落、
 **插件里不许再硬编码状态目录**、主套件确实做了隔离。
 
+**同一轮的第二批漏网之鱼**（2026-09-10）：`hooks/fable5-flow.mjs` / `hooks/fable5-gate.mjs` /
+`scripts/state-gc.mjs` 三处**仍然硬编码** `homedir()`。钩子是独立进程，测试传给它们的
+`MATH_PROOF_STATE_DIR` 被无视 → **130 个测试夹具留下的流程标记写进了真实目录**
+（最新几个的 prompt 是「把这批模块的断链全部修掉」「帮我重构 proof-dag 的评分逻辑」，sessionId `s-test`）。
+三处已改走唯一实现，并把「不许硬编码状态目录」的检查从 `plugins/` **扩到 `hooks/` 与 `scripts/`**；
+清理残留后跑一遍全套件核对：真实目录 **0 → 0**。
+
+## M4.5d 保留策略：每个存储保留多少条（还是覆盖）
+
+用户问「这个数据保留多少条，还是覆盖的」——这里给出一张**能一眼答出来**的表
+（上限都写在代码里，`tests/state-check.mjs` 保证它们**真的生效**且不允许出现「无人管」的类别）：
+
+| 存储 | 保留 | 满了怎么办 | 语义 |
+| --- | --- | --- | --- |
+| 任务样本（`budget-profile.json` 的 `samples`） | **400 条**（`BUDGET.historyMax`） | 丢最旧 | 环形数组，同一个文件原子重写 |
+| 余额采样（`quota-samples.json`） | **500 条**（`SAMPLES_MAX`） | 丢最旧 | 同上 |
+| 类基线窗口 | **20 条**（`BUDGET.window`） | 取最近 20 条算中位 | 计算用，不落盘 |
+| 回合实况（`budget-turn-<会话>.json`） | **每会话 1 个文件** | **覆盖重写**（每次开局） | 不是历史 |
+| 收工信箱（`carryover-<workspace>.json`） | **6 条** | 同 `kind` 去重 + 丢最旧；取空即清 | 不是历史 |
+| 待结算队列（账本内 `pending`） | **20 条** | 丢最旧 | 试 3 次补不上就丢 |
+| 重复指纹表（回合内） | **≤400 → 裁到 200** 键 | 裁剪 | 回合内状态 |
+| 评分历史（`history-<workspace>.json`） | **200 条/workspace** | 丢最旧 | 趋势用 |
+| 编译回执（`receipts/`） | **无上限**（实测 111 个） | `state-gc --apply --archive-days 90` 聚合成 `archive/*.jsonl` | 内容寻址，**不删数据** |
+| oracle 回执（`oracle-receipts/`） | 无上限（实测 8 个） | 同上 | 脚本哈希 + stdout 哈希 |
+| 知识图谱导出（`graph-*`） | **无自动上限**（实测 154 组） | `state-gc --apply --graph-keep N` 移入 `graph-archive/` | 派生物 |
+
+**已在 2026-09-10 补上的洞**：
+
+| 类别 | 原先 | 现在 |
+| --- | --- | --- |
+| fable5 流程标记（`flow-<workspace>.json`） | **无任何清理路径**（实测堆到 124 个，其中 83 个早已过期——闸门侧 TTL 只有 2 小时） | `state-gc` 报告数量与陈旧数，`--apply --flow-min-age-days 3` 删已过期的（新鲜标记保留） |
+| 会话日志（`~/.dsh/sessions/**`） | **harness 侧没有任何保留策略**（实测 26 个 / 51.6 MB） | `state-gc` **只报告**数量/体积/最旧日期，**绝不删**（那是唯一的历史）；要清理只能人工决定 |
+| 硬编码状态目录的漏网之鱼 | `hooks/fable5-flow.mjs` / `hooks/fable5-gate.mjs` / `scripts/state-gc.mjs` 三处仍写 `homedir()` → 测试（已设 `MATH_PROOF_STATE_DIR`）的流程标记照样落进**真实目录**（实测清出 **130 个测试残留**） | 三处改走 `impl/state-dir.mjs`；`paths-check` 的「不许硬编码状态目录」从 `plugins/` **扩到 `hooks/` 与 `scripts/`**；清理后跑全套件核对：真实目录 **0 → 0** |
+
+> 口径：**「覆盖」= 同一个文件被原子重写（`tmp + rename`），永远不会长成 N 份**；
+> **「环形」= 单文件内的数组超限丢最旧**；只有回执/图谱这类**追加型**才需要维护脚本。
+
 ## M4.6 已知缺口（如实列出）
 
 | 缺口 | 现状 | 影响 |

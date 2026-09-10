@@ -81,6 +81,7 @@ graph LR
   scripts_plugins_mjs["scripts/plugins.mjs"] --> impl_dsh-inventory_mjs["impl/dsh-inventory.mjs"]
   scripts_publish_mjs["scripts/publish.mjs"] --> impl_secret-scan_mjs["impl/secret-scan.mjs"]
   scripts_quota_mjs["scripts/quota.mjs"] --> impl_quota_mjs["impl/quota.mjs"]
+  scripts_state-gc_mjs["scripts/state-gc.mjs"] --> impl_state-dir_mjs["impl/state-dir.mjs"]
   scripts_traffic-report_mjs["scripts/traffic-report.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
   scripts_traffic-report_mjs["scripts/traffic-report.mjs"] --> impl_session-traffic_mjs["impl/session-traffic.mjs"]
   tests_cache-check_mjs["tests/cache-check.mjs"] --> tests_assemble-context_mjs["tests/assemble-context.mjs"]
@@ -90,8 +91,8 @@ graph LR
   tests_refs-check_mjs["tests/refs-check.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
 ```
 
-- 有出边的模块（**核心层**）：`impl/budget-policy.mjs`、`impl/quota.mjs`、`impl/session-traffic.mjs`、`plugins/agda-engine.mjs`、`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`plugins/python-oracle.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/traffic-report.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
-- 无出边的模块（**叶子/独立**）：`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/benchmark.mjs`、`tests/budget-check.mjs`、`tests/cache-check.mjs`、`tests/docs-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/hot-section-check.mjs`、`tests/inject-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plugins-check.mjs`、`tests/prompt-vars-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/reload-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`
+- 有出边的模块（**核心层**）：`impl/budget-policy.mjs`、`impl/quota.mjs`、`impl/session-traffic.mjs`、`plugins/agda-engine.mjs`、`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`plugins/python-oracle.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
+- 无出边的模块（**叶子/独立**）：`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/benchmark.mjs`、`tests/budget-check.mjs`、`tests/cache-check.mjs`、`tests/docs-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/hot-section-check.mjs`、`tests/inject-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plugins-check.mjs`、`tests/prompt-vars-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/reload-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`、`tests/state-check.mjs`
 
 > 依赖方向即「谁可以 import 谁」：`plugins/` 是注册层（薄），`impl/` 是可热读共享层，
 > `tests/` 与 `scripts/` 只消费、不被消费（所以它们不会出现在别人的 import 里）。
@@ -145,6 +146,7 @@ graph LR
 | `tests/ruleset-check.mjs` | `node:child_process` `node:fs` `node:os` `node:path` `node:timers/promises` | — |
 | `tests/run.mjs` | `node:crypto` `node:fs` `node:os` `node:path` | — |
 | `tests/skills-ref-check.mjs` | `node:fs` `node:path` `node:os` | — |
+| `tests/state-check.mjs` | `node:child_process` `node:fs` `node:os` `node:path` | — |
 
 ## M2.4 工具 → 实现
 

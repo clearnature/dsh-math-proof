@@ -178,14 +178,18 @@ ok('README 说明「换机器只改一个文件 / 可用环境变量覆盖」', 
   ok('env 覆盖生效', overridden === '/tmp/state-override-probe', overridden)
   ok('未设置时回落到 ~/.dsh/state/math-proof（生产行为不变）', fallback.endsWith('/.dsh/state/math-proof'), fallback)
   // 插件里不许再硬编码状态目录（否则测试又会绕过覆盖去写真实状态）
+  // ⚠ 插件**和钩子**都要查：2026-09-10 实测 `hooks/fable5-flow.mjs` 也硬编码了状态目录，
+  // 于是测试（设了 MATH_PROOF_STATE_DIR）写的流程标记照样落进**用户真实目录**。
   const offenders = []
-  for (const f of readdirSync(join(PRESET, 'plugins')).filter((x) => x.endsWith('.mjs'))) {
-    const text = readFileSync(join(PRESET, 'plugins', f), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^\s*\/\/[^\n]*/gm, '')
-    if (/\.dsh['"]\s*,\s*['"]state['"]\s*,\s*['"]math-proof['"]/.test(text)) offenders.push(f)
+  for (const sub of ['plugins', 'hooks', 'scripts']) {
+    for (const f of readdirSync(join(PRESET, sub)).filter((x) => x.endsWith('.mjs'))) {
+      const text = readFileSync(join(PRESET, sub, f), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/[^\n]*/gm, '')
+      if (/\.dsh['"]\s*,\s*['"]state['"]\s*,\s*['"]math-proof['"]/.test(text)) offenders.push(`${sub}/${f}`)
+    }
   }
-  ok('插件里没有硬编码状态目录（一律走 impl/state-dir.mjs）', offenders.length === 0, offenders.join(','))
+  ok('插件 / 钩子 / 脚本里都没有硬编码状态目录（一律走 impl/state-dir.mjs）', offenders.length === 0, offenders.join(','))
   const runner = readFileSync(join(PRESET, 'tests', 'run.mjs'), 'utf8')
   ok('主回归套件把状态指向临时目录（不写用户真实状态）', runner.includes('MATH_PROOF_STATE_DIR'))
 }

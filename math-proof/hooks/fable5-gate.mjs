@@ -17,6 +17,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import { stateDir } from '../impl/state-dir.mjs'
+
 let payload = {}
 try {
   payload = JSON.parse(readFileSync(0, 'utf8'))
@@ -34,7 +36,7 @@ if (process.env.MATH_PROOF_FLOW_GATE === 'off') process.exit(0)
 
 const ws = String(payload.cwd ?? process.cwd())
 const wsHash = createHash('sha1').update(ws).digest('hex').slice(0, 12)
-const STATE_DIR = join(homedir(), '.dsh', 'state', 'math-proof')
+const STATE_DIR = stateDir()
 const MARKER = join(STATE_DIR, `flow-${wsHash}.json`)
 const STALE_MS = 2 * 60 * 60 * 1000 // 2 小时没动静 → 标记过期，不拦
 

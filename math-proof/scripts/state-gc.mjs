@@ -6,6 +6,7 @@
 //   node ... --apply --rebuild-index      # 用回执重建每模块聚合索引
 //   node ... --apply --witness-gc         # 对每个见证仓库做 git gc（压缩历史）
 //   node ... --apply --graph-keep 3       # 知识图谱导出每 workspace 只留最新 3 组，其余归档
+//   node ... --apply --flow-min-age-days 3 # 删掉 3 天前的流程标记（每任务一份的瞬时状态；TTL 是 2 小时）
 //   node ... --json                       # 机器可读输出
 //
 // 状态目录里有什么、为什么要管：
@@ -15,10 +16,14 @@
 //   witness-*/          每个 workspace 一个 git 见证仓库（每次关键变更一个 commit）
 //   checkpoint-*.json   见证检查点
 //   graph-<ws>.{json,md}知识图谱导出（**可重建的派生物**，会随每次 graph 调用累积）
+//   flow-<ws>.json      fable5 流程标记（**每任务一份、用完即弃**；闸门侧 TTL 2 小时，之后就是死文件）
+//                       2026-09-10 实测：已堆到 124 个且**没有任何清理路径**——本脚本补上
 //   budget-profile.json 预算学习账本（样本/各类预算；**不清理**——清了等于把学到的忘掉）
 //   budget-turn-<sid>.json 每会话「本回合实况」（覆盖重写；残留可删）
 //   carryover-<ws>.json 收工信箱（Stop 写入、下轮开局取空）
-// 长期运行的风险：回执无限增长、见证仓库快照累积、聚合索引与回执脱节、图谱导出堆积。
+// 长期运行的风险：回执无限增长、见证仓库快照累积、聚合索引与回执脱节、图谱导出堆积、流程标记堆积。
+// ⚠ **会话日志不在这里**：`~/.dsh/sessions/**` 是 harness 的数据（本 preset 只读它算流量），
+//    没有任何保留/轮转策略——本脚本只**报告**它的占用，绝不删（那是唯一的历史）。
 // 本脚本是唯一的维护入口——**归档不删除**（数据留档，热目录瘦身）。
 
 import { spawnSync } from 'node:child_process'
@@ -26,6 +31,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, s
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
+
+import { stateDir } from '../impl/state-dir.mjs'
 
 const argv = process.argv.slice(2)
 const flag = (n, d) => {
@@ -37,9 +44,14 @@ const REBUILD = argv.includes('--rebuild-index')
 const WITNESS_GC = argv.includes('--witness-gc')
 const DAYS = Number(flag('archive-days', 0)) || 0
 const GRAPH_KEEP = Number(flag('graph-keep', 0)) || 0
+/** 流程标记的 TTL：与 `hooks/fable5-gate.mjs` 的 2 小时一致（更保守地按天判断）。 */
+const FLOW_TTL_MS = 2 * 60 * 60 * 1000
+const FLOW_MIN_AGE_DAYS = Number(flag('flow-min-age-days', 3))
 const AS_JSON = argv.includes('--json')
 
-const STATE = join(homedir(), '.dsh', 'state', 'math-proof')
+// 状态目录走**唯一实现**（`MATH_PROOF_STATE_DIR` 可覆盖）——否则 `--apply` 会作用在用户真实状态上，
+// 测试也没法隔离（2026-09-10：本脚本是最后一个硬编码状态目录的地方）
+const STATE = stateDir()
 if (!existsSync(STATE)) {
   console.log('state-gc: 状态目录不存在，无事可做')
   process.exit(0)
@@ -78,6 +90,8 @@ const report = {
   ledgers: 0,
   graphs: { files: 0, bytes: 0, groups: 0 },
   budgetTurns: { files: 0, bytes: 0 },
+  flow: { files: 0, bytes: 0, stale: 0, oldest: null },
+  sessions: { files: 0, bytes: 0, oldest: null },
   budgetProfile: { bytes: 0 },
   carryover: { files: 0, bytes: 0 },
 }
@@ -126,6 +140,20 @@ for (const e of entries) {
     report.checkpoints += 1
   } else if (e.startsWith('dag-') && e.endsWith('.json')) {
     report.ledgers += 1
+  } else if (e.startsWith('flow-')) {
+    // fable5 流程标记：每任务一份，闸门侧 TTL 2 小时 → 之后就是死文件
+    report.flow.files += 1
+    report.flow.bytes += st.size
+    let ts = null
+    try {
+      const parsed = JSON.parse(readFileSync(p, 'utf8'))
+      ts = typeof parsed?.ts === 'number' ? parsed.ts : null
+    } catch {
+      /* 损坏的标记：也算陈旧 */
+    }
+    if (ts !== null && Date.now() - ts > FLOW_TTL_MS) report.flow.stale += 1
+    else if (ts === null) report.flow.stale += 1
+    if (ts !== null && (report.flow.oldest === null || ts < report.flow.oldest)) report.flow.oldest = ts
   } else if (e.startsWith('graph-')) {
     report.graphs.files += 1
     report.graphs.bytes += st.size
@@ -133,6 +161,34 @@ for (const e of entries) {
   }
 }
 report.graphs.groups = new Set(graphFiles.map((f) => f.replace(/^graph-/, '').replace(/\.[a-z]+$/, ''))).size
+
+// ── 1.5 会话日志（**只报告，绝不删**：那是 harness 的数据、也是唯一的历史）──────
+{
+  const root = join(homedir(), '.dsh', 'sessions')
+  if (existsSync(root)) {
+    for (const ws of readdirSync(root)) {
+      const wsDir = join(root, ws)
+      let ids = []
+      try {
+        ids = readdirSync(wsDir)
+      } catch {
+        continue
+      }
+      for (const id of ids) {
+        for (const name of ['session.jsonl.zstd', 'session.jsonl']) {
+          const f = join(wsDir, id, name)
+          if (!existsSync(f)) continue
+          const st2 = statSync(f)
+          report.sessions.files += 1
+          report.sessions.bytes += st2.size
+          const t = st2.mtimeMs
+          if (report.sessions.oldest === null || t < report.sessions.oldest) report.sessions.oldest = t
+          break
+        }
+      }
+    }
+  }
+}
 
 // ── 2. 归档旧回执（默认不动）───────────────────────────────────────────────
 const archived = { receipts: 0, oracle: 0 }
@@ -162,6 +218,28 @@ if (APPLY && DAYS > 0) {
   }
   archived.receipts = archive(join(STATE, 'receipts'), 'compile')
   archived.oracle = archive(join(STATE, 'oracle-receipts'), 'oracle')
+}
+
+// ── 2.5 清理陈旧流程标记（默认不动；只删**已过期**的瞬时状态）────────────────
+// `flow-<ws>.json` 是 fable5 钩子「每任务一份」的标记（闸门侧 TTL 2 小时）——
+// 实测已堆到 124 个且**没有任何清理路径**，所以补在这里；只删超过 `--flow-min-age-days` 天的。
+let flowRemoved = 0
+if (APPLY && FLOW_MIN_AGE_DAYS > 0) {
+  const cutoff = Date.now() - FLOW_MIN_AGE_DAYS * 86400000
+  for (const f of readdirSync(STATE)) {
+    if (!f.startsWith('flow-') || !f.endsWith('.json')) continue
+    let ts = null
+    try {
+      const parsed = JSON.parse(readFileSync(join(STATE, f), 'utf8'))
+      ts = typeof parsed?.ts === 'number' ? parsed.ts : null
+    } catch {
+      ts = null // 损坏 → 视为陈旧
+    }
+    if (ts === null || ts < cutoff) {
+      rmSync(join(STATE, f), { force: true })
+      flowRemoved += 1
+    }
+  }
 }
 
 // ── 3. 重建聚合索引 ───────────────────────────────────────────────────────
@@ -257,8 +335,14 @@ console.log(`| 见证仓库 | ${report.witness.repos} 个 | ${mb(report.witness.
 console.log(`| 检查点 / 台账 | ${report.checkpoints} / ${report.ledgers} | — | — |`)
 console.log(`| 知识图谱导出 | ${report.graphs.files} 个文件（${report.graphs.groups} 组） | ${mb(report.graphs.bytes)} | **派生物**（可由台账重建，可归档） |`)
 console.log(`| 预算账本 | 1 份 | ${mb(report.budgetProfile.bytes)} | 学习状态（各类中位/预算/样本，**不清理**） |`)
+console.log(`| 流程标记 | ${report.flow.files} 个（陈旧 ${report.flow.stale}） | ${mb(report.flow.bytes)} | fable5 每任务一份（TTL 2h）；陈旧可用 \`--apply --flow-min-age-days 3\` 删 |`)
 console.log(`| 回合实况 | ${report.budgetTurns.files} 个 | ${mb(report.budgetTurns.bytes)} | 钩子每回合覆盖重写（可安全删除） |`)
 console.log(`| 收工信箱 | ${report.carryover.files} 个 | ${mb(report.carryover.bytes)} | 取空即清（残留下轮会被覆盖） |`)
+console.log(
+  `| **会话日志** | ${report.sessions.files} 个 | ${mb(report.sessions.bytes)} | harness 的数据（本 preset 只读它算流量）：最旧 ${
+    report.sessions.oldest === null ? '—' : new Date(report.sessions.oldest).toISOString().slice(0, 10)
+  }；**没有任何保留策略**，本脚本只报告、绝不删 |`,
+)
 console.log('')
 if (!APPLY) {
   console.log('（dry-run）常用维护：')
@@ -266,6 +350,7 @@ if (!APPLY) {
   console.log('  --apply --rebuild-index     用回执重建每模块聚合索引（聚合与回执脱节时用）')
   console.log('  --apply --witness-gc        压缩见证仓库历史（reflog expire + git gc）')
   console.log('  --apply --graph-keep 3      图谱导出每 workspace 只留最新 3 组，其余移到 graph-archive/（不删）')
+  console.log('  --apply --flow-min-age-days 3 删掉 3 天前的流程标记（每任务一份的瞬时状态，闸门 TTL 只有 2 小时）')
 } else {
   console.log(
     `已执行：归档编译回执 ${archived.receipts} 条 / oracle 回执 ${archived.oracle} 条｜重建聚合 ${rebuilt} 个｜见证仓库压缩 ${witnessGc} 个｜图谱导出归档 ${graphsArchived} 个`,

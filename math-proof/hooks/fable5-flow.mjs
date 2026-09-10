@@ -23,6 +23,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import { stateDir } from '../impl/state-dir.mjs'
+
 let payload = {}
 try {
   payload = JSON.parse(readFileSync(0, 'utf8'))
@@ -70,7 +72,7 @@ function markTask() {
   try {
     const ws = String(payload.cwd ?? process.cwd())
     const hash = createHash('sha1').update(ws).digest('hex').slice(0, 12)
-    const dir = join(homedir(), '.dsh', 'state', 'math-proof')
+    const dir = stateDir()
     const file = join(dir, `flow-${hash}.json`)
     mkdirSync(dir, { recursive: true })
     const tmp = `${file}.${process.pid}.tmp`
