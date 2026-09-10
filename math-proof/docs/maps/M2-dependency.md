@@ -114,7 +114,7 @@ graph LR
 | `tests/routing-check.mjs` | `node:fs` `node:path` | — |
 | `tests/ruleset-check.mjs` | `node:child_process` `node:fs` `node:os` `node:path` `node:timers/promises` | — |
 | `tests/run.mjs` | `node:crypto` `node:fs` `node:os` `node:path` | — |
-| `tests/skills-ref-check.mjs` | `node:fs` `node:path` | — |
+| `tests/skills-ref-check.mjs` | `node:fs` `node:path` `node:os` | — |
 
 ## M2.4 工具 → 实现
 

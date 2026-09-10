@@ -57,6 +57,7 @@ const PATTERNS = [
   /(?:加载|委托|调用)\s*`([a-z][a-z0-9]*(?:-[a-z0-9]+)+)`/g,
   /`([a-z][a-z0-9]*(?:-[a-z0-9]+)+)`\s*技能/g,
   /技能\s*`([a-z][a-z0-9]*(?:-[a-z0-9]+)+)`/g,
+  /(?:技能|skill)\s*[：:是为]\s*`?([a-z][a-z0-9]*(?:-[a-z0-9]+)+)`?/g,
 ]
 const referenced = new Map() // name → Set(file)
 for (const file of promptFiles) {
@@ -93,6 +94,46 @@ ok(
 // 白名单里不该留「其实已经打包」的陈旧条目
 const stale = [...allow].filter((n) => shipped.has(n))
 ok('外部白名单无陈旧条目（已打包的应删掉）', stale.length === 0, stale.join(', '))
+
+// ── 1.5) 本机技能目录交叉核对 ─────────────────────────────────────────────
+// 为什么要有这条：作者/用户机器上的用户级技能目录（`~/.agents/skills`、`~/.reasonix/skills`、
+// `~/.dsh/skills`）**别人不一定有**。若 preset 引用了那里的技能却没打包，对 clone 的人就是死链。
+// 规则：本机装了、但**没随包分发**、又**没进白名单**的技能名，出现在操作性文件里 → 失败。
+// 诚实边界：这条只在「本机存在这些目录」时生效（CI/新克隆上没有它们，退化为上一条的上下文检查）。
+import { homedir } from 'node:os'
+const localRoots = [join(homedir(), '.agents', 'skills'), join(homedir(), '.reasonix', 'skills'), join(homedir(), '.dsh', 'skills')]
+const localSkills = new Set()
+for (const root of localRoots) {
+  if (!existsSync(root)) continue
+  for (const e of readdirSync(root, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name.startsWith('_')) continue
+    if (existsSync(join(root, e.name, 'SKILL.md'))) localSkills.add(e.name)
+  }
+}
+const operative = promptFiles.filter((f) => !f.endsWith('evals.json'))
+// 先把操作性文件读进内存：988 个候选技能 × 70 个文件，逐个 re-read 会慢十倍
+const operativeText = operative.map((f) => ({ rel: f.slice(PRESET.length + 1), lines: readFileSync(f, 'utf8').split('\n') }))
+const crossHits = []
+for (const name of localSkills) {
+  if (shipped.has(name) || allow.has(name)) continue
+  // 带连字符的技能名可以直接按词边界匹配；**单词名**（如 `implement`）会撞上普通英文词，
+  // 所以单词名必须带反引号或出现在技能语境里才算引用（否则 plan-mode 的英文说明都会中枪）
+  const wordRe = new RegExp(`(^|[^A-Za-z0-9_-])${name}([^A-Za-z0-9_-]|$)`)
+  const ctxRe = new RegExp(`(?:技能|skill|加载|委托|subagent)[^\\n]{0,16}${name}|${name}[^\\n]{0,8}(?:技能|skill)`)
+  for (const { rel, lines } of operativeText) {
+    lines.forEach((line, i) => {
+      const hit = name.includes('-') ? wordRe.test(line) : line.includes(`\`${name}\``) || ctxRe.test(line)
+      if (hit) crossHits.push(`${name}（${rel}:${i + 1}）`)
+    })
+  }
+}
+ok(
+  localSkills.size === 0
+    ? '本机无用户级技能目录（CI/新克隆）→ 跳过交叉核对'
+    : `本机用户级技能（${localSkills.size} 个）里没有被引用却未打包的`,
+  crossHits.length === 0,
+  crossHits.slice(0, 5).join(' | '),
+)
 
 // ── 3) 每个技能 frontmatter 规范 ──────────────────────────────────────────
 for (const name of [...shipped].sort()) {
@@ -132,7 +173,8 @@ if (existsSync(evalsFile)) {
 }
 
 console.log('# 技能引用完整性门禁（引用 / 分发 / frontmatter / 本机路径）\n')
-console.log(`- 已分发技能：**${shipped.size}**｜被引用技能：**${referenced.size}**｜外部白名单：**${allow.size}**\n`)
+console.log(`- 已分发技能：**${shipped.size}**｜被引用技能：**${referenced.size}**｜外部白名单：**${allow.size}**`)
+console.log(`- 本机用户级技能目录可见：**${localSkills.size}** 个${localSkills.size === 0 ? '（CI/新克隆：交叉核对退化为上下文模式）' : '（交叉核对已启用）'}\n`)
 console.log(results.join('\n'))
 console.log(`\n${failures === 0 ? 'SKILLS_REF_OK' : 'SKILLS_REF_FAIL'} ${results.length - failures}/${results.length}`)
 process.exit(failures === 0 ? 0 : 1)
