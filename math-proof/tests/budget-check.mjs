@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { zstdCompressSync } from 'node:zlib'
+import * as zlib from 'node:zlib'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/\/$/, '')
 const PRESET = dirname(HERE)
@@ -35,6 +35,12 @@ const ok = (name, cond, detail = '') => {
   if (!cond) failures++
 }
 const section = (t) => results.push(`\n## ${t}`)
+/** 跳过（老 Node 没有 zstd）：记为 ⏭ 而不是失败——但**必须如实说清为什么跳过**。 */
+let skips = 0
+const skip = (name, why) => {
+  results.push(`⏭ ${name} — SKIP：${why}`)
+  skips++
+}
 
 const ruleset = await import(join(PRESET, 'impl', 'ruleset.mjs'))
 const traffic = await import(join(PRESET, 'impl', 'session-traffic.mjs'))
@@ -78,6 +84,19 @@ section('规则表（BUDGET / RECEIPT）')
   ok('规则集版本已 bump（新增 BUDGET 表 → r8 起）', Number(String(ruleset.RULESET_VERSION).slice(1)) >= 8, ruleset.RULESET_VERSION)
   const src = readFileSync(join(PRESET, 'impl', 'session-traffic.mjs'), 'utf8')
   ok('流量模块零外部依赖（只 node: 与 ./ruleset.mjs）', !/from '(?!node:|\.\/ruleset\.mjs)/.test(src))
+  // 2026-09-10 CI（Node 20）真实事故：`import { zstdDecompressSync } from 'node:zlib'` 在 Node 20 上
+  // 是**链接期** SyntaxError → `plugins/budget.mjs` 整个挂不上、第 7 个工具不注册。
+  // 剥注释再查：注释里**故意**引用了那种写法作为文档（与 ruleset-check 同一手法）
+  const stripComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*/gm, '')
+  const codeSrc = stripComments(src)
+  ok('不许命名导入 zstd（Node 20 上会链接期炸掉整个插件）', !/import\s*\{[^}]*zstd/i.test(codeSrc), (codeSrc.match(/import[^\n]*zstd[^\n]*/i) ?? [''])[0])
+  ok('zstd 能力是运行时探测的（ZSTD_SUPPORTED）', /export const ZSTD_SUPPORTED/.test(src) && /typeof zlib\.zstdDecompressSync === 'function'/.test(src))
+  const pluginSrc = readFileSync(join(PRESET, 'plugins', 'budget.mjs'), 'utf8')
+  ok(
+    'budget 插件不直接碰 zstd（只用 impl 层的 ZSTD_SUPPORTED 报告能力）',
+    !/from 'node:zlib'/.test(pluginSrc) && !/zstdCompress|zstdDecompress/.test(pluginSrc) && /ZSTD_SUPPORTED/.test(pluginSrc),
+    (pluginSrc.match(/import[^\n]*zlib[^\n]*/) ?? [''])[0],
+  )
   ok('预算策略模块零外部依赖', !/from '(?!node:|\.\/ruleset\.mjs|\.\/session-traffic\.mjs)/.test(readFileSync(join(PRESET, 'impl', 'budget-policy.mjs'), 'utf8')))
 }
 
@@ -97,28 +116,38 @@ section('计量（session-traffic）')
   ok('turn3：**缺 assistant/message** 时回退到 chunk 求和（400+20）', t3.tok === 420 && t3.steps === 1, JSON.stringify({ tok: t3.tok, steps: t3.steps }))
 
   // zstd 多帧：把 fixture 切成 3 段各自压成独立帧再拼接（模拟官方持久化的容器）
+  // Node < 22.15 没有 `node:zlib` 的 zstd → 这些断言 SKIP（模块本身必须仍能加载，见下）
+  const zstd = typeof zlib.zstdCompressSync === 'function' ? zlib : null
   const lines = readFileSync(FIXTURE, 'utf8').split('\n').filter((l) => l !== '')
   const chunkSize = Math.ceil(lines.length / 3)
   const frames = []
-  for (let i = 0; i < lines.length; i += chunkSize) frames.push(zstdCompressSync(Buffer.from(`${lines.slice(i, i + chunkSize).join('\n')}\n`, 'utf8')))
+  if (zstd !== null) {
+    for (let i = 0; i < lines.length; i += chunkSize) frames.push(zstd.zstdCompressSync(Buffer.from(`${lines.slice(i, i + chunkSize).join('\n')}\n`, 'utf8')))
+  }
   const zpath = join(SESSIONS, 'multi-frame.jsonl.zstd')
-  writeFileSync(zpath, Buffer.concat(frames))
-  const zf = traffic.foldSession(zpath)
-  ok('zstd 多帧：帧数=3 且结构扫描认得', traffic.scanZstdFrames(readFileSync(zpath)).frames.length === 3, String(traffic.scanZstdFrames(readFileSync(zpath)).frames.length))
-  ok('zstd 多帧：折叠结果与明文一致', JSON.stringify(zf.turns.map((t) => [t.turn, t.steps, t.tok])) === JSON.stringify(turns.map((t) => [t.turn, t.steps, t.tok])), JSON.stringify(zf.turns.map((t) => [t.turn, t.steps, t.tok])))
-  const tail = traffic.foldLastTurn(zpath)
-  ok('foldLastTurn 只留最后一个回合且与全读一致', tail.turns.length === 1 && tail.turns[0].tok === 420 && tail.truncated === false, JSON.stringify(tail.turns.map((t) => t.tok)))
-  const win = traffic.foldSessionWindow(zpath, { fromTurn: 2 })
-  ok('foldSessionWindow(fromTurn=2) 与全读的 turn2 一致', win.turns[0]?.turn === 2 && win.turns[0]?.tok === 900 && win.truncated === false, JSON.stringify(win.turns.map((t) => [t.turn, t.tok])))
+  if (zstd !== null) writeFileSync(zpath, Buffer.concat(frames))
+  if (zstd === null) {
+    skip('zstd 多帧 / 尾读 / 尾部撕裂 6 条断言', `本机 Node ${process.version} 的 node:zlib 没有 zstd（需要 ≥22.15）；模块已降级为「读不了压缩日志」而不是崩溃`)
+    ok('缺 zstd 时 foldSession 仍返回 0 回合（不抛）', traffic.foldSession(zpath).turns.length === 0)
+    ok('缺 zstd 时 foldLastTurn 标记 truncated 而不是假装有数据', traffic.foldLastTurn(zpath).truncated === true)
+  } else {
+    const zf = traffic.foldSession(zpath)
+    ok('zstd 多帧：帧数=3 且结构扫描认得', traffic.scanZstdFrames(readFileSync(zpath)).frames.length === 3, String(traffic.scanZstdFrames(readFileSync(zpath)).frames.length))
+    ok('zstd 多帧：折叠结果与明文一致', JSON.stringify(zf.turns.map((t) => [t.turn, t.steps, t.tok])) === JSON.stringify(turns.map((t) => [t.turn, t.steps, t.tok])), JSON.stringify(zf.turns.map((t) => [t.turn, t.steps, t.tok])))
+    const tail = traffic.foldLastTurn(zpath)
+    ok('foldLastTurn 只留最后一个回合且与全读一致', tail.turns.length === 1 && tail.turns[0].tok === 420 && tail.truncated === false, JSON.stringify(tail.turns.map((t) => t.tok)))
+    const win = traffic.foldSessionWindow(zpath, { fromTurn: 2 })
+    ok('foldSessionWindow(fromTurn=2) 与全读的 turn2 一致', win.turns[0]?.turn === 2 && win.turns[0]?.tok === 900 && win.truncated === false, JSON.stringify(win.turns.map((t) => [t.turn, t.tok])))
 
-  // 尾部撕裂：截掉最后一帧的一半（模拟正在写入的日志）
-  const all = readFileSync(zpath)
-  const torn = join(SESSIONS, 'torn.jsonl.zstd')
-  writeFileSync(torn, all.subarray(0, all.length - Math.floor(frames[2].length / 2)))
-  const tornFold = traffic.foldSession(torn)
-  ok('尾部半帧：不抛异常，且前面两个回合完整可读', tornFold.turns.length >= 2 && tornFold.turns[0].tok === 320, `${tornFold.turns.length} 个回合`)
-  const scan = traffic.scanZstdFrames(readFileSync(torn))
-  ok('尾部半帧：扫描器标出 tornStart 而不是报错', scan.frames.length === 2 && typeof scan.tornStart === 'number', JSON.stringify({ n: scan.frames.length, torn: scan.tornStart }))
+    // 尾部撕裂：截掉最后一帧的一半（模拟正在写入的日志）
+    const all = readFileSync(zpath)
+    const torn = join(SESSIONS, 'torn.jsonl.zstd')
+    writeFileSync(torn, all.subarray(0, all.length - Math.floor(frames[2].length / 2)))
+    const tornFold = traffic.foldSession(torn)
+    ok('尾部半帧：不抛异常，且前面两个回合完整可读', tornFold.turns.length >= 2 && tornFold.turns[0].tok === 320, `${tornFold.turns.length} 个回合`)
+    const scan = traffic.scanZstdFrames(readFileSync(torn))
+    ok('尾部半帧：扫描器标出 tornStart 而不是报错', scan.frames.length === 2 && typeof scan.tornStart === 'number', JSON.stringify({ n: scan.frames.length, torn: scan.tornStart }))
+  }
   ok('缺文件：返回 0 个回合（不抛）', traffic.foldSession(join(SESSIONS, 'nope.jsonl')).turns.length === 0)
 
   // 统计与分类
@@ -508,7 +537,9 @@ section('traffic-report 脚本')
 
 console.log('# 预算与流量账本回归\n')
 console.log(results.join('\n'))
-console.log(`\n${failures === 0 ? 'BUDGET_OK' : 'BUDGET_FAIL'} ${results.filter((r) => r.startsWith('✅')).length}/${results.filter((r) => /^[✅❌]/.test(r)).length}`)
+const passed = results.filter((r) => r.startsWith('✅')).length
+const judged = results.filter((r) => /^[✅❌]/.test(r)).length
+console.log(`\n${failures === 0 ? 'BUDGET_OK' : 'BUDGET_FAIL'} ${passed}/${judged}${skips > 0 ? `（另有 ${skips} 条 SKIP：本机 Node 无 zstd 支持）` : ''}`)
 try {
   rmSync(STATE, { recursive: true, force: true })
   rmSync(SESSIONS, { recursive: true, force: true })

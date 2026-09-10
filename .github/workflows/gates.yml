@@ -1,7 +1,14 @@
-# 全部门禁：15 个入口（schema 自检 + 14 套回归，含架构文档漂移门禁 docs-check）
+# 全部门禁：`math-proof/scripts/check-all.mjs` 的 22 个入口（schema 自检 + 21 套回归，
+# 含架构文档漂移门禁 docs-check 与预算/流量门禁 budget-check）。入口数以脚本输出为准，
+# 这里不写字面数字（会漂移）。
 #
 # 这些门禁是**纯 node 内建模块**实现的（零依赖），所以在裸 CI 里也能跑：
 # 没有 dsh 安装、没有市场快照、没有 Agda 仓库时，相关断言会显式 SKIP（⏭）而不是假绿。
+#
+# Node 版本矩阵：20 / 22 / 24。
+#   ⚠ Node 20 **没有** `node:zlib` 的 zstd（22.15 / 23.8 起才有）——所以 preset 代码必须
+#   **运行时探测**而不是命名导入（命名导入在 Node 20 是链接期 SyntaxError，会让整个插件挂不上）。
+#   本矩阵正是 2026-09-10 抓到这个真事故的地方。相关断言在无 zstd 时会 SKIP 而不是失败。
 name: gates
 
 on:
@@ -23,5 +30,5 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '${{ matrix.node }}'
-      - name: 一键门禁（期望 CHECK_ALL_OK 15/15）
+      - name: 一键门禁（期望 CHECK_ALL_OK，入口数以脚本输出为准）
         run: node math-proof/scripts/check-all.mjs

@@ -2795,7 +2795,33 @@ check 照常扣分｜**覆盖时保留 receipt / evidenceVerified / evidence 文
 （`budget-start.mjs`）取空并念出来。`fable5-flow.mjs` 的 Stop 分支同样移除。
 **约束写进注释与门禁**：不要在 Stop 里输出 `additionalContext`，也不要在 Stop 里 deny。
 
-### 69.5 复验
+### 69.5 CI 矩阵抓到的真事故：Node 20 上命名导入 zstd = 链接期炸
+
+推送后 `gates` 的 **Node 20** 作业失败（22/24 通过），日志是：
+
+```
+SyntaxError: The requested module 'node:zlib' does not provide an export named 'zstdDecompressSync'
+  ❌ 真挂载模拟：budget.mjs 用严格 ctx 能 apply
+  ❌ 7 个工具都被注册（含 budget） — proof_compile,proof_dag,proof_audit,proof_graph,prover_limits,proof_oracle
+```
+
+即：`node:zlib` 的 zstd 是 **22.15 / 23.8** 才有的，而**命名导入**在旧版本是**链接期**错误
+（不是运行时 undefined）→ 整个 `plugins/budget.mjs` 加载失败、第 7 个工具根本没注册。
+这与之前「`inject` 少声明一个服务导致整个 preset 不可用」是同一类：**小语法/依赖失误 → 全盘不可用**。
+
+修法（**运行时探测，不写死版本**）：
+
+- `import * as zlib from 'node:zlib'` + `typeof zlib.zstdDecompressSync === 'function'` 探测，
+  导出 `ZSTD_SUPPORTED`；三处解压点全部先判能力，老 Node 上返回「没有数据 / truncated」而不是崩；
+- `budget status` 与 `traffic-report` **如实报出**「本机 Node 读不了压缩日志」并说明缺什么能力；
+- `tests/budget-check.mjs`：无 zstd 时相关 6 条断言记 **SKIP（⏭）** 而不是失败，并新增两条断言
+  覆盖降级路径；再加一条**静态断言**：`impl/session-traffic.mjs` 不许命名导入 zstd（剥注释后扫描，
+  防有人照注释里的反面示例写回去）；
+- CI 注释与作业名同步写明 Node 矩阵与这条坑（原作业名还写着过期的「期望 CHECK_ALL_OK 15/15」）。
+
+本地复验：Node 24.1.0 与 Node 22.22.1 都 **CHECK_ALL_OK 22/22**；Node 20 的最终判定以 CI 为准。
+
+### 69.6 复验
 
 `check-all` → **CHECK_ALL_OK 22/22**（新增 `budget-check` 168/168；`hooks-check` 改写为
 58/58 并钉住「Stop 不输出」；`plugins-check` 24/24；`inject-check` 22/22；`docs-check` 80/80）。

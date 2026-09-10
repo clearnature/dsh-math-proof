@@ -27,6 +27,7 @@ import {
   foldLastTurn,
   scanSessionTurns,
   sessionLogFiles,
+  ZSTD_SUPPORTED,
   summarize,
   percentile,
 } from '../impl/session-traffic.mjs'
@@ -56,6 +57,11 @@ function renderStatus(args) {
   const state = args?.sessionId === undefined ? null : readTurn(String(args.sessionId))
   const lines = ['# budget: status（本任务预算实况）', '']
   lines.push(`- 模式: **${mode}**（${why}）｜账本: \`${profile.samples?.length ?? 0}\` 条样本，债务 ${profile.debt ?? 0} 笔`)
+  lines.push(
+    ZSTD_SUPPORTED
+      ? `- 日志读取: ✅（Node ${process.version} 的 \`node:zlib\` 有 zstd，可读 \`session.jsonl.zstd\`）`
+      : `- 日志读取: ⚠ **不可用**——本机 Node ${process.version} 的 \`node:zlib\` 没有 zstd（需 ≥22.15/23.8）：\`tok\`/步数读不到，预算只能靠钩子侧的调用次数计数（刹车照常工作，明细数字会缺）`,
+  )
   if (state === null) {
     lines.push('- 本会话：**没有回合状态**（本任务不是走 UserPromptSubmit 开的局，或钩子未挂载/已关闭）')
   } else {

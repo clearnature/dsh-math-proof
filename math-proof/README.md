@@ -316,6 +316,12 @@ node tests/paths-check.mjs   # PATHS_OK
 **开关**：`MATH_PROOF_BUDGET=off` 全关｜`=warn` 只提醒不拦｜`budget action:"off"` 等同 warn｜
 `budget action:"status"` 看本回合实况｜`budget action:"calibrate"` 用真实日志标定各类预算。
 
+**运行环境**：读 `session.jsonl.zstd` 需要 **Node ≥ 22.15 / 23.8**（`node:zlib` 的 zstd）。
+更老的 Node（如 20）上**能力是运行时探测的**，不会崩：`budget status` 会明确报「日志读取不可用」，
+调用次数计数与刹车照常工作，只是 `tok`/步数这类明细缺失、不产生学习样本。
+（2026-09-10 CI 的 Node 20 作业抓到过这里：写成命名导入 `import { zstdDecompressSync } from 'node:zlib'`
+是**链接期** SyntaxError，会让 `plugins/budget.mjs` 整个挂不上——现在有静态断言钉死不许这么写。）
+
 回归：`node tests/budget-check.mjs` → `BUDGET_OK`。
 
 ## 二、怎么跑

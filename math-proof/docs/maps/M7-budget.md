@@ -197,6 +197,11 @@ flowchart TD
 - **token 只在结算时准**：过程播报里的 tok 来自「当前回合窗口」的日志读，读得慢会**自动降级**
   （`LIVE_BUDGET_MS`），此时只报调用次数与墙钟。
 - **Stop 结算必然延后一轮**：`turn/end` 在 Stop 之后落盘，所以结算播报发生在**下一轮开局**。
+- **需要 Node ≥ 22.15 / 23.8 才能读压缩日志**：`session.jsonl.zstd` 只能用 `node:zlib` 的 zstd 解。
+  老 Node 上**能力是运行时探测的**（`ZSTD_SUPPORTED`）：不崩，`budget status` 会报「日志读取不可用」，
+  调用次数计数与刹车照常，`tok`/步数缺失且不产生样本。**绝不要**写成命名导入
+  `import { zstdDecompressSync } from 'node:zlib'`——那在 Node 20 是链接期 `SyntaxError`，
+  会让整个 `plugins/budget.mjs` 挂不上（CI 的 Node 20 作业抓到过；`tests/budget-check.mjs` 有静态断言）。
 - **尚未在有 dsh 进程的真实会话里端到端验证**：钩子脚本、判定、结算、投递契约都有 168 条门禁断言
   覆盖（`tests/budget-check.mjs`），但「钩子在真会话里被桥调用」这一步要等
   重启 dsh 进程 + 开一个 math-proof 会话后才算实测。

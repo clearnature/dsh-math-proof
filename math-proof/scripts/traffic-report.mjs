@@ -26,6 +26,7 @@ import {
   scanSessionTurns,
   sessionLogFiles,
   summarize,
+  ZSTD_SUPPORTED,
 } from '../impl/session-traffic.mjs'
 
 const args = process.argv.slice(2)
@@ -33,6 +34,12 @@ const wantJson = args.includes('--json')
 const wantCalibrate = args.includes('--calibrate')
 const headroom = Number((/--headroom=([\d.]+)/.exec(args.join(' ')) ?? [])[1] ?? 1.25)
 
+if (!ZSTD_SUPPORTED) {
+  console.error(
+    `# ⚠ 本机 Node ${process.version} 的 \`node:zlib\` 没有 zstd（需 ≥22.15/23.8）：压缩会话日志读不了。\n` +
+      '# 报表在明文 `session.jsonl` 的部署上仍然可用；否则请换 Node 版本。下面显示的是**读到的东西**（可能为空）。\n',
+  )
+}
 const files = sessionLogFiles()
 const turns = scanSessionTurns(files)
 const usable = turns.filter((t) => t.tok > 0)

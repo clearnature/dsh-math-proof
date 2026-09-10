@@ -27,12 +27,26 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { zstdDecompressSync } from 'node:zlib'
+import * as zlib from 'node:zlib'
 
 import { BUDGET, RECEIPT } from './ruleset.mjs'
 
 /** Zstandard frame magic（little-endian `0xFD2FB528`）。 */
 export const ZSTD_MAGIC = 4247762216
+
+/**
+ * Node 的 zstd 支持是 **22.15 / 23.8 起**才有的（`node:zlib`）。
+ *
+ * ⚠ 这里必须用**命名空间导入 + 运行时探测**，绝不能写成
+ * `import { zstdDecompressSync } from 'node:zlib'`：在 Node 20 上那是一个
+ * **链接期** SyntaxError（`does not provide an export named …`），会让**整个插件加载失败**
+ * ——2026-09-10 CI 的 Node 20 作业就是这么炸的：`plugins/budget.mjs` 挂不上、第 7 个工具
+ * 根本没注册。老 Node 上正确的降级是「读不了压缩日志」而不是「整个 preset 起不来」。
+ */
+const zstdDecompressSync = typeof zlib.zstdDecompressSync === 'function' ? zlib.zstdDecompressSync : null
+
+/** 本进程能否解压会话日志（`status` / 报表会如实报出来，别让用户猜为什么没有数字）。 */
+export const ZSTD_SUPPORTED = zstdDecompressSync !== null
 
 /**
  * 状态目录：默认 `~/.dsh/state/math-proof`。
@@ -116,6 +130,7 @@ export function* sessionLines(file, options = {}) {
   }
   const { frames } = scanZstdFrames(buf)
   const picked = options.lastFrames === undefined ? frames : frames.slice(Math.max(0, frames.length - options.lastFrames))
+  if (zstdDecompressSync === null) return // 老 Node：压缩日志读不了（调用方按「没有数据」处理）
   let carry = ''
   for (const frame of picked) {
     let text
@@ -179,6 +194,7 @@ export function foldSessionWindow(file, options = {}) {
     const all = foldSession(file)
     return { ...all, turns: all.turns.filter((t) => t.turn >= fromTurn), truncated: false }
   }
+  if (zstdDecompressSync === null) return { header: null, turns: [], truncated: true }
   const { frames } = scanZstdFrames(buf)
   const maxBytes = options.maxBytes ?? 8_000_000
   const texts = []
@@ -246,6 +262,7 @@ export function foldLastTurn(file, options = {}) {
     const all = foldSession(file)
     return { header: all.header, turns: all.turns.slice(-1), truncated: false }
   }
+  if (zstdDecompressSync === null) return { header: null, turns: [], truncated: true }
   const { frames } = scanZstdFrames(buf)
   const maxBytes = options.maxBytes ?? 6_000_000
   const texts = []
