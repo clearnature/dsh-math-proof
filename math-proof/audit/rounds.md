@@ -2106,3 +2106,11 @@ npm 路线**整体撤掉**（不是「以后再说」）：留着不能跑的发
 ### 55.4 复验
 
 `check-all` → **CHECK_ALL_OK 15/15**。
+
+### 55.5 一处自我更正：`private: true` 我没能完整验证
+
+实测 `npm publish`（在 `private: true` 的包上）先被 **`ENEEDAUTH`（未登录）** 拦下——
+说明 `private` 的拒绝发生在**认证之后**，我无法在本机走到那一步。
+所以文案从「任何 `npm publish` 直接失败」改成：「`private: true`（npm 文档语义：声明私有、不发布）
++ **实测被拒是未登录**；**真正的机器闸门是 `release.yml` 的 `grep 'npm publish'` 检查**」。
+——规则：**只写验证过的**，未验证的部分标明未验证。

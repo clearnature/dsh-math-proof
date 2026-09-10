@@ -229,8 +229,11 @@ test "$n" -eq 0 || exit 1     # 有人（或选择器模板）加进发布步骤
 这条检查是**真事故的产物**：GitHub 的 Actions 选择器生成过 `npm-publish.yml`，
 模板里 `npm ci`（我们零依赖、没有 lockfile）与 `npm test`（没有该脚本）都会失败，还与已有工作流重复触发。
 
-**`package.json` 的定位**：只作元数据与离线打包用，**`private: true`**——任何 `npm publish` 直接失败，
-避免误发一个没人能维护的包。若将来 npm 侧放开，只需三处小改：去掉 `private`、加回 `publishConfig`、
+**`package.json` 的定位**：只作元数据与离线打包用，标 `private: true`（npm 文档语义：声明为私有、
+不发布）。**诚实说明**：本机实测「发布」被拒是 `ENEEDAUTH`（未登录 npm）——`private` 的拦截发生在
+认证之后，所以我**没有**在本机完整验证到「private 挡住发布」这一步；**真正的机器闸门是
+`release.yml` 里那条 `grep 'npm publish'` 检查**（工作流层面挡住，可复现）。
+若将来 npm 侧放开，只需三处小改：去掉 `private`、加回 `publishConfig`、
 新增一个带 Trusted Publishing 的发布工作流（`audit/rounds.md` §五十二 记了完整判据）。
 
 ## 二、怎么跑
