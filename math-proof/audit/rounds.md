@@ -2386,3 +2386,23 @@ README 里 `/fable5-thinking` 是 Claude Code 的**技能调用方式**，而「
 `agent.cordis.yml` 的技能根注释（并注明「无独立 LICENSE 文件，但声明在 README 里」这一事实）。
 
 **教训**：判断第三方许可要看**说明文件里的许可段**，不能只看「有没有 LICENSE 文件」——很多仓库只写 README。
+
+### 61.7 澄清：`.git/hooks/` 是 git 自带示例，不是作者的 agent 钩子
+
+用户提示看 `/data/training/cli/Fable5-Thinking-Skill/.git`。核查结论（证据链写进 `docs/THIRD-PARTY.md`）：
+
+| 检查 | 结果 |
+| --- | --- |
+| `git log --all` | **只有 1 个 commit**（`8af252f`） |
+| `git rev-list --count HEAD` / `--unshallow` | 1 / 「已是完整仓库」→ **非浅克隆，无更早历史** |
+| `git for-each-ref` | 仅 `main` / `origin/HEAD` / `origin/main`（无其它分支/标签） |
+| `git fsck --unreachable --dangling` | **空** → 对象库里没有「被删掉的钩子文件」 |
+| `git ls-tree -r HEAD` | `README.md`、`SKILL.md` |
+| `.git/hooks/` | 14 个 `*.sample`，**没有一个启用** |
+
+`.git/hooks/*.sample` 是 **git 自带示例**（任何 clone 都有；`.sample` 后缀 = git 永不执行），
+与 agent 钩子（`PreToolUse`/`Stop` 之类，注册在 `hooks.json`）是两种东西。已在 `docs/THIRD-PARTY.md`
+加一个折叠小节，用对照表 + 证据链把这点讲清楚——避免下一个人也误判「上游带了钩子」。
+
+**因此 §61 的结论不变**：fable5 的「流程」性质来自 README 描述的九步闭环（用法约定）；
+可拦截的两步由本项目自行实现（`hooks/fable5-flow.mjs`），文档中已明确署名，未冒领。
