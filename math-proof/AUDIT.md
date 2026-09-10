@@ -192,6 +192,7 @@ orbitStabilizer      : Orbit x ≃ A4/Stab x            -- :1068
 | 四十四 | DSH 插件盘点 | `scripts/plugins.mjs`；相关插件宿主多已挂载；唯一待定 `schedule`（+前缀成本） |
 | 四十五 | 插件市场 | `scripts/market.mjs`：市场 272 / 已装 214 / 可装未装 58（同版本线 28）；版本线陷阱（latest 停在 0.0.1-rc.1）；相关 18 条均带前置条件 |
 | 四十六 | 升级后插件对账 | 三平面 provenance：宿主 117 启用/25 禁用、preset 37 行（接管 22 行）、双份 0、真缺口 0；改正「禁用=已挂」的分类错误；宿主平面本就无我们的改动，重置没丢东西 |
+| 五十二b | 选择器重复生成发布工作流（真事故） | 用户点模板生成 `npm-publish.yml`：`npm ci` 无 lockfile 必失败、`npm test` 无脚本、需长期 token 且与 `publish.yml` 重复触发；已删模板 + 把「唯一发布者」写成机器检查 |
 | 五十二 | npm 发布选型 | 选 “Publish Node.js Package” + Trusted Publishing + `--provenance`；不用 GitHub Packages（消费者要 token）与 SLSA Generic generator（npm 自带 provenance 已等价）；`publish.mjs` 生成 package.json / publish.yml / .npmignore，实测打包 73 文件 355 kB 无状态泄漏 |
 | 五十一 | 架构文档（地图 M1–M6） | 新增 `docs/`：功能架构 / **依赖图（脚本生成 + 漂移门禁）** / 数据流 / 状态管理 / 生命周期 / 证据链；写文档时发现并修掉「图谱导出无上限」缺口（68 文件 / 65 组） |
 | 五十 | 开源仓库初始化 | gh clone→组装→push 到 clearnature/dsh-math-proof（public, MIT）；CI 矩阵 Node 20/22/24 跑全部门禁；发布暴露并修掉「裸环境误报」与「.pyc 被发布」两个真问题 |

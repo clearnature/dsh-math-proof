@@ -1982,3 +1982,21 @@ gh repo edit --description … --add-topic dsh --add-topic agda …（9 个 topi
 **顺带修一个 CI 警告**：`actions/checkout@v4` 与 `actions/setup-node@v4` 目标 Node 20，GitHub 已弃用并
 强制其跑在 Node 24（日志里两条 deprecation notice）。已把**生成器里的工作流**升到 `@v7`（实测
 `refs/tags/v7` 存在），`publish-check` 增加一条断言：工作流里不得再出现 `@v4`。32/32。
+
+### 52.7 真事故：从选择器又生成了一个发布工作流（已按预案处理）
+
+用户在 GitHub 的 Actions 选择器里点了 **Publish Node.js Package**，仓库里多出 `.github/workflows/npm-publish.yml`
+（commit `0b7e657 Create npm-publish.yml`）——正是 §52.5 警告的「第二个发布者」。
+
+**它在本仓库会直接失败**（实测证据）：
+
+| 模板步骤 | 在我们仓库的结果 |
+| --- | --- |
+| `npm ci` | **EUSAGE**：`npm ci` 只能配合 `package-lock.json`；我们零依赖、没有 lockfile |
+| `npm test` | 没有 `scripts.test` → 失败 |
+| `npm publish`（`NODE_AUTH_TOKEN: secrets.npm_token`） | 需要长期 token（我们已改用 OIDC trusted publishing）；且与 `publish.yml` 同由 release 触发 → 后到者 `EPUBLISHCONFLICT` |
+
+**处理**：删除模板文件，保留 `publish.yml`（= 同一模板 + 三道加固：先跑 15 门禁 / OIDC 免密钥 /
+手工触发默认 dry-run），并把「**只能有一个发布工作流**」从 README 警告变成**机器检查**：
+`publish.yml` 第一步 `grep -l 'npm publish' .github/workflows/*.yml | wc -l` 必须等于 1，否则直接失败。
+`publish-check` 增加断言（33/33）。
