@@ -2450,3 +2450,51 @@ README 里 `/fable5-thinking` 是 Claude Code 的**技能调用方式**，而「
 
 `check-all` → **CHECK_ALL_OK 17/17**（`hooks-check` 48/48；`run` 412/412；`skills-ref` 55/55）。
 ⚠ 钩子属**冷档**：正在运行的会话要等一次重挂载（新会话）才会加载 `fable5-gate.mjs`。
+
+## 六十三、第五十八轮：**数学模式无法使用的真根因**——`inject` 漏声明（2026-09-10）
+
+用户报错原文：**`proof-discipline.mjs` 加载失败：cannot get property 'systemPrompt' without inject`**。
+
+### 63.1 根因
+
+`plugins/proof-discipline.mjs` 用 `ctx.systemPrompt.section(...)` 注册常驻纪律段，但文件顶部写的是
+`export const inject = ['tools']` —— **没有声明 `systemPrompt`**。Cordis 的规矩是「未在 inject 里声明的服务，
+访问即抛」，于是该行挂不上；`proof-discipline` 一挂不上，纪律段与 `proof_audit` 都没了，
+**整个数学证明模式等于不可用**。（官方 `dsh-persona` 正是 `inject = ["systemPrompt"]`。）
+
+**为什么现在才炸**：DSH 升级到 `0.1.2-rc.1` 后这条检查变严（用户此前也说过「因为版本升级重置过」）。
+「以前能跑」不代表现在能跑——这类问题必须机器检查。
+
+**修复**：`export const inject = ['tools', 'systemPrompt']`。
+
+### 63.2 用严格 proxy 复现并验证
+
+```js
+// 模拟 Cordis：访问未 inject 的服务就抛
+new Proxy(base, { get(t,k){ if (服务 && !inject.includes(k)) throw new Error(`cannot get property '${k}' without inject`); return t[k] } })
+inject=['tools']              → ❌ cannot get property 'systemPrompt' without inject   ← 与用户报错逐字一致
+inject=['tools','systemPrompt'] → ✅ 挂载成功（注册 proof_audit + 纪律段）
+```
+
+### 63.3 新增门禁 `tests/inject-check.mjs`（第 18 个入口，INJECT_OK 20/20）
+
+| 检查 | 说明 |
+| --- | --- |
+| 静态：`ctx.<服务>` 必须在 `inject` 里 | 剥掉注释再扫（否则会把文档里的 `ctx.shell` 误判——本次差点误报 `proof-dag`）；Cordis 核心成员（24 个：`get/on/effect/logger/inject/provide/scope/…`）白名单除外 |
+| **真挂载模拟** | 用**严格 ctx** 逐个 `apply()` 六个插件，断言不抛、且注册出 **6 个工具 + 纪律提示段** |
+| 反向提示 | `inject` 声明但未使用 → 只提示不判失败（可能为等待服务就绪） |
+| 覆盖 | 组合里每个 `./plugins/*.mjs` 行都必须被本门禁检查到 |
+| 具体回归 | 钉死「`proof-discipline` 必须声明 `systemPrompt`」 |
+
+### 63.4 顺带加固：配置坏掉不再连坐 preset（并加了防漂移）
+
+同轮早先的测试暴露出另一个脆弱点：`impl/local-paths.json` **缺失或语法坏掉**时，
+`agda-engine` / `proof-discipline` 会在 **import 期抛错** → 两行挂不上 → 同样「整个模式不可用」。
+现在解析器内置**兜底表**：配置读取失败 → 用兜底值 + 在提示段里明确警告，**绝不在 import 期抛错**（实测坏 JSON / 缺文件都能照常挂载）。
+
+代价是路径出现在两处（JSON + 解析器兜底）→ 新增门禁断言：**两者逐键必须一致**（value + env 名），
+`paths-check` 13/13；`publish-check` 的允许清单同步。
+
+### 63.5 复验
+
+`check-all` → **CHECK_ALL_OK 18/18**（新增 `inject-check` 20/20；`paths-check` 13/13；`publish-check` 36/36）。

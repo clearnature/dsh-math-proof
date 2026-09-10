@@ -22,10 +22,13 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { path as localPath, pathKeys, renderTokens, resolvePaths } from '../impl/local-paths.mjs'
+import { builtinDefaults, path as localPath, pathKeys, renderTokens, resolvePaths } from '../impl/local-paths.mjs'
 
 const HERE = new URL('.', import.meta.url).pathname.replace(/\/$/, '')
 const PRESET = dirname(HERE)
+// 允许出现绝对路径的两个地方：JSON（唯一配置处）与解析器模块（内置兜底，防「配置坏了连坐 preset」）。
+// 两者必须**逐键一致**——本门禁会核对，避免两处漂移。
+const CONFIG_FILES = new Set(['impl/local-paths.json', 'impl/local-paths.mjs'])
 const CONFIG_REL = 'impl/local-paths.json'
 
 const results = []
@@ -61,7 +64,7 @@ function collect(rel) {
 
 const operativeFiles = [
   'agent.cordis.yml',
-  ...collect('impl').filter((f) => f !== CONFIG_REL),
+  ...collect('impl').filter((f) => !CONFIG_FILES.has(f)),
   ...collect('skills'),
   ...collect('hooks'),
   ...collect('plugins'),
@@ -103,6 +106,25 @@ for (const rel of [...EXEMPT_HISTORY, ...collect('docs').filter(isHistory)]) {
   if (n > 0) historyHits.push(`${rel}:${n}`)
 }
 results.push(`⏵ 历史/快照豁免（不改写）：${historyHits.join(' , ') || '无'}`)
+
+// ── 2.5) 兜底表与配置文件必须一致（防两处漂移）────────────────────────────
+{
+  const raw = JSON.parse(readFileSync(join(PRESET, CONFIG_REL), 'utf8'))
+  const jsonPaths = raw.paths ?? {}
+  const builtin = builtinDefaults()
+  const drift = []
+  for (const [key, spec] of Object.entries(jsonPaths)) {
+    const b = builtin[key]
+    if (b === undefined) {
+      drift.push(`${key}（兜底表里没有）`)
+      continue
+    }
+    if (b.value !== spec.value) drift.push(`${key}: json=${spec.value} ≠ 兜底=${b.value}`)
+    if (b.env !== spec.env) drift.push(`${key}: env 名不一致`)
+  }
+  ok('解析器内置兜底与 local-paths.json 逐键一致（防两处漂移）', drift.length === 0, drift.slice(0, 3).join(' | '))
+  ok('兜底表覆盖 JSON 的所有键', Object.keys(jsonPaths).every((k) => k in builtin), Object.keys(jsonPaths).filter((k) => !(k in builtin)).join(','))
+}
 
 // ── 3) 纪律段的 token 必须都有定义 ───────────────────────────────────────
 const discipline = readFileSync(join(PRESET, 'impl', 'discipline.md'), 'utf8')

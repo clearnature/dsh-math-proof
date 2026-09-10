@@ -23,7 +23,10 @@ import { isAbsolute, resolve } from 'node:path'
 import { compileHistory } from './agda-engine.mjs'
 
 export const name = 'proof-discipline'
-export const inject = ['tools']
+// **必须声明 systemPrompt**：本插件用 `ctx.systemPrompt.section()` 注册纪律段。
+// Cordis 的规矩是「未声明的服务一律不许访问」（访问会抛 `cannot get property 'systemPrompt' without inject`），
+// 而这个检查在 dsh 升级后变严了——曾经能跑不代表现在能跑。官方 `dsh-persona` 同样是 `inject = ['systemPrompt']`。
+export const inject = ['tools', 'systemPrompt']
 
 /** 证明纪律提示段。 */
 // 纪律文本**热重载**：真身在 `impl/discipline.md`，每次装配 prompt 时重读（按 mtime 失效缓存）。

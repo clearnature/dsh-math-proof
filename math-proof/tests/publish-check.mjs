@@ -58,10 +58,15 @@ try {
     ok('绝对路径清单里没有扫描器自身', !j.absolutePathFiles.includes('scripts/publish.mjs'), j.absolutePathFiles.join(','))
     // 路径集中化之后：唯一配置处 + 历史/快照（不改写）之外，不应再有文件含机器绝对路径
     const pathReal = j.absolutePathFiles.filter(
-      (f) => f === 'impl/local-paths.json' || f === 'AUDIT.md' || f === 'audit/rounds.md' || f.startsWith('docs/releases/'),
+      (f) =>
+        f === 'impl/local-paths.json' ||
+        f === 'impl/local-paths.mjs' || // 解析器内置兜底（与 JSON 的一致性由 paths-check 核对）
+        f === 'AUDIT.md' ||
+        f === 'audit/rounds.md' ||
+        f.startsWith('docs/releases/'),
     )
     ok(
-      '绝对路径只出现在唯一配置处与历史记录里',
+      '绝对路径只出现在唯一配置处（JSON + 解析器兜底）与历史记录里',
       pathReal.length === j.absolutePathFiles.length && j.absolutePathFiles.includes('impl/local-paths.json'),
       j.absolutePathFiles.join(','),
     )

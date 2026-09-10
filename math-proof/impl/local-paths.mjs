@@ -15,10 +15,40 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const PATHS_FILE = join(HERE, 'local-paths.json')
 
-/** 读原始配置（含 env 名与说明）。 */
+/**
+ * **内置兜底**（与 `local-paths.json` 同值）。
+ *
+ * 为什么必须有它：`local-paths.json` 一旦**缺失或语法坏掉**，原先的实现会在 import 期抛错——
+ * 而 `agda-engine.mjs` / `proof-discipline.mjs` 都在模块顶层取路径 → **两行挂不上 → 整个 preset 不可用**。
+ * 配置坏掉是「配置问题」，不该连坐整个 preset。所以：解析失败 → 用这里的兜底值 + 明确报告，
+ * 绝不在 import 期抛错。
+ */
+const DEFAULTS = {
+  workspace: { value: '/data/work/discrete-mathematics', env: 'SOVEREIGN_REPO', what: '数学证明库（工作区）' },
+  wiki: { value: '/data/work/docs/wiki', env: 'SOVEREIGN_WIKI', what: '数学依据 wiki' },
+  typeTheoryDocs: { value: '/home/yanli/文档/math/类型论', env: 'SOVEREIGN_TT_DOCS', what: '依赖类型论原始文档' },
+  dypeRoot: { value: '/data/work/functional-programming/dype', env: 'SOVEREIGN_DYPE', what: 'dype 源码（实验性内核，不作裁决）' },
+  agdaBin: { value: '/opt/agda/agda', env: 'SOVEREIGN_AGDA', what: 'Agda 二进制' },
+  agdaStdlib: { value: '/data/work/functional-programming/agda-stdlib', env: 'SOVEREIGN_STDLIB', what: 'stdlib 源码' },
+  leanWorkspace: { value: '/home/yanli/.dsh/prove2me_workspace', env: 'SOVEREIGN_LEAN_WS', what: 'Lean 可选工作区' },
+  leanMathlib: { value: '/data/work/leanprover/mathlib4', env: 'SOVEREIGN_MATHLIB', what: 'mathlib4 检出' },
+}
+
+/**
+ * 读原始配置。**永不抛错**：文件缺失/JSON 坏掉 → 返回空表 + `error` 说明（调用方用内置兜底）。
+ * @returns {{envPrefix: string, paths: object, error: string|null}}
+ */
 export function readPathConfig() {
-  const raw = JSON.parse(readFileSync(PATHS_FILE, 'utf8'))
-  return { envPrefix: raw._envPrefix ?? '', paths: raw.paths ?? {} }
+  try {
+    const raw = JSON.parse(readFileSync(PATHS_FILE, 'utf8'))
+    const paths = raw?.paths
+    if (paths === null || typeof paths !== 'object' || Object.keys(paths).length === 0) {
+      return { envPrefix: String(raw?._envPrefix ?? ''), paths: {}, error: `${PATHS_FILE} 里没有 paths 表` }
+    }
+    return { envPrefix: String(raw._envPrefix ?? ''), paths, error: null }
+  } catch (err) {
+    return { envPrefix: '', paths: {}, error: `读 ${PATHS_FILE} 失败：${String(err?.message ?? err)}` }
+  }
 }
 
 /**
@@ -27,15 +57,19 @@ export function readPathConfig() {
  */
 export function resolvePaths(env = process.env) {
   const { envPrefix, paths } = readPathConfig()
+  const keys = [...new Set([...Object.keys(DEFAULTS), ...Object.keys(paths)])]
   const out = {}
-  for (const [key, spec] of Object.entries(paths)) {
-    const envName = spec.env ?? `${envPrefix}${key.toUpperCase()}`
+  for (const key of keys) {
+    const spec = paths[key] ?? DEFAULTS[key] ?? {}
+    const fallback = DEFAULTS[key]
+    const source = paths[key] !== undefined ? 'config' : 'fallback'
+    const envName = spec.env ?? fallback?.env ?? `${envPrefix}${key.toUpperCase()}`
     const fromEnv = typeof env[envName] === 'string' && env[envName] !== '' ? env[envName] : null
     out[key] = {
-      value: fromEnv ?? String(spec.value ?? ''),
-      source: fromEnv === null ? 'config' : 'env',
+      value: fromEnv ?? String(spec.value ?? fallback?.value ?? ''),
+      source: fromEnv === null ? source : 'env',
       env: envName,
-      what: String(spec.what ?? ''),
+      what: String(spec.what ?? fallback?.what ?? ''),
     }
   }
   return out
@@ -76,7 +110,13 @@ export function renderTokens(text, env = process.env) {
  */
 export function renderPathSection(env = process.env, heading = '### 本机路径（唯一配置处：`impl/local-paths.json`）') {
   const table = resolvePaths(env)
+  const { error } = readPathConfig()
   const lines = [heading, '']
+  if (error !== null) {
+    lines.push(`> ⚠ **配置文件读取失败，正在使用内置兜底值**：${error}`)
+    lines.push(`> 修好 \`impl/local-paths.json\`（或用 \`SOVEREIGN_*\` 环境变量覆盖）即可恢复；本 preset 不会因为配置文件坏掉而挂不上。`)
+    lines.push('')
+  }
   for (const [key, v] of Object.entries(table)) {
     const src = v.source === 'env' ? `（env \`${v.env}\` 覆盖）` : ''
     lines.push(`- **${key}** = \`${v.value}\`${src} —— ${v.what}`)
@@ -84,6 +124,11 @@ export function renderPathSection(env = process.env, heading = '### 本机路径
   lines.push('')
   lines.push('> 这些值只写在 `impl/local-paths.json`；别处一律引用键名（纪律段里写作 `{{key}}`）。改机器/改目录只动那一个文件，或用环境变量覆盖。')
   return lines.join('\n')
+}
+
+/** 内置兜底表（供门禁核对「兜底与 JSON 必须一致」，防止两处漂移）。 */
+export function builtinDefaults() {
+  return Object.fromEntries(Object.entries(DEFAULTS).map(([k, v]) => [k, { value: v.value, env: v.env, what: v.what }]))
 }
 
 /** 键名清单（门禁与文档用）。 */
