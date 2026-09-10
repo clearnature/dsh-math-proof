@@ -1828,3 +1828,39 @@ postulate 门禁四态 / 结果级分诊 / 文档指针 / schema）；
 
 本轮改了 `impl/ruleset.mjs` 的 `SCRATCH` 规则却没 bump 版本 → 按自己定的规矩补 bump 到 **r5**
 （规则一改就 bump，否则两次不同规则的分数会被当成同一条曲线）。复验：`check-all` → **CHECK_ALL_OK 14/14**（ruleset-check 40/40）。
+
+## 五十、第四十五轮：开源仓库初始化（gh）（2026-09-10）
+
+用户：**「在 https://github.com/clearnature/dsh-math-proof.git，使用 gh 进行仓库初始化」**。
+
+### 50.1 做了什么
+
+远端仓库已由用户建好（public，含一行 README 与 GitHub 默认 `blank.yml`），所以流程是
+**clone → 装配发布树 → 提交 → push → 配描述与 topics → 看 CI**，不是裸 `gh repo create`：
+
+```bash
+gh repo clone clearnature/dsh-math-proof ~/src/dsh-math-proof
+node ~/.dsh/.agent-presets/math-proof/scripts/publish.mjs --out /tmp/pub-out --holder clearnature
+cp -r /tmp/pub-out/math-proof ~/src/dsh-math-proof/     # 布局：<repo>/math-proof/agent.cordis.yml
+git add -A && git commit && git push                     # 3 次提交：内容 / CI 修复 / 发布卫生
+gh repo edit --description … --add-topic dsh --add-topic agda …（9 个 topic）
+```
+
+保留了用户的 README 种子句（「dsh agda 插件」）并把根 README 扩成可用的入口（装法 / 依赖 / 自检 / 目录）。
+新增 `.github/workflows/gates.yml`：Node 20/22/24 矩阵跑 `node math-proof/scripts/check-all.mjs`。
+
+### 50.2 发布暴露的两个真问题（都已修，且都进回归）
+
+| 问题 | 现场 | 修法 |
+| --- | --- | --- |
+| 门禁在**裸环境**（新克隆 / CI）里误报 | `publish-check` 断言「排除 state/ 文件数 ≥ 1」，但 `state/` 本来就不进版本库 → 新克隆为 0 → **CI 红**；`plugins-check` 也在无 dsh 安装 / 无市场快照时 FAIL | 期望值随文件系统走；无 dsh 环境时相关断言显式 **SKIP（⏭）**而非 FAIL（与 `refs-check` 的 SKIP 同风格） |
+| **机器生成物被发出去** | `oracle-kit/__pycache__/oracle_kit.cpython-314.pyc` 进了仓库（本地↔远端一致性 diff 抓到的） | 发布脚本排除目录 `{__pycache__,_build,.agdai,.pytest_cache}` 与文件 `{*.pyc,*.pyo,*.agdai,*.hi,*.o,DS_Store}`，`.gitignore` 同步，`publish-check` 增加 2 条断言，并从版本库 `git rm --cached` 掉那个 .pyc |
+
+教训写进纪律的做法不变：**新克隆跑一遍门禁**是发布流程的必做项——两个问题都是「本地绿、裸环境红」才暴露的。
+
+### 50.3 现状（可复核）
+
+- 远端：66 个 blob｜3 次提交（内容 / CI 修复 / 发布卫生）｜描述 + 9 topics 已配；
+- CI：`gates` **success**（Node 20/22/24 三腿全过）；
+- 本地 preset ↔ 仓库副本 **diff 一致**（只差 `state/` 与 `__pycache__`，两者都不进版本库）；
+- 复验：`check-all` → **CHECK_ALL_OK 14/14**（publish-check 26/26）。

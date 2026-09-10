@@ -146,7 +146,10 @@ node scripts/market.mjs --offline    # 用本地快照（不联网）
 
 ## 一.12 开源发布（仓库名与布局）
 
-**仓库名建议：`dsh-math-proof`**——`dsh-` 前缀把它归进 dsh 生态（与官方 `@deepseek-ai/dsh-*` 同风格），
+**已发布：<https://github.com/clearnature/dsh-math-proof>**（public，MIT；CI `.github/workflows/gates.yml`
+在 Node 20/22/24 上跑全部门禁）。
+
+**仓库名 `dsh-math-proof`**——`dsh-` 前缀把它归进 dsh 生态（与官方 `@deepseek-ai/dsh-*` 同风格），
 后半段说明它是什么，且与数学库仓库 `discrete-mathematics` 一眼分得开。备选：`dsh-math-proof-preset`
 （更明确是 preset）、`dsh-agent-preset-math-proof`（完全对齐官方组件命名，但长）。
 
