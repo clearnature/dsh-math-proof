@@ -1,0 +1,43 @@
+# npm 发布（Tag / Release 触发；**先跑门禁再发**）
+#
+# 认证用 **npm Trusted Publishing（OIDC）**：在 npmjs.com 的包设置里登记本仓库与本工作流后，
+# 不需要长期 NPM_TOKEN 秘密。若尚未配置 trusted publisher，可退回 NPM_TOKEN：
+#   - env: { NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} }
+#
+# provenance：`--provenance` 让 npm 生成可验证的来源证明（等价 SLSA v3），
+# 因此**不要**再加 "SLSA Generic generator"（那是另一套，重复且更弱）。
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 只做 npm publish --dry-run（不真的发布）
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write   # Trusted Publishing / provenance 需要
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - name: 门禁必须全绿才允许发布
+        run: node math-proof/scripts/check-all.mjs
+      - name: 检查将要发布的文件清单
+        run: npm pack --dry-run
+      - name: 发布（Trusted Publishing + provenance）
+        if: ${{ github.event_name == 'release' || inputs.dry-run == false }}
+        run: npm publish --provenance --access public
+      - name: 干跑（手工触发且勾选 dry-run）
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run != false }}
+        run: npm publish --provenance --access public --dry-run

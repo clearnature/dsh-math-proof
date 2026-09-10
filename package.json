@@ -1,0 +1,37 @@
+{
+  "name": "@clearnature/dsh-math-proof",
+  "version": "0.1.0",
+  "description": "数学证明模式：DeepSeek Harness（dsh）的数学证明 agent preset —— Agda 内核为唯一裁决，先算后验证，长程证明台账",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "agent-preset",
+    "agda",
+    "formal-verification",
+    "dependent-types",
+    "theorem-proving",
+    "mathematics"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clearnature/dsh-math-proof.git"
+  },
+  "homepage": "https://github.com/clearnature/dsh-math-proof#readme",
+  "bugs": {
+    "url": "https://github.com/clearnature/dsh-math-proof/issues"
+  },
+  "files": [
+    "math-proof/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {},
+  "peerDependencies": {},
+  "publishConfig": {
+    "access": "public"
+  }
+}

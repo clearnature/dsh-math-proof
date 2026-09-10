@@ -1858,6 +1858,13 @@ gh repo edit --description … --add-topic dsh --add-topic agda …（9 个 topi
 
 教训写进纪律的做法不变：**新克隆跑一遍门禁**是发布流程的必做项——两个问题都是「本地绿、裸环境红」才暴露的。
 
+### 50.2b 后续：删掉 GitHub 默认模板 + 把 CI 纳入生成器
+
+- 用户的 `blank.yml`（GitHub 默认 `echo Hello, world!` 模板）**已删除**（'先把 blank.yml 清掉'）；
+- 顺带修一个结构性隐患：`gates.yml` 原先是我**手工放进仓库**的，`publish.mjs` 重新生成骨架时会丢。
+  现在**由 `publish.mjs` 生成** `.github/workflows/gates.yml`（仓库骨架必须可从 preset 复现），
+  `publish-check` 增加一条断言钉住它。
+
 ### 50.3 现状（可复核）
 
 - 远端：66 个 blob｜3 次提交（内容 / CI 修复 / 发布卫生）｜描述 + 9 topics 已配；
@@ -1903,3 +1910,40 @@ gh repo edit --description … --add-topic dsh --add-topic agda …（9 个 topi
 ### 51.4 复验
 
 新增 `tests/docs-check.mjs`（69 断言）；`check-all` → **CHECK_ALL_OK 15/15**。
+
+## 五十二、第四十七轮：npm 发布选型（2026-09-10）
+
+用户贴了 GitHub Actions 选择器里的 npm 相关模板，问**选哪个**。
+
+### 52.1 结论
+
+| 选项 | 判断 | 理由 |
+| --- | --- | --- |
+| **Publish Node.js Package** | ✅ 选它 | 唯一真正发到 npm 官方源的；但必须改三处（触发条件 / Trusted Publishing / provenance + 先跑门禁） |
+| Publish … to GitHub Packages | ❌ | 消费者要配 `.npmrc` + token 才能装；只适合内部 |
+| SLSA Generic generator | ❌ | 不是发布器；给「已有产物」补证明。npm `--provenance` 已等价 SLSA v3，**并存只会让审计更乱** |
+| Node.js / Webpack / Azure / Frogbot | ❌ | build/test 模板（我们自有 `gates.yml`）/ 部署 / 依赖扫描 |
+
+### 52.2 已把发布链准备好（仍在 preset 里，可复现）
+
+`publish.mjs` 现在同时生成：`package.json`（scoped 名 `@clearnature/dsh-math-proof`、`files` 白名单、
+零运行时依赖、`engines.node >= 20`、`publishConfig.access=public`）、
+`.github/workflows/publish.yml`（release/manual 触发、OIDC trusted publishing、`--provenance`、
+**先跑 `check-all` 才发**、手工触发默认 dry-run）、`.npmignore`（双保险挡 `state/` 与机器生成物）。
+`publish-check` 增加 4 条断言（31/31）。
+
+**实测打包**：`npm pack --dry-run` → 73 个文件 / 355 kB（解包 955 kB），
+`state/`、`__pycache__`、`.pyc`、`.agdai`、`.github/` **一个都没进包**（grep 计数 0）。
+
+**名称可用性实测**：`dsh-math-proof`、`@clearnature/dsh-math-proof`、`@clearnature/math-proof` 均为 404（未被占用）。
+
+### 52.3 诚实边界（写进 README §一.14）
+
+1. **npm 版本不可撤回**（只能 deprecate）→ 先 dry-run，再发正式版；
+2. 本包**没有 npm 运行时依赖**：24 个 `@deepseek-ai/dsh-*` 行由**宿主**提供，不随包安装；
+   真正前置是 dsh `0.1.2-rc.1` 版本线 + Agda + Python；
+3. 推荐路径仍是 **clone + roots**（`git pull` 即更新）；npm 路是给「要版本锁定 / 走 dsh 插件心智」的人。
+
+### 52.4 复验
+
+`check-all` → **CHECK_ALL_OK 15/15**（publish-check 31/31）。

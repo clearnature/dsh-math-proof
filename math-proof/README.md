@@ -205,6 +205,40 @@ node scripts/publish.mjs --out ~/src/dsh-math-proof             # 生成仓库�
 不会误报 `test/_test_*.agda` 这类有意保留的真实模块）。
 细节复盘见 `skills/agda-proof-engine/references/bounded-instantiation-and-postulates.md`，逐轮记录见 `audit/rounds.md` §四十八。
 
+## 一.14 npm 发布：选哪个工作流、为什么
+
+GitHub 的 Actions 选择器里与 npm 相关的有四个，结论很明确：**选 “Publish Node.js Package”（npm）**，
+其余三个都不该用，理由如下：
+
+| 选项 | 该不该选 | 理由 |
+| --- | --- | --- |
+| **Publish Node.js Package**（npm 官方源） | ✅ **选它**，但要改三处 | 见下 |
+| Publish Node.js Package to GitHub Packages | ❌ | 发到 `npm.pkg.github.com`，**消费者必须配 `.npmrc` + GitHub token 才能装**——开源项目里这是反向体验；只有纯内部使用时才值得 |
+| SLSA Generic generator（OpenSSF） | ❌ | 它不是发布器，是给「**已有构建产物**」补 SLSA3 证明的工具。npm 自带的 `--provenance`（配 GitHub OIDC）已经产出可验证来源证明（npmjs 页面会显示 “Built and signed on GitHub Actions”），**两套并存只会让审计更乱**；真要更强隔离构建再说 |
+| Node.js / Webpack / Azure / Frogbot | ❌ | 前两个只是 build/test 模板（我们的 `gates.yml` 已是自写 15 门禁，更贴合）；Azure 是部署；Frogbot 是依赖扫描（需 JFrog 订阅，将来可作可选加分项） |
+
+**选定的模板要改三处**（`scripts/publish.mjs` 已生成可用的 `.github/workflows/publish.yml`）：
+
+1. **触发条件**：只在 `release: published` 或手工 `workflow_dispatch`（默认 `dry-run: true`）时跑，**不要每次 push 都发**；
+2. **认证**：用 **npm Trusted Publishing（OIDC）**——`permissions: id-token: write`，在 npmjs 包设置里登记本仓库 + 工作流名，**不需要长期 `NPM_TOKEN`**（回退方案才是 `NODE_AUTH_TOKEN`）；
+3. **`--provenance --access public`**，并且**先跑门禁再发**（工作流里 `check-all` 全绿才继续）。
+
+**包名用 scoped**：`@clearnature/dsh-math-proof`（实测该名与无 scope 的 `dsh-math-proof` 都还空着）。
+scoped 的好处：不与官方 `@deepseek-ai/dsh-*` 混淆，也不担心被人抢注。
+
+**装法（第三路，发 npm 之后可用）**：
+
+```bash
+dsh plugin --profile web add @clearnature/dsh-math-proof@0.1.0
+# 然后 roots 指向装进来的目录（dsh 的 roots 支持任意路径）
+#   - path: ~/.dsh/profiles/web/node_modules/@clearnature/dsh-math-proof/math-proof
+```
+
+**发布前必须知道的三件事**（诚实边界）：
+1. **npm 版本不可撤回**——发出去的版本永久存在，只能 `deprecate`；所以先 dry-run（工作流默认就是 dry-run）；
+2. 包内容由 `files` 白名单 + `.npmignore` 双保险（实测：73 个文件 / 355 kB，`state/`、`__pycache__`、`.github/` 都不进包）；
+3. 本包**没有 npm 运行时依赖**（插件只 import `node:` 内建；24 个 `@deepseek-ai/dsh-*` 行是**宿主**提供的，不随包安装）——真正的前置是 dsh 版本线 `0.1.2-rc.1` + Agda + Python。
+
 ## 二、怎么跑
 
 ```bash

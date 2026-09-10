@@ -222,6 +222,103 @@ node ${PRESET_ID}/scripts/plugins.mjs        # 三平面插件盘点（宿主 / 
 MIT（见 \`LICENSE\`）。与 Agda 证明库（\`clearnature/discrete-mathematics\`）和 dsh 本体同许可。
 `
 
+// CI 工作流也由生成器产出：仓库骨架必须**可从 preset 复现**，不能靠手工往里放文件
+const GATES_WORKFLOW = `# 全部门禁：15 个入口（schema 自检 + 14 套回归，含架构文档漂移门禁 docs-check）
+#
+# 这些门禁是**纯 node 内建模块**实现的（零依赖），所以在裸 CI 里也能跑：
+# 没有 dsh 安装、没有市场快照、没有 Agda 仓库时，相关断言会显式 SKIP（⏭）而不是假绿。
+name: gates
+
+on:
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+  workflow_dispatch:
+
+jobs:
+  check-all:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '\${{ matrix.node }}'
+      - name: 一键门禁（期望 CHECK_ALL_OK 15/15）
+        run: node ${PRESET_ID}/scripts/check-all.mjs
+`
+
+// npm 包清单：**仓库骨架的一部分**，由生成器产出（同 .gitignore / LICENSE / README / CI）
+// 为什么用 scoped 名：避免与官方 `@deepseek-ai/dsh-*` 混淆，也避免无 scope 名被抢注
+const PKG_NAME = opt('--pkg-name') ?? `@${HOLDER}/dsh-math-proof`
+const PACKAGE_JSON = {
+  name: PKG_NAME,
+  version: opt('--version') ?? '0.1.0',
+  description: `${meta.name}：DeepSeek Harness（dsh）的数学证明 agent preset —— Agda 内核为唯一裁决，先算后验证，长程证明台账`,
+  keywords: ['dsh', 'deepseek-harness', 'agent-preset', 'agda', 'formal-verification', 'dependent-types', 'theorem-proving', 'mathematics'],
+  license: 'MIT',
+  repository: { type: 'git', url: `git+https://github.com/${HOLDER}/dsh-math-proof.git` },
+  homepage: `https://github.com/${HOLDER}/dsh-math-proof#readme`,
+  bugs: { url: `https://github.com/${HOLDER}/dsh-math-proof/issues` },
+  // 只发 preset 目录 + 两个根文件：state/、__pycache__ 等由 .gitignore/.npmignore 语义排除
+  files: [`${PRESET_ID}/`, 'README.md', 'LICENSE'],
+  engines: { node: '>=20' },
+  // 显式说明：本包**不依赖**任何 npm 运行时依赖（插件只 import node: 内建模块）；
+  // 真正的外部依赖是宿主的 dsh 版本线与 Agda / Python，见 README。
+  dependencies: {},
+  peerDependencies: {},
+  publishConfig: { access: 'public' },
+}
+
+const PUBLISH_WORKFLOW = `# npm 发布（Tag / Release 触发；**先跑门禁再发**）
+#
+# 认证用 **npm Trusted Publishing（OIDC）**：在 npmjs.com 的包设置里登记本仓库与本工作流后，
+# 不需要长期 NPM_TOKEN 秘密。若尚未配置 trusted publisher，可退回 NPM_TOKEN：
+#   - env: { NODE_AUTH_TOKEN: \${{ secrets.NPM_TOKEN }} }
+#
+# provenance：\`--provenance\` 让 npm 生成可验证的来源证明（等价 SLSA v3），
+# 因此**不要**再加 "SLSA Generic generator"（那是另一套，重复且更弱）。
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 只做 npm publish --dry-run（不真的发布）
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write   # Trusted Publishing / provenance 需要
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - name: 门禁必须全绿才允许发布
+        run: node ${PRESET_ID}/scripts/check-all.mjs
+      - name: 检查将要发布的文件清单
+        run: npm pack --dry-run
+      - name: 发布（Trusted Publishing + provenance）
+        if: \${{ github.event_name == 'release' || inputs.dry-run == false }}
+        run: npm publish --provenance --access public
+      - name: 干跑（手工触发且勾选 dry-run）
+        if: \${{ github.event_name == 'workflow_dispatch' && inputs.dry-run != false }}
+        run: npm publish --provenance --access public --dry-run
+`
+
 const target = OUT === undefined ? null : join(OUT, PRESET_ID)
 let written = 0
 if (!DRY && target !== null) {
@@ -239,6 +336,12 @@ if (!DRY && target !== null) {
   writeFileSync(join(OUT, '.gitignore'), GITIGNORE)
   writeFileSync(join(OUT, 'LICENSE'), LICENSE)
   writeFileSync(join(OUT, 'README.md'), ROOT_README)
+  mkdirSync(join(OUT, '.github', 'workflows'), { recursive: true })
+  writeFileSync(join(OUT, '.github', 'workflows', 'gates.yml'), GATES_WORKFLOW)
+  writeFileSync(join(OUT, '.github', 'workflows', 'publish.yml'), PUBLISH_WORKFLOW)
+  writeFileSync(join(OUT, 'package.json'), `${JSON.stringify(PACKAGE_JSON, null, 2)}\n`)
+  // npm 打包白名单（双保险：即便有人改了 package.json，npmignore 仍挡住机器状态）
+  writeFileSync(join(OUT, '.npmignore'), 'state/\n__pycache__/\n*.pyc\n*.agdai\n.github/\n')
 }
 
 const bytes = files.reduce((sum, rel) => sum + statSync(join(PRESET_DIR, rel)).size, 0)

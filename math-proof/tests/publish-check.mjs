@@ -70,6 +70,12 @@ try {
   ok('布局：plugins 目录存在', existsSync(join(out, ID, 'plugins')))
   ok('布局：preset 目录在仓库根之下（根不是 preset 目录）', !existsSync(join(out, 'agent.cordis.yml')))
 
+  ok('生成 CI 工作流（仓库骨架可复现）', existsSync(join(out, '.github', 'workflows', 'gates.yml')) && readFileSync(join(out, '.github', 'workflows', 'gates.yml'), 'utf8').includes('check-all.mjs'))
+  const pkg = existsSync(join(out, 'package.json')) ? JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')) : null
+  ok('生成 package.json（scoped 名 + files 白名单）', pkg !== null && pkg.name.startsWith('@') && Array.isArray(pkg.files) && pkg.files.includes(`${ID}/`), JSON.stringify(pkg?.name))
+  ok('package.json 声明零运行时依赖', pkg !== null && Object.keys(pkg.dependencies).length === 0)
+  ok('生成 npm 发布工作流', existsSync(join(out, '.github', 'workflows', 'publish.yml')) && readFileSync(join(out, '.github', 'workflows', 'publish.yml'), 'utf8').includes('--provenance'))
+  ok('生成 .npmignore（挡住 state/ 与机器生成物）', existsSync(join(out, '.npmignore')) && readFileSync(join(out, '.npmignore'), 'utf8').includes('state/'))
   ok('生成 .gitignore', existsSync(join(out, '.gitignore')) && readFileSync(join(out, '.gitignore'), 'utf8').includes('state/'))
   const lic = existsSync(join(out, 'LICENSE')) ? readFileSync(join(out, 'LICENSE'), 'utf8') : ''
   ok('生成 MIT LICENSE', lic.startsWith('MIT License'), lic.slice(0, 40))
