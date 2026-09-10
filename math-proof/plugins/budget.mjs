@@ -15,8 +15,21 @@
 //
 // 本行不 provide 任何 service，可裸露在 preset 里；只 import `node:` 内建与 preset 内模块。
 
-import { BUDGET, EFFORT } from '../impl/ruleset.mjs'
-import { budgetMode, effectiveCalls, fmtTok, planEffort, readTurn, wallLimitMs, writeTurn } from '../impl/budget-policy.mjs'
+import { BUDGET, EFFORT, SESSION } from '../impl/ruleset.mjs'
+import {
+  budgetMode,
+  effectiveCalls,
+  fmtTok,
+  parseTokenAmount,
+  planEffort,
+  readTurn,
+  sessionBudgetTokens,
+  sessionRatio,
+  sessionTotals,
+  sessionUsed,
+  wallLimitMs,
+  writeTurn,
+} from '../impl/budget-policy.mjs'
 import {
   budgetFor,
   classBaseline,
@@ -35,7 +48,7 @@ import {
 export const name = 'budget'
 export const inject = ['tools']
 
-export const ACTIONS = ['status', 'report', 'classes', 'topup', 'calibrate', 'history', 'explain', 'on', 'off']
+export const ACTIONS = ['status', 'report', 'classes', 'topup', 'calibrate', 'history', 'session', 'explain', 'on', 'off']
 
 /** 一行表格。 */
 function table(headers, rows) {
@@ -80,6 +93,12 @@ function renderStatus(args) {
         `- 日志实测（本回合，读到哪算哪）: 步数 **${live.steps}**｜tok **${fmtTok(live.tok)}**｜上下文峰值 ${fmtTok(live.ctxPeak)}｜模型输出 ${fmtTok(live.outTok)}｜结束原因 ${live.reason ?? '（进行中）'}｜最高重复调用 ${live.repeatMax} 次`,
       )
     }
+    const budget = sessionBudgetTokens(profile)
+    lines.push(
+      `- **会话预算**: 已用 **${fmtTok(sessionUsed(state))} / ${fmtTok(state.sessionBudget)}**（${(sessionRatio(state, profile) * 100).toFixed(1)}%，来源 ${state.sessionBudgetSource ?? budget.source}）｜` +
+        `${sessionRatio(state, profile) >= SESSION.hardAt ? '🛑 **已到硬线：只留收尾白名单**' : sessionRatio(state, profile) >= SESSION.warnAt ? '⚠ 已过提醒线' : '未到提醒线'}`,
+      `  （口径：已闭合回合累计 ${fmtTok(state.sessionTok)} + 最近读到的当前回合 ${fmtTok(state.liveTok)}；当前回合每 N 次调用刷新一次 → 判定可能滞后）`,
+    )
     const logged = live?.effortLast ?? live?.effortAtStart ?? null
     lines.push(
       `- 思考强度: 日志记录 **${logged ?? '未记录（本机未开思考 / 尚未落 request/header）'}**${state.effortOwned === true ? `｜**调速器已介入**：档位设为 \`${state.effortSet}\`（原为 \`${state.effortBefore ?? '未知'}\`，任务结束还原）` : '｜调速器未介入'}`,
@@ -136,6 +155,20 @@ function renderReport(args, cwd) {
   } else {
     lines.push('- 尚未标定：当前各类预算数字是**先验**，跑 `budget action:"calibrate"` 用本机真实日志标定')
   }
+  const budget = sessionBudgetTokens(profile)
+  lines.push('', '## 会话预算（跨回合的总闸）', '')
+  lines.push(
+    table(
+      ['项', '值'],
+      [
+        ['当前预算', `**${fmtTok(budget.tokens)}**`],
+        ['来源', budget.source],
+        ['提醒线 / 硬线', `${Math.round(SESSION.warnAt * 100)}% / ${Math.round(SESSION.hardAt * 100)}%`],
+        ['覆盖方式', `\`${SESSION.env}=500M\` 或 \`budget action:"session" tokens:"1B"\``],
+        ['实测参照', '单会话累计 tok：中位 1.25M｜p90 89M｜max 832M（26 个会话，2026-09-10）'],
+      ],
+    ),
+  )
   const recent = (profile.samples ?? []).slice(-8).reverse()
   if (recent.length > 0) {
     lines.push('', '## 最近 8 个结算')
@@ -324,6 +357,42 @@ function renderHistory(args) {
   ].join('\n')
 }
 
+/** `session`：看/设会话 token 预算。 */
+function runSession(args, profile) {
+  const raw = args?.tokens
+  const current = sessionBudgetTokens(profile)
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return [
+      '# budget: session（会话 token 预算）',
+      '',
+      `- 当前预算: **${fmtTok(current.tokens)}**（来源 ${current.source}）`,
+      `- 提醒线/硬线: ${Math.round(SESSION.warnAt * 100)}% / ${Math.round(SESSION.hardAt * 100)}%`,
+      '',
+      '设新值：`budget action:"session" tokens:"1B"`（支持 `500M` / `1B` / 纯数字）；`tokens:"0"` 或 `reset` 恢复默认。',
+      '',
+      '> ⚠ 实测提醒：本机单会话累计 tok 中位 1.25M、p90 89M、**max 832M**；而**单个中位回合**就是 6.61M。',
+      '> 所以「100 万 token 一次会话」在这个负载下会在**第一次模型调用**就撞线——想当成本闸，默认 5e8 起。',
+    ].join('\n')
+  }
+  if (String(raw).trim() === 'reset') {
+    const next = { ...profile, sessionBudget: { tokens: SESSION.defaultTokens, at: new Date().toISOString(), why: 'reset → 默认' } }
+    saveProfile(next)
+    return `# budget: session ✅ 已恢复默认（${fmtTok(SESSION.defaultTokens)}）`
+  }
+  const tokens = parseTokenAmount(raw)
+  if (tokens === null) throw new Error(`budget session: 无法解析 tokens "${raw}"（支持 500M / 1B / 纯数字）`)
+  saveProfile({ ...profile, sessionBudget: { tokens, at: new Date().toISOString(), why: 'budget action:"session"' } })
+  const wasTiny = tokens <= 10_000_000
+  return [
+    `# budget: session ✅ 已设为 ${fmtTok(tokens)}`,
+    '',
+    `- 生效: 下一个回合开局时生效（钩子每回合开局重读）`,
+    wasTiny ? `- ⚠ ${fmtTok(tokens)} 低于本机**单个中位回合**（6.61M）的量级——它会在很早期就拦下工具调用，只适合当「硬性成本闸」或测试。` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
 /** `explain`：口径与机制（回答「用什么评价」「能不能自己加」）。 */
 function renderExplain() {
   return [
@@ -351,6 +420,12 @@ function renderExplain() {
     '  看不见档位（部署关了思考/换适配器）或档位未知 → **不动**；任何异常 → 退回原配置（绝不因为调速让请求失败）。',
     '- 效果可审计：每次配置变化都会落 `request/header`（里面有 `config.reasoningEffort`）。',
     '',
+    '## 会话 token 预算（跨回合的总闸；`SESSION` 表）',
+    `- 默认 **${fmtTok(SESSION.defaultTokens)}**，可用 \`${SESSION.env}=500M\` 或 \`budget action:"session" tokens:"1B"\` 覆盖；提醒 ${Math.round(SESSION.warnAt * 100)}%、硬线 ${Math.round(SESSION.hardAt * 100)}%（到线只留收尾白名单）。`,
+    '- 实测（26 个会话）：单会话累计 tok 中位 **1.25M**、p90 **89M**、max **832M**；**单个中位回合 6.61M**。',
+    '  ⇒ 「100 万 token 一次会话」在数学证明这种负载下**不成立**（一次调用就会撞线），默认值按「成本闸」取 5e8。',
+    '- 口径：`会话已用 = 已闭合回合累计 + 最近读到的当前回合 tok`；当前回合每 N 次调用刷新一次 → **判定可能滞后一个刷新周期**（宁可晚拦，也不每步读日志）。',
+    '',
     '## 刹车（`brake` 模式）',
     `- ${Math.round(BUDGET.warnAt * 100)}% 提醒（PostToolUse 附加上下文，不拦）｜${BUDGET.softAt}× 起禁取证类（${BUDGET.evidenceTools.slice(0, 6).join('/')}…）｜${BUDGET.hardAt}× 起只留收尾白名单（${BUDGET.allowlist.slice(0, 5).join('/')}…）；`,
     `- 同一「工具+参数」到第 ${BUDGET.repeatAt + 1} 次就拦（原地打转与预算无关，优先判）；`,
@@ -377,6 +452,7 @@ export function runBudget(args) {
   if (action === 'topup') return runTopup({ ...input, sessionId, cwd })
   if (action === 'calibrate') return runCalibrate(input, cwd)
   if (action === 'history') return renderHistory(input)
+  if (action === 'session') return runSession(input, loadProfile())
   if (action === 'explain') return renderExplain()
 
   // on / off
@@ -407,10 +483,11 @@ export function apply(ctx) {
         action: {
           type: 'string',
           enum: ACTIONS,
-          description: 'status 本回合实况 / report 按类基线 / classes 分类表 / topup 申请追加（需 reason）/ calibrate 标定（可 dryRun）/ history 历史样本 / explain 口径与开关 / on,off 切刹车。',
+          description: 'status 本回合实况（含会话预算）/ report 按类基线 / classes 分类表 / topup 申请追加（需 reason）/ calibrate 标定（可 dryRun）/ history 历史样本 / session 看设会话 token 预算 / explain 口径与开关 / on,off 切刹车。',
         },
         reason: { type: 'string', description: `topup 用：追加理由（≥${BUDGET.topup.minReasonChars} 字，写清还缺哪一件关键证据、拿到就能收工）。` },
         limit: { type: 'number', description: 'history 用：返回多少条（1–60，默认 12）。' },
+        tokens: { type: 'string', description: 'session 用：会话 token 预算（如 "1B" / "500M" / 纯数字）；留空=查看，reset=恢复默认。' },
         dryRun: { type: 'boolean', description: 'calibrate 用：只算不写盘。' },
         scan: { type: 'boolean', description: 'report 用：顺带重扫全部会话日志现算一遍（慢，几秒到几十秒）。' },
         cwd: { type: 'string', description: '可选：覆盖工作区路径（默认取本会话 cwd）。' },

@@ -11,6 +11,7 @@
 | 预算能让模型**自己加减** 10% 吗？ | 能，但**不是自由旋钮**：加要申请 + 记债，减只在「已验证完成」时发生 | [M7.4](#m74-自适应算法与-10) |
 | 「无限循环、烧流量」怎么挡？ | 两条：**原地打转检测**（同工具同参数）+ **两级刹车**（软线掐取证、硬线只留收尾） | [M7.5](#m75-刹车分级) |
 | 能不能让模型**自动调节思考强度**？ | 能（`agent/request` 瀑布自动降档），但它**不是省流量的杠杆**——实测 reasoning 只占 0.12%，高思考回合反而更省 | [M7.6](#m76-思考强度自动调节实测否证了三个直觉) |
+| 有没有**单次会话的 token 总预算**？ | 有（`SESSION` 表：默认 5e8，提醒 80%、硬线 100%）。⚠ 但「100 万 token 一次会话」在本负载下**不成立**：中位会话已 1.25M、**单个中位回合**就 6.61M | [M7.7](#m77-会话-token-预算跨回合的总闸) |
 
 ## M7.1 计量口径
 
@@ -212,7 +213,59 @@ flowchart LR
 5. `next()` 自己的异常**原样抛出**（吞掉会把「模型路由错误」变成莫名其妙的行为）；
 6. 任何其它异常 → 返回机器原本的配置（**绝不因为调速让一次请求失败**）。
 
-## M7.7 状态文件与数据管理
+## M7.7 会话 token 预算（跨回合的总闸）
+
+任务预算（[M7.5](#m75-刹车分级)）管的是「**这一次任务**别绕路」；会话预算管的是「**这一次会话**别把额度烧光」。
+两者是不同轴：任务预算按**调用次数**（每一步都能量、能自己数），会话预算按 **token 累计**（跨回合累加，只能机器算）。
+
+### 实测：为什么默认值不是「100 万」
+
+| 口径 | 数值（本机 26 个会话，2026-09-10） |
+| --- | --- |
+| 单会话累计 tok（`Σ_回合(input+cacheRead+output)`） | 中位 **1.25M**｜p90 **89M**｜max **832M** |
+| 两个真实长会话 | **832M**（103 回合）、**707M**（41 回合） |
+| 单回合 tok | 中位 **6.61M**、p90 17.63M |
+
+⇒ **「100 万 token 一次会话」在数学证明这种负载下不成立**：中位会话已经 1.25M，而**单个中位回合**就是 6.61M——
+1M 的预算会在**第一次模型调用**里撞线（连一个完整回合都跑不完）。所以默认取 **5e8**（≈ 实测最长会话的 60%、≈ 75 个中位回合），
+要更小就显式设：`MATH_PROOF_SESSION_BUDGET=1M` 或 `budget action:"session" tokens:"1M"`（后者会**警告**它低于单个中位回合）。
+
+### 判定与口径
+
+| 线 | 比例 | 动作 |
+| --- | --- | --- |
+| 提醒 | 80% | 公告/播报里报进度（不拦） |
+| 硬线 | 100% | **拦非白名单工具**（与任务预算同一份收尾白名单），理由说明「这是会话额度到顶，不是任务失败」，并给出三条出路：落盘 → 列缺口 → **新开会话** |
+
+口径（**已知滞后，写在文档与代码里**）：
+
+```
+会话已用 = 已闭合回合累计(sessionTok) + 最近读到的当前回合 tok(liveTok)
+```
+
+- `sessionTok`：只在回合**闭合**（有 `turn/end`）时才累加；`pending` 的回合不计（tok 还不完整，下轮补账时再计）；
+- `liveTok`：由 `PostToolUse` 每 N 次调用刷新一次（读日志有成本）⇒ **判定可能滞后一个刷新周期**。
+  这是刻意的取舍：宁可晚一点拦，也不要每一次工具调用都读一遍日志（`read：慢就自我降级`，见 [M7.6](#m76-思考强度自动调节实测否证了三个直觉)）。
+- 会话**第一次**开局会全量折叠一次日志（约 2s / 20MB）拿到真实起点（续接老会话也准）；之后每回合只增量累加。
+
+### 监控数据接口（不是我们发明的，都是官方缝）
+
+| 接口 | 给什么 | 谁在用 |
+| --- | --- | --- |
+| `tokenUsage` 会话投影 | **累计**桶 `{uncachedInputTokens, outputTokens, cacheReadTokens, cacheWriteTokens}` + `last{turn,step,buckets}` | GUI：`client-ui-chat` 的 `useProjection("tokenUsage")` + `TurnUsagePanel` |
+| `contextPressure` / `contextBreakdown` 投影 | 当前请求的上下文压力 vs 上下文窗口、构成拆解 | GUI / token-meter |
+| `tokenMeter.measure(session, header?)` | 实时压力 + 每节点 token 明细 | 服务（`ctx.tokenMeter`） |
+| `sessionStats` 投影 | 整份日志的回合数 / 步数 / 输出 token | 统计与报表 |
+| `sessionProjections.stateOf(session, key)` | 上面任一投影的当前状态 | 插件/工具（同一进程） |
+| `sessionQuery` | `listSessions` / `readSession`（**全部原始事件**）/ `readSurface` / `filterEvents` / `traceSession` | 跨会话监控 |
+| 会话日志 `session.jsonl[.zstd]` | 每个 `assistant/message.usage`（**耐用、可复算**） | 本 preset 的 `impl/session-traffic.mjs` |
+| `sessionTelemetry`（+ `dsh-session-telemetry-otel`） | 会话事件导出到后端（OTEL）的接口 | 运维接入（**本项目未启用**） |
+| 事件审计 | `llm/retry`、`llm/retry-started`、`hook/result`、`request/header` | 事后追责/复算 |
+
+**⚠ 但「测」不等于「限」**：以上除本 preset 自己加的预算外，**没有任何一个是硬上限**——harness 里没有会话级 token 封顶
+（`maxTokens` 是**单次请求的输出上限**，compaction 的是**上下文压力**，都不是「本次会话总共能花多少」）。
+
+## M7.8 状态文件与数据管理
 
 | 文件（`~/.dsh/state/math-proof/`） | 内容 | 生命周期 | 清理 |
 | --- | --- | --- | --- |
@@ -226,7 +279,7 @@ flowchart LR
 一切写入都是 `tmp + rename` 原子写；测试全程用 `MATH_PROOF_STATE_DIR` 指到临时目录，
 **绝不碰用户的真实账本**。
 
-## M7.8 开关与调参
+## M7.9 开关与调参
 
 | 手段 | 效果 |
 | --- | --- |
@@ -236,11 +289,14 @@ flowchart LR
 | `budget action:"status"` | 本回合实况：已用/剩余、日志实测 tok、墙钟、被拦次数、钩子错误 |
 | `budget action:"report"` | 按类基线 + 最近结算（`scan:true` 顺带重扫全部日志现算） |
 | `budget action:"calibrate"` | 用本机真实日志标定各类预算（`dryRun:true` 只算不写） |
+| `SESSION.env`（默认 `MATH_PROOF_SESSION_BUDGET`） | 会话 token 预算（`1M` / `500M` / `1B` / 纯数字），**下一回合生效** |
+| `budget action:"session" tokens:"1B"` | 同上，写进账本（`reset` 恢复默认） |
+| `impl/ruleset.mjs` 的 `SESSION` | 默认预算 / 提醒线 / 硬线（冷档） |
 | `impl/ruleset.mjs` 的 `EFFORT` | 调速梯子与阈值（`ladder` / `rungs` / `classDefault`；冷档） |
 | `impl/ruleset.mjs` 的 `BUDGET` | 所有阈值/先验/白名单/取证集/分类正则（**冷档**：改完要重启 dsh 进程） |
 | `MATH_PROOF_STATE_DIR` / `MATH_PROOF_SESSIONS_ROOT` | 覆盖状态目录 / 会话日志根（测试与多机迁移用） |
 
-## M7.9 已知边界（诚实清单）
+## M7.10 已知边界（诚实清单）
 
 - **先验不是实测**：五类任务的初始预算（4/16/16/20/30/38 次）是保守先验，
   真正生效的是 `calibrate` 之后的实测中位 × 1.25；样本不足时**故意不动手**。
@@ -259,6 +315,8 @@ flowchart LR
   **现在不要声称它省流量**——实测 reasoning 只占 0.12%，且高思考回合反而更省。
 - **调速器只在 `brake` 模式生效**（`warn`/`off` 都不调速）；档位变化会落 `request/header`，
   可事后核对：`zstdcat <会话>.zstd | grep request/header` 看 `config.reasoningEffort`。
+- **会话预算的滞后是有意的**：`liveTok` 每 N 次调用刷新一次，所以硬线可能晚一个刷新周期才拦下。
+  要更紧就把 `BUDGET.tickEvery` 调小（代价：每次多读一次日志）；要更省就调大。
 - **尚未在有 dsh 进程的真实会话里端到端验证**：钩子脚本、判定、结算、投递契约都有 168 条门禁断言
   覆盖（`tests/budget-check.mjs`），但「钩子在真会话里被桥调用」这一步要等
   重启 dsh 进程 + 开一个 math-proof 会话后才算实测。

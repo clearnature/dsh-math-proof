@@ -142,6 +142,7 @@ graph LR
 | `proof_compile` | `plugins/agda-engine.mjs` |
 | `proof_dag` | `plugins/proof-dag.mjs` |
 | `proof_dag` | `tests/budget-check.mjs` |
+| `proof_dag` | `tests/budget-check.mjs` |
 | `proof_dag` | `tests/hooks-check.mjs` |
 | `proof_graph` | `plugins/proof-graph.mjs` |
 | `proof_oracle` | `plugins/python-oracle.mjs` |

@@ -320,6 +320,11 @@ node tests/paths-check.mjs   # PATHS_OK
 ——它是**预算吃紧时强制收敛**的旋钮。同一轮还否掉了两个直觉（重复长文本 0 次、50% 的回合本来就
 不写任何文件），见 [M7.6](docs/maps/M7-budget.md)。
 
+**会话预算**（跨回合的总闸）：默认 **5e8 token**，80% 提醒、100% 拦非白名单工具并给出「落盘 → 列缺口 → 新开会话」三条出路。
+⚠ 实测提醒：本机单会话累计 tok 中位 **1.25M**、p90 **89M**、max **832M**，而**单个中位回合**就是 **6.61M** ——
+所以「100 万 token 一次会话」会死在第一次调用上。改：`MATH_PROOF_SESSION_BUDGET=1B` 或 `budget action:"session" tokens:"1B"`。
+监控数据从官方缝来（`tokenUsage` 投影 / `tokenMeter` / `sessionQuery` / 会话日志），详见 [M7.7](docs/maps/M7-budget.md)。
+
 **开关**：`MATH_PROOF_BUDGET=off` 全关｜`=warn` 只提醒不拦（且**不调速**）｜`budget action:"off"` 等同 warn｜
 `budget action:"status"` 看本回合实况（含当前思考档位与下一步计划）｜`budget action:"calibrate"` 用真实日志标定各类预算。
 

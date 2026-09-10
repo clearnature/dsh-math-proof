@@ -344,6 +344,111 @@ section('思考强度（EFFORT / planEffort / govern）')
   ok('调速器有兜底：异常时退回原配置', /catch \{\s*\n[\s\S]{0,200}return seed/.test(govSrc))
 }
 
+// ── 4.8) 会话 token 预算（跨回合总闸）──────────────────────────────────────
+section('会话 token 预算（SESSION / 总闸）')
+{
+  const S = ruleset.SESSION
+  ok('SESSION 默认预算是「会话量级」而不是「单回合量级」（> 1e8）', S.defaultTokens >= 1e8, String(S.defaultTokens))
+  ok('SESSION 提醒线 < 硬线', S.warnAt < S.hardAt, `${S.warnAt}/${S.hardAt}`)
+  ok('SESSION 环境变量名可配置', typeof S.env === 'string' && S.env.startsWith('MATH_PROOF_'), S.env)
+  ok('如实标注「按设计会滞后」', S.staleByDesign === true)
+
+  ok('parseTokenAmount：1M/500M/1B/纯数字', policy.parseTokenAmount('1M') === 1e6 && policy.parseTokenAmount('500M') === 5e8 && policy.parseTokenAmount('1B') === 1e9 && policy.parseTokenAmount('250000000') === 250000000, [policy.parseTokenAmount('1M'), policy.parseTokenAmount('1B')].join(','))
+  ok('parseTokenAmount：坏值一律 null（不猜）', policy.parseTokenAmount('abc') === null && policy.parseTokenAmount('0') === null && policy.parseTokenAmount('') === null && policy.parseTokenAmount(-5) === null)
+
+  ok('无 env 无账本 → 默认值', policy.sessionBudgetTokens(null).tokens === S.defaultTokens, policy.sessionBudgetTokens(null).source)
+  ok('账本可覆盖默认', policy.sessionBudgetTokens({ sessionBudget: { tokens: 123456789 } }).tokens === 123456789)
+  process.env[S.env] = '1M'
+  ok('env 优先于账本', policy.sessionBudgetTokens({ sessionBudget: { tokens: 123456789 } }).tokens === 1e6, policy.sessionBudgetTokens({ sessionBudget: { tokens: 1 } }).source)
+  delete process.env[S.env]
+
+  const st0 = { sessionTok: 300_000_000, liveTok: 20_000_000, sessionBudget: 500_000_000 }
+  ok('sessionUsed = 已闭合累计 + 当前回合', policy.sessionUsed(st0) === 320_000_000, String(policy.sessionUsed(st0)))
+  ok('sessionRatio 按预算算', Math.abs(policy.sessionRatio(st0, null) - 0.64) < 1e-9, String(policy.sessionRatio(st0, null)))
+
+  // startTurn：携带与继承
+  resetState()
+  const s1 = policy.startTurn({ sessionId: 'sess-budget', transcript: FIXTURE, cwd: '/w', prompt: '帮我证一下这个引理', sessionTok: 400_000_000, sessionBudget: 500_000_000 })
+  ok('开局写入会话累计与预算', s1.state.sessionTok === 400_000_000 && s1.state.sessionBudget === 500_000_000, JSON.stringify({ t: s1.state.sessionTok, b: s1.state.sessionBudget }))
+  ok('公告含「会话预算」行（带已用/总量/百分比）', /会话预算.*400\.00M.*500\.00M.*80\.0%/.test(s1.text.replace(/\n/g, ' ')), s1.text.split('\n').find((l) => l.includes('会话预算')) ?? '')
+  const s2 = policy.startTurn({ sessionId: 'sess-budget', transcript: FIXTURE, cwd: '/w', prompt: '再来一个' })
+  ok('下一回合继承会话累计（钩子不必每回合全量折叠）', s2.state.sessionTok === 400_000_000, String(s2.state.sessionTok))
+
+  // gateDecision：会话硬线优先，白名单豁免，最多拦 3 次
+  const base = { session: 'x', turn: 1, class: 'build', budget: 20, granted: 0, used: 0, denied: 0, budgetDenied: 0, sessionDenied: 0, repeat: {}, repeatDenied: 0, startedAt: 1000, sessionTok: 0, liveTok: 0, sessionBudget: 500_000_000 }
+  const g = (over, tool = 'bash', mode = 'brake') => policy.gateDecision({ state: { ...base, ...over }, mode, toolName: tool, toolInput: { command: 'x' }, now: 2000 })
+  ok('会话未到线：不因会话拦截', g({ sessionTok: 100_000_000 }).action === 'allow')
+  let d = g({ sessionTok: 500_000_000 })
+  ok('会话到硬线 → 拦（kind=session）', d.action === 'deny' && d.kind === 'session', JSON.stringify({ a: d.action, k: d.kind }))
+  ok('会话刹车理由给两个数字 + 「新开会话」出路', /500\.00M/.test(d.reason) && d.reason.includes('新开一个会话') && d.reason.includes('journal'), d.reason.split('\n')[0])
+  ok('会话硬线也放行白名单（收尾路径不许被掐）', g({ sessionTok: 500_000_000 }, 'proof_dag').action === 'allow')
+  ok('会话拦截同样最多 3 次（拦多了本身是流量）', g({ sessionTok: 500_000_000, sessionDenied: 3 }).action === 'allow')
+  ok('warn 模式不拦（只记账）', g({ sessionTok: 999_000_000 }, 'bash', 'warn').action === 'allow')
+  ok('当前回合 liveTok 计入会话用量（不必等回合结算）', policy.sessionUsed({ sessionTok: 400_000_000, liveTok: 120_000_000 }) === 520_000_000)
+  ok('会话用量用 liveTok 也能触发硬线', g({ sessionTok: 400_000_000, liveTok: 120_000_000 }).kind === 'session')
+
+  // settle：只把**已闭合**的回合计入会话累计
+  {
+    resetState()
+    const prof = traffic.blankProfile()
+    const state = { session: 'fx', turn: 1, class: 'chat', budget: 10, used: 1, denied: 0, startedAt: Date.now() - 30_000, transcript: FIXTURE, cwd: '/w', sessionTok: 1000, liveTok: 500, sessionBudget: 1e9 }
+    const r = policy.settleTurn({ profile: prof, state, fromTurn: 1 })
+    ok('结算闭合回合 → sessionTok 累加该回合 tok、liveTok 归零', state.sessionTok === 1000 + 320 && state.liveTok === 0, JSON.stringify({ t: state.sessionTok, l: state.liveTok }))
+    ok('样本里记下会话累计（可追溯）', r.sample.sessionTokAfter === 1320 && r.sample.sessionBudget === 1e9, JSON.stringify({ a: r.sample.sessionTokAfter, b: r.sample.sessionBudget }))
+    const state2 = { session: 'fx', turn: 2, class: 'chat', budget: 10, used: 1, denied: 0, startedAt: Date.now() - 5_000, transcript: FIXTURE, cwd: '/w', sessionTok: 1000, liveTok: 500, sessionBudget: 1e9 }
+    policy.settleTurn({ profile: prof, state: state2, fromTurn: 3 })
+    ok('未闭合（pending）→ **不**计入会话累计（tok 还不完整）', state2.sessionTok === 1000 && state2.liveTok === 500, JSON.stringify({ t: state2.sessionTok, l: state2.liveTok }))
+  }
+
+  // 补账时把 tok 累加回该会话的回合状态（下轮开局继承）
+  {
+    resetState()
+    const prof = traffic.blankProfile()
+    prof.pending = [{ session: 'sfx', hookTurn: 2, logTurn: 2, class: 'build', startedAt: Date.now() - 60_000, used: 3, denied: 1, transcript: FIXTURE, attempts: 1 }]
+    traffic.saveProfile(prof)
+    policy.writeTurn({ session: 'sfx', turn: 2, class: 'build', budget: 20, used: 3, denied: 1, startedAt: 1, transcript: FIXTURE, sessionTok: 5000, liveTok: 700, sessionBudget: 1e9 })
+    const rec = policy.reconcilePending({})
+    const after = policy.readTurn('sfx')
+    ok('补账把已结算回合的 tok 累加进会话状态', after.sessionTok === 5000 + 900 && after.liveTok === 0, JSON.stringify({ t: after.sessionTok, l: after.liveTok }))
+    ok('补账结果仍带结算播报', typeof rec.done[0].text === 'string' && rec.done[0].text.includes('结算'), String(rec.done[0].text).slice(0, 40))
+  }
+
+  // 工具：看 / 设 / 复位
+  {
+    resetState()
+    const view = budgetPlugin.runBudget({ action: 'session' })
+    ok('session：查看当前预算与来源', view.includes('当前预算') && view.includes('默认'), view.split('\n')[2] ?? '')
+    ok('session：写明 1M 在本负载下会在第一次调用就撞线', view.includes('6.61M') || view.includes('第一次模型调用'), view.split('\n').slice(-2).join(' '))
+    const set1 = budgetPlugin.runBudget({ action: 'session', tokens: '1B' })
+    ok('session：可设 1B', set1.includes('1000.00M') && traffic.loadProfile().sessionBudget.tokens === 1e9, set1.split('\n')[0])
+    const tiny = budgetPlugin.runBudget({ action: 'session', tokens: '1M' })
+    ok('session：设 1M 会明确警告「低于单个中位回合」', tiny.includes('⚠') && tiny.includes('6.61M'), tiny.split('\n').slice(-1)[0])
+    ok('session：reset 恢复默认', budgetPlugin.runBudget({ action: 'session', tokens: 'reset' }).includes('默认') && traffic.loadProfile().sessionBudget.tokens === S.defaultTokens)
+    const bad = (() => { try { budgetPlugin.runBudget({ action: 'session', tokens: 'abc' }); return null } catch (e) { return String(e.message) } })()
+    ok('session：坏值报错（不静默取默认）', bad !== null && bad.includes('无法解析'), String(bad))
+  }
+
+  // 钩子端到端：同一回合里会话到线 → exit 2
+  {
+    resetState()
+    const ws2 = mkdtempSync(join(tmpdir(), 'math-proof-sess-ws-'))
+    runHook('budget-start.mjs', { session_id: 'h2', transcript_path: FIXTURE, cwd: ws2, hook_event_name: 'UserPromptSubmit', prompt: '帮我证一下这个引理' })
+    const st = policy.readTurn('h2')
+    ok('开局钩子在无先前状态时**全量折叠**初始化会话累计（fixture 合计 2140）', st.sessionTok === 2140, String(st.sessionTok))
+    policy.writeTurn({ ...st, sessionTok: st.sessionBudget })
+    const denied = runHook('budget-gate.mjs', { session_id: 'h2', cwd: ws2, hook_event_name: 'PreToolUse', tool_name: 'bash', tool_input: { command: 'x' } })
+    ok('会话到线 → 钩子 exit 2 且理由是会话预算', denied.code === 2 && denied.err.includes('会话预算用尽'), `${denied.code} ${denied.err.split('\n')[0]}`)
+    const allowed = runHook('budget-gate.mjs', { session_id: 'h2', cwd: ws2, hook_event_name: 'PreToolUse', tool_name: 'proof_dag', tool_input: { action: 'journal' } })
+    ok('会话到线时收尾路径仍放行', allowed.code === 0, String(allowed.code))
+    rmSync(ws2, { recursive: true, force: true })
+  }
+
+  // 静态：SESSION 真的被用上（而不是只写在表里）
+  const polSrc = readFileSync(join(PRESET, 'impl', 'budget-policy.mjs'), 'utf8')
+  ok('gateDecision 里真的判了会话硬线', /sRatio >= SESSION\.hardAt/.test(polSrc))
+  ok('公告与播报都带会话进度', /会话预算/.test(polSrc) && /会话 \$\{fmtTok/.test(polSrc))
+}
+
 // ── 5) 过程播报 ───────────────────────────────────────────────────────────
 section('过程播报（shouldTick / tickText）')
 {

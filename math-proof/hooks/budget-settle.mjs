@@ -13,7 +13,7 @@
 
 import { readFileSync } from 'node:fs'
 
-import { budgetMode, loadProfile, readTurn, settleTurn } from '../impl/budget-policy.mjs'
+import { budgetMode, loadProfile, readTurn, settleTurn, writeTurn } from '../impl/budget-policy.mjs'
 import { FABLE5_WRAPUP, appendCarry, inspectLedger } from './carryover.mjs'
 
 let payload = {}
@@ -36,7 +36,8 @@ try {
       // 登记待结算（通常 outcome=pending：此刻日志还没落 turn/end）。它会把
       // `logTurn`（日志里的回合号）存下来，下一轮补账时**按号取窗口**，
       // 不会被「新回合已经开始」干扰。
-      settleTurn({ profile, state, transcript: transcript === '' ? state.transcript : transcript, lastTurn: true })
+      const r = settleTurn({ profile, state, transcript: transcript === '' ? state.transcript : transcript, lastTurn: true })
+      writeTurn(r.sample?.outcome === 'pending' ? state : r.sample === undefined ? state : { ...state, sessionTok: state.sessionTok, liveTok: 0 })
     }
   }
 

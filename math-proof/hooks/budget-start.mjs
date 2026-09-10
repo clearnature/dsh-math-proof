@@ -9,7 +9,8 @@
 
 import { readFileSync } from 'node:fs'
 
-import { budgetMode, loadProfile, readTurn, reconcilePending, startTurn } from '../impl/budget-policy.mjs'
+import { budgetMode, loadProfile, readTurn, reconcilePending, sessionBudgetTokens, startTurn } from '../impl/budget-policy.mjs'
+import { sessionTotals } from '../impl/session-traffic.mjs'
 import { takeCarry } from './carryover.mjs'
 
 let payload = {}
@@ -44,8 +45,27 @@ try {
       else sections.push(`【补账】第 ${d.hookTurn} 个任务 → ${d.outcome}（第 ${d.attempts ?? 1} 次尝试）`)
     }
 
-    // 3) 开局公告
-    const started = startTurn({ sessionId, transcript, cwd, prompt, previous: readTurn(sessionId), profile: rec.profile })
+    // 3) 开局公告：会话预算 + 会话累计（首次开局时全量折叠一次；之后靠每回合增量累加）
+    const previous = readTurn(sessionId)
+    const budget = sessionBudgetTokens(rec.profile)
+    let sessionTok = previous?.sessionTok ?? 0
+    if (previous === null && transcript !== '') {
+      try {
+        sessionTok = sessionTotals(transcript).tok
+      } catch {
+        sessionTok = 0 // 读不到就从 0 起算（宁可晚一点拦，也不要报错卡住开工）
+      }
+    }
+    const started = startTurn({
+      sessionId,
+      transcript,
+      cwd,
+      prompt,
+      previous,
+      profile: rec.profile,
+      sessionTok,
+      sessionBudget: budget.tokens,
+    })
     if (started.text !== '') sections.push(started.text)
   }
 

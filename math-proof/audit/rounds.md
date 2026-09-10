@@ -2939,3 +2939,51 @@ SyntaxError: The requested module 'node:zlib' does not provide an export named '
 
 `CHECK_ALL_OK 22/22`（publish-check 36→**38/38**；docs-check 81/81）；两处工作树 0600 计数均为 **0**；
 生效目录与仓库一致；CI 20/22/24 全绿。
+
+## 七十二、会话级 token 预算：先定标再定数（2026-09-10）
+
+**用户问**：既然防无限循环的多 API 机制已经有了，就不用加熔断器了；那**给单次会话加个百万 token 消耗预算**呢？有吗？DSH 有监控数据接口吗？
+
+### 72.1 「有吗」——没有；先把口径量清楚
+
+查遍 harness：**不存在任何会话级 token 上限**。
+`maxTokens` 是**单次请求的输出上限**（`agent-loop` 的 agent options，实际值 256000）；
+compaction 管的是**上下文压力**（不是累计花费）；`tokenUsage` 投影**只测不限**。
+全 harness 里带 "budget" 的配置字段只有 thinking/image/log 之类，没有一个是「本次会话总共能花多少」。
+
+再定标（26 个会话，`Σ_回合(input+cacheRead+output)`）：
+
+| 口径 | 中位 | p90 | max |
+| --- | --- | --- | --- |
+| 单会话累计 tok | **1.25M** | 89M | **832M** |
+| 单回合 tok | **6.61M** | 17.63M | 84.14M |
+
+⇒ **用户设想的「100 万 token 一次会话」在本负载下不成立**：中位会话已经 1.25M，而**单个中位回合**就是 6.61M
+——1M 的预算会在**第一次模型调用**里撞线，连一个完整回合都跑不完。
+（这条必须在实现前说清，否则做出来的东西一上线就把所有会话拦死。）
+
+### 72.2 实现：默认 5e8，四层都有
+
+| 层 | 做法 |
+| --- | --- |
+| 表 | `impl/ruleset.mjs` 的 `SESSION`（`defaultTokens 5e8` / `warnAt 0.8` / `hardAt 1` / `env MATH_PROOF_SESSION_BUDGET` / 显式标注 `staleByDesign`），r9→**r10** |
+| 口径 | `会话已用 = 已闭合回合累计(sessionTok) + 最近读到的当前回合 tok(liveTok)`；`pending` 回合**不计**（tok 不完整，下轮补账） |
+| 判定 | `gateDecision` 里排在**原地打转之后、任务预算之前**：到硬线拦非白名单工具，理由与「任务预算用尽」**分开写**（这是额度到顶，不是任务失败），给出 落盘 → 列缺口 → **新开会话** 三条出路 |
+| 全链路 | 公告加会话行；`PostToolUse` 播报带会话进度；`Stop`/补账把闭合回合 tok 累加回会话状态（下轮开局继承）；**会话第一次开局全量折叠一次**（续接老会话也准） |
+
+### 72.3 监控接口盘点（9 条，全部是官方缝，不是我们发明的）
+
+`tokenUsage` 投影（**累计桶** + wire view → GUI `TurnUsagePanel`）｜`contextPressure` / `contextBreakdown` 投影｜
+`tokenMeter.measure()`｜`sessionStats` 投影｜`sessionProjections.stateOf()`｜`sessionQuery`（跨会话）｜
+会话日志（本 preset 的 `session-traffic.mjs` 读它）｜`sessionTelemetry` + `dsh-session-telemetry-otel`（导出到后端，本项目未启用）｜
+事件审计（`llm/retry` / `hook/result` / `request/header`）。
+
+**⚠ 测 ≠ 限**：以上没有一个是硬上限——这正是要自己加 `SESSION` 的原因。
+
+### 72.4 回归与复验
+
+`budget-check` **256/256**（+38 条：解析 `1M/500M/1B`、优先级 env>账本>默认、`sessionTok+liveTok` 口径、
+硬线/白名单/每回合最多拦 3 次、闭合才累加、补账回写、`session` 动作看设复位与坏值报错、
+**钩子端到端**（fixture 全量折叠得 2140 → 推高到线 → exit 2 → 白名单仍放行）、静态断言 SESSION 真被用上）。
+文档：`docs/maps/M7-budget.md` 新增 §M7.7（含实测表、口径、滞后说明、9 条监控接口表），README/discipline 各一段；
+`SESSION.env` 与 `budget action:"session"` 进开关表。

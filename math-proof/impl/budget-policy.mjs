@@ -21,7 +21,7 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 
-import { BUDGET, EFFORT } from './ruleset.mjs'
+import { BUDGET, EFFORT, SESSION } from './ruleset.mjs'
 import {
   budgetFor,
   callFingerprint,
@@ -81,6 +81,43 @@ export function writeTurn(state) {
   return path
 }
 
+/** 解析「会话预算」写法：`500M` / `1B` / `250000000` / `1.5e8`；无法解析返回 null。 */
+export function parseTokenAmount(value) {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? Math.floor(value) : null
+  const text = String(value ?? '').trim()
+  if (text === '') return null
+  const m = /^([0-9]*\.?[0-9]+)\s*([kKmMbB]?)$/.exec(text)
+  if (m === null) return null
+  const n = Number(m[1])
+  if (!Number.isFinite(n) || n <= 0) return null
+  const unit = m[2].toLowerCase()
+  const scale = unit === 'k' ? 1e3 : unit === 'm' ? 1e6 : unit === 'b' ? 1e9 : 1
+  return Math.floor(n * scale)
+}
+
+/**
+ * 本会话的 token 预算：`env > 账本 sessionBudget.tokens > SESSION.defaultTokens`。
+ * **每次调用都重新读**（env 改了下一回合就生效，不必重启）。
+ */
+export function sessionBudgetTokens(profile) {
+  const env = parseTokenAmount(process.env[SESSION.env])
+  if (env !== null) return { tokens: env, source: `env ${SESSION.env}` }
+  const stored = parseTokenAmount(profile?.sessionBudget?.tokens)
+  if (stored !== null) return { tokens: stored, source: '账本 sessionBudget.tokens' }
+  return { tokens: SESSION.defaultTokens, source: `默认（${SESSION.defaultTokens / 1e6}M）` }
+}
+
+/** 会话已用 token = 已闭合回合累计 + 最近读到的当前回合 tok（可能滞后一个刷新周期）。 */
+export function sessionUsed(state) {
+  return Math.max(0, Number(state?.sessionTok ?? 0)) + Math.max(0, Number(state?.liveTok ?? 0))
+}
+
+/** 会话预算比例（0–∞）。 */
+export function sessionRatio(state, profile) {
+  const budget = Number(state?.sessionBudget ?? sessionBudgetTokens(profile).tokens)
+  return budget <= 0 ? 0 : sessionUsed(state) / budget
+}
+
 /** 有效预算 = 本类预算 + 本回合已批准的追加。 */
 export function effectiveCalls(state) {
   return Math.max(1, Number(state?.budget ?? 1) + Number(state?.granted ?? 0))
@@ -112,6 +149,7 @@ export {
   saveProfile,
   scanSessionTurns,
   sessionLogFiles,
+  sessionTotals,
   stateDir,
   summarize,
   turnReceiptText,
@@ -169,6 +207,11 @@ export function startTurn(input) {
     effortBefore: previous?.effortBefore ?? null,
     effortSet: previous?.effortSet ?? null,
     effortPlan: previous?.effortPlan ?? null,
+    // 会话级 token 预算：`sessionTok` 是**已闭合回合**的累计，`liveTok` 是最近读到的当前回合 tok
+    sessionTok: Number(input.sessionTok ?? previous?.sessionTok ?? 0),
+    sessionBudget: Number(input.sessionBudget ?? previous?.sessionBudget ?? sessionBudgetTokens(profile).tokens),
+    liveTok: Number(previous?.liveTok ?? 0),
+    sessionWarned: previous?.sessionWarned === true,
     topup: 0,
   }
   if (input.persist !== false) {
@@ -198,6 +241,7 @@ export function renderAnnouncement(state, profile, mode) {
     '- 被拦**不是失败**：停下取证，把已得结论与**未完成项**写进台账（`proof_dag action:"journal"`）就是合格交付——信息只许收敛，不许丢；',
     `- 确需追加：\`budget action:"topup" reason:"…（≥${BUDGET.topup.minReasonChars} 字）"\` —— 每任务限 ${BUDGET.topup.maxPerTask} 次，批 +${Math.round(BUDGET.topup.grantRatio * 100)}%，**记债**（下个已验证完成的任务扣回 ${Math.round(BUDGET.topup.debtRepayRatio * 100)}%）；`,
     `- 思考强度：预算过 ${Math.round(EFFORT.rungs[EFFORT.rungs.length - 1].atRatio * 100)}% 后机器把思考**自动降档**（路径 ${EFFORT.ladder.slice(1).join('→')}，即降到 low），过 ${Math.round(EFFORT.rungs[0].atRatio * 100)}% 直接关掉（off）——**不是惩罚，是让你把结论写出来**；任务结束自动还原。`,
+    `- **会话预算**：已用 ${fmtTok(sessionUsed(state))} / ${fmtTok(state.sessionBudget)}（${(sessionRatio(state, profile) * 100).toFixed(1)}%）｜到 ${Math.round(SESSION.hardAt * 100)}% 只留收尾白名单（与任务预算同一份白名单）${SESSION.staleByDesign ? '；当前回合的用量每 N 次调用刷新一次，**判定可能略微滞后**' : ''}。`,
     `- 墙钟上限 ${(wall / 60000).toFixed(1)} min｜随时自查 \`budget action:"status"\`。`,
   ]
   if (mode === 'warn') lines.push('- ⚠ 当前是 **warn 模式**（只提醒不拦）——`budget action:"explain"` 看口径。')
@@ -267,7 +311,15 @@ export function gateDecision(input) {
 
   if (mode !== 'brake') return { action: 'allow', kind: mode === 'off' ? 'off' : 'warn-mode', state }
 
-  // ── 2) 墙钟到点 → 按硬线处理（调用次数没超但一步卡很久也要收） ────────────
+  // ── 2) 会话 token 预算（跨回合的**总闸**，优先级高于任务预算） ──────────────
+  const sRatio = sessionRatio(state, input.profile)
+  if (sRatio >= SESSION.hardAt && !isAllowlisted(tool) && Number(state.sessionDenied ?? 0) < 3) {
+    state.sessionDenied = Number(state.sessionDenied ?? 0) + 1
+    state.denied = Number(state.denied ?? 0) + 1
+    return { action: 'deny', kind: 'session', reason: sessionBrakeReason(state, sRatio, tool), state }
+  }
+
+  // ── 3) 墙钟到点 → 按硬线处理（调用次数没超但一步卡很久也要收） ────────────
   const overWall = wall > 0 && elapsed > wall
   // ── 3) 两级刹车：软线只掐取证类；硬线只留白名单 ────────────────────────
   let kind = null
@@ -281,6 +333,18 @@ export function gateDecision(input) {
     return { action: 'deny', kind, reason: brakeReason({ state, kind, eff, ratio, elapsed, tool }), state }
   }
   return { action: 'allow', kind: 'pass', state }
+}
+
+/** 会话预算用尽的理由（与任务预算的理由分开写：这两件事要能区分）。 */
+export function sessionBrakeReason(state, ratio, tool) {
+  return [
+    `【会话预算用尽】本次会话已消耗 **${fmtTok(sessionUsed(state))} / ${fmtTok(state.sessionBudget)}** token（${(ratio * 100).toFixed(1)}%），\`${tool}\` 被拦。`,
+    '这不是任务失败，是**本次会话的额度到顶**。现在只做三件事：',
+    '① `proof_dag action:"journal"` 落盘：已确立什么（带证据）、未完成什么、下一步从哪开始；',
+    '② `todo_write` 列出未完成项（新会话接手要靠它）；',
+    `③ 需要继续：**新开一个会话**（会话预算按会话重置），或临时抬高 \`${SESSION.env}\` / 账本 \`sessionBudget.tokens\`。`,
+    '**不要用「已完成」蒙过去**：交付里必须写明未验证的部分与本次会话的额度现状。',
+  ].join('\n')
 }
 
 /** 刹车理由：摆数字 + 给出**唯一可执行**的收尾路径。 */
@@ -410,6 +474,9 @@ export function tickText(input) {
     parts.push(`已烧 **${fmtTok(live.tok)}** token（${live.steps} 步${live.baselineTok === null || live.baselineTok === undefined ? '' : `；本类中位 ${fmtTok(live.baselineTok)}`}）`)
   }
   parts.push(`墙钟 ${(elapsed / 60000).toFixed(1)}/${(wall / 60000).toFixed(1)} min`)
+  if (Number.isFinite(Number(state.sessionBudget)) && Number(state.sessionBudget) > 0) {
+    parts.push(`会话 ${fmtTok(sessionUsed(state))}/${fmtTok(state.sessionBudget)}（${(sessionRatio(state, input.profile) * 100).toFixed(0)}%）`)
+  }
   if (live !== null && Number(live.repeatMax ?? 0) > 1) parts.push(`重复调用最高 ${live.repeatMax} 次`)
   if (crossedWarn) {
     parts.push(
@@ -564,6 +631,13 @@ export function settleTurn(input) {
         : `钩子计数 ${hookUsed} 与日志计数 ${calls} 不一致`
   }
   sample.verified = sample.outcome === 'verified' || sample.outcome === 'wall-verified'
+  // 会话累计：只把**已闭合**的回合计进去（pending 的回合 tok 还不完整，等下轮补账时再计）
+  if (sample.outcome !== 'pending' && typeof sample.tok === 'number' && sample.tok > 0) {
+    state.sessionTok = Math.max(0, Number(state.sessionTok ?? 0)) + sample.tok
+    state.liveTok = 0
+  }
+  sample.sessionTokAfter = Number(state.sessionTok ?? 0)
+  sample.sessionBudget = Number(state.sessionBudget ?? 0)
 
   const adjustment = adjustBudget({ profile, sample })
   profile.samples = [...(profile.samples ?? []), sample]
@@ -650,6 +724,7 @@ export function renderSettlement(sample, adjustment, profile) {
     `- 工具调用 **${sample.calls}** 次（钩子计 ${sample.hookUsed}）｜步数 ${sample.steps ?? '—'}｜tok **${fmtTok(sample.tok)}**${sample.ctxPeak === null ? '' : `（上下文峰值 ${fmtTok(sample.ctxPeak)}）`}｜墙钟 ${(Number(sample.wallMs ?? 0) / 60000).toFixed(1)} min`,
     `- 本类基线（${base.scope === 'workspace' ? '本 workspace' : '全机'}）：${base.calibrated ? `中位 ${base.calls.median} 次（n=${base.n}）` : `样本不足（${base.n}/${BUDGET.minSamples}）`}${ratio === null ? '' : `｜本次为中位的 ${ratio.toFixed(2)}×`}`,
     adjustment.applied ? `- 下个同类任务预算：**${adjustment.next} 次**（${adjustment.why}）` : `- 预算不变：${adjustment.why}`,
+    ...(Number(sample.sessionBudget) > 0 ? [`- 会话累计：**${fmtTok(sample.sessionTokAfter)} / ${fmtTok(sample.sessionBudget)}**（${((sample.sessionTokAfter / sample.sessionBudget) * 100).toFixed(1)}%）`] : []),
   ]
   if (sample.receipts.files > 0) lines.push(`- 本回合新落盘回执 ${sample.receipts.files} 份（**强证据**）：${sample.receipts.names.join(', ')}`)
   else if (sample.receipts.text === true) lines.push('- 命中回执标记（**弱证据**：文本匹配，可能被抄写）')
@@ -693,6 +768,15 @@ export function reconcilePending(input) {
       if (attempts < 3) survivors.push({ ...p, logTurn: fromTurn, attempts })
       done.push({ hookTurn: p.hookTurn, outcome: 'pending-again', attempts })
     } else {
+      // 把已结算回合的 token 累加进该会话的回合状态（startTurn 会继承 sessionTok）
+      try {
+        const st = readTurn(p.session)
+        if (st !== null && typeof result.sample.tok === 'number' && result.sample.tok > 0) {
+          writeTurn({ ...st, sessionTok: Math.max(0, Number(st.sessionTok ?? 0)) + result.sample.tok, liveTok: 0 })
+        }
+      } catch {
+        /* 写不动就算了：下轮全量折叠会修正 */
+      }
       done.push({ hookTurn: p.hookTurn, outcome: result.outcome, calls: result.sample.calls, text: result.text })
     }
   }

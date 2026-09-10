@@ -720,6 +720,23 @@ export function scanSessionTurns(files, options = {}) {
 // 六、会话日志发现（跨 workspace）
 // ────────────────────────────────────────────────────────────────────────────
 
+/**
+ * 一个会话的**累计**用量（整份日志折叠求和）。
+ * 只在「会话第一次开局」时读一次全量日志（约 2s / 20MB），之后靠每回合增量累加。
+ */
+export function sessionTotals(file) {
+  const { header, turns } = foldSession(file)
+  let tok = 0
+  let steps = 0
+  let calls = 0
+  for (const tr of turns) {
+    tok += tr.tok || 0
+    steps += tr.steps || 0
+    calls += tr.toolCalls || 0
+  }
+  return { tok, steps, calls, turns: turns.length, session: header?.id ?? null, preset: header?.agentPreset ?? null }
+}
+
 /** 会话存储根。 */
 export function sessionsRoot() {
   return process.env.MATH_PROOF_SESSIONS_ROOT ?? join(homedir(), '.dsh', 'sessions')

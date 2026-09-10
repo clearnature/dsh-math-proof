@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 /** 规则语义版本：**规则一变就加一**（进输出日志，保证分数可比）。 */
-export const RULESET_VERSION = 'r9'
+export const RULESET_VERSION = 'r10'
 
 /**
  * 「已验证」的**弱证据**：工具回执文本里出现这些标记才算机器出过声。
@@ -327,6 +327,41 @@ export const EFFORT = {
   classDefault: { chat: null, docs: null, diagnose: null, compile: 'high', proof: 'high', build: 'high' },
   /** 每步思考的实测中位（仅用于报表对照，不参与判定）。 */
   observedReasoningPerStepMedian: 346,
+}
+
+/**
+ * **单次会话的 token 消耗预算**（回答「给会话加个百万 token 预算」）。
+ *
+ * 先看实测（2026-09-10，本机 26 个会话；每会话累计 `tok = Σ_回合(input+cacheRead+output)`）：
+ *
+ * | 口径 | 数值 |
+ * | --- | --- |
+ * | 单会话累计 tok | 中位 **1.25M**｜p90 **89M**｜max **832M** |
+ * | 两个真实长会话 | **832M**（103 回合）、**707M**（41 回合） |
+ * | 单回合 tok | 中位 **6.61M**、p90 17.63M |
+ *
+ * ⇒ **「100 万 token 一次会话」在这个负载下不成立**：中位会话已经 1.25M，而**单个中位回合**
+ * 就是 6.61M——1M 的预算会在**第一次模型调用**里就撞线（连一次完整回合都跑不完）。
+ * 所以默认值取 **5 亿**（≈ 实测最长会话的 60%，也 ≈ 75 个中位回合），并按「用法」而不是按口味：
+ *   · 想当**成本闸**（防跑飞）：5e8 起；
+ *   · 想当**上下文/单任务闸**：那本来就不是会话预算，用 `BUDGET`（按调用次数）更合适；
+ *   · 真要 1M：`MATH_PROOF_SESSION_BUDGET=1M` 也能设，但要明白它会在第一次调用就停。
+ */
+export const SESSION = {
+  /** 默认会话预算（token）。 */
+  defaultTokens: 500_000_000,
+  /** 提醒线（只提醒不拦）。 */
+  warnAt: 0.8,
+  /** 硬线：到线只留收尾白名单（与 `BUDGET.allowlist` 同一份）。 */
+  hardAt: 1,
+  /** 覆盖用的环境变量（支持 `1M` / `500M` / `1B` / 纯数字）。 */
+  env: 'MATH_PROOF_SESSION_BUDGET',
+  /**
+   * ⚠ 已知滞后：硬线判定用「已闭合回合累计 + 最近一次读到的当前回合 tok」。
+   * 当前回合的 tok 由 PostToolUse 每 N 次调用刷新一次（读日志有成本），
+   * 所以**判定可能落后一个刷新周期**——宁可晚一点拦，也不要每一步都读日志。
+   */
+  staleByDesign: true,
 }
 
 /** 规则模块自身的路径与哈希（`doctor` 用它比对「磁盘 vs 进程内」）。 */
