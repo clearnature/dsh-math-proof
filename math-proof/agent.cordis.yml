@@ -1,4 +1,5 @@
-# The `standard` agent preset: the full coding agent, mounted once per process.
+# 「数学证明模式」（preset id: `math-proof`）的 agent 平面组合。
+# （本文件由部署的 `standard` 组合派生后逐行改为本 preset，**不再**是 standard 那一份。）
 #
 # This file is an AGENT-PLANE composition. The roster mounts it ONCE under a
 # standing scope; every session naming it joins by scope parentage, so the

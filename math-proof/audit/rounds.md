@@ -3474,3 +3474,93 @@ NODE_OPTIONS="--require $PWD/scripts/no-zstd.cjs" node scripts/check-all.mjs   #
 - 本机实测：Node **24.21.0** 与 **22.22.1** 均 `CHECK_ALL_OK 24/24`；模拟裸 CI（空 HOME）也 `CHECK_ALL_OK 24/24`（宿主那半 SKIP）；
 - **CI 实跑三格全绿**：`check-all (20) / (22) / (24)` 均 `success`，三个都是 `CHECK_ALL_OK 24/24`（`gh run view 34604797888`）；
 - 文档：README 门禁清单 + `docs/maps/M4-state-and-storage.md` §M4.5e（日志格式版本与兼容核验入口）。
+
+---
+
+## 八十二、一次「数学证明模式无法使用」的归因：中止 ≠ 被拦
+
+用户贴来一张失败卡：
+
+```
+失败 BashError: tool call aborted
+输入 { "command": "cd /data/work/functional-programming/agda && … stack --system-ghc build Agda:exe:agda --copy-bins …", "timeoutMs": 400000 }
+输出 Error: tool call aborted
+```
+
+「模式无法使用」是很重的指控，所以**不接受印象，回真实日志**。
+
+### 82.1 找到那一次调用（不是猜的）
+
+全盘扫会话日志找那条命令 → 命中 `session-925bd92b` 的 **turn 71**（2026-09-11），命令与 `timeoutMs` 与用户贴的**逐字相同**。
+那个会话的 `agent-preset/selected` 是 `math-proof`。把该回合按时间铺开：
+
+| 相对时刻 | 事件 |
+| --- | --- |
+| +12.40s | `tool/call` bash（`stack … --copy-bins`，`timeoutMs: 400000`） |
+| +12.48s | `hook/result` PreToolUse **pass / exit 0**（81ms） |
+| +12.57s | `hook/result` PreToolUse **pass / exit 0**（91ms） |
+| **+50.87s** | `tool/result` = `Error: tool call aborted`（即命令只跑了 **38.3 秒**） |
+| +50.88s | `turn/end` = `{"kind":"aborted","reason":{"kind":"user"}}` |
+
+**两个 PreToolUse 钩子都放行了**，而且只用了 90 毫秒——预算闸门与 fable5 闸门都不是原因。
+
+### 82.2 定因：这是**取消请求**，不是拦截
+
+去宿主源码里找这句话是谁说的：
+
+- `dsh-tool-bash`：`if (result.aborted) { const error = new HarnessError("tool call aborted", TOOL_ABORTED); error.name = "AbortError"; throw error }`
+  —— 即**工具的 signal 被中止**时抛的，与命令本身、退出码、超时都无关；
+- `dsh-api-session-controller`：`cancel(request) { … agent.cancel({ kind: "user" }, { keepInbox: true }) }`
+  —— 日志里的 `reason:{kind:"user"}` **只有这一条路径**能产生。
+
+结论：**是界面发来的取消请求**（停止按钮），把这一回合连同那次 bash 一起中止了。命令本身跑了 38 秒，远没到它的 300s/400s 上限。
+
+**怎么一眼区分两者**（这是本轮最该记住的一条）：
+
+| 现象 | 日志证据 | 含义 |
+| --- | --- | --- |
+| `Error: 🛑 步骤拦截：…` | `hook/result` 里 `decision:"block"` / `exitCode:2` | **我们的闸门**拦的（预算/证据/计划绑定），按提示收敛即可 |
+| `BashError: tool call aborted` | `turn/end reason:{kind:"aborted",reason:{kind:"user"}}` | **取消请求**（界面停止），与钩子、预算无关 |
+
+### 82.3 顺手查出的真问题：安装副本曾经「半同步」
+
+翻钩子日志时发现 **38 次 Stop 钩子 `exit 1`**：
+
+```
+Error: Cannot find module '/home/yanli/.dsh/.agent-presets/math-proof/hooks/stop-reminder.mjs'
+```
+
+时间集中在 2026-09-10（首次 08:33Z、最近 13:22Z）。原因是 **`stop-reminder.mjs` 已被删除（commit bb1dcba），而安装副本的 `hooks.json` 还指向它**——
+典型的「副本落后于仓库」。**仓库侧门禁当时全绿**：`hooks-check` 检查的是仓库自己引用的脚本存在，仓库是自洽的。
+**仓库自测看不见安装副本** —— 这就是本轮要补的第一个洞。
+
+### 82.4 修：`scripts/doctor.mjs`（挂载副本体检）
+
+一条命令回答「**现在挂载的这份 preset 是完整的吗**」（只读）：
+
+- 骨架：`preset.yml` / `agent.cordis.yml` / `hooks/hooks.json` / `plugins/` / `impl/` / `skills/`；
+- **钩子**：`hooks.json` 每一条命令的目标文件**必须真的在**、命令必须走 `${CLAUDE_PLUGIN_ROOT}`、`timeout` 必须是正整数、事件名必须是官方认识的那 5 个；
+- **组合**：`agent.cordis.yml` 里 `name: './plugins/x.mjs'` 与 `new URL('…', baseUrl)` 两种本地引用**逐个存在性检查**；
+- **插件**：每个 `plugins/*.mjs` **真的 import 一次**（挂载期报错 = 会话起不来），并要求导出 `name` + `apply()`；
+- **技能**：每个 `skills/*/SKILL.md` 有 frontmatter `name`/`description`，且 **`name` 必须等于目录名**（技能名不符会让模型的 `skill` 调用报 `unknown or no longer available`，实测发生过 2 次）；
+- `--vs <仓库>`：逐文件 sha256 比对挂载副本与源仓库，报「漏同步 / 残留 / 内容不同」——**82.3 那次事故的本质就是漏同步**；
+- 默认漂移即红（`--allow-drift` 可只报不判）。
+
+`tests/doctor-check.mjs`：**18 条，每一条都先把副本弄坏、再断言 doctor 报红**（真实事故复发用例、hooks.json 坏掉、组合引用缺失、插件语法错、技能名不符、缺骨架、`--vs` 漏文件、`--allow-drift` 放行），最后断言**doctor 是只读的**（跑完逐文件大小不变）。体检脚本自己最容易变成安慰剂，所以它的门禁必须是**负向**的。
+
+### 82.5 修：纪律 §0.9「长命令与中止」
+
+三个事实写进提示词（热档 `impl/discipline.md`，无需重启）：
+
+1. **bash 默认超时 60 秒**（实测 `[timed out after 60000ms] [killed by signal: SIGTERM]`）——`agda` 单模块 60–300s 很常见，**必须显式给 `timeoutMs`**；
+2. **预计 >2 分钟就放后台**（`run_in_background` + `job_output`）：前台长命令会把回合占住，用户一中止**整回合连同已做完的工作一起作废**（本轮那次就是这样丢的）；
+3. **中止 ≠ 被拦**：拦截会写 `🛑 步骤拦截：…`，`tool call aborted` 是取消请求——**不要去改钩子，也不要用同一条命令重试**；被中止后先用 5 秒命令确认现场再继续。
+
+### 82.6 顺带
+
+`agent.cordis.yml` 头注释仍写着「The `standard` agent preset: the full coding agent…」（本文件是从部署的 standard 组合派生后逐行改的，注释没跟着改）→ 改正，免得下一个读的人以为挂的是 standard。
+
+### 82.7 回归
+
+`CHECK_ALL_OK 25/25`（新增第 25 个入口 doctor-check 18/18）；Node 24 / 22 / Node-20 模拟三环境均绿。
+文档：README 门禁与运维清单（`doctor` / `doctor-check`）、AUDIT 八十二、本节。

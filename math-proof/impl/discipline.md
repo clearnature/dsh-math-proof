@@ -45,6 +45,12 @@
 **会话预算**（按 token 累计，跨回合）：到 80% 报进度，到 100% 拦非白名单工具——**那是「本次会话额度到顶」，不是任务失败**。正确动作：`proof_dag journal` 落盘（已确立/未完成/下一步）→ `todo_write` 列缺口 → 需要继续就**新开会话**（会话预算按会话重置）。自查 `budget action:"status"`（会报会话已用/预算与来源）。
 **追加走申请制 + 记债**：`budget action:"topup" reason:"…"`（理由 ≥20 字，写清还缺哪一件关键证据、拿到就能收工），每任务限 1 次、批 +50%，并记 1 笔债——下个「已验证完成」的任务扣回 10%。预算的自适应也只在两种结局上动手：**已验证完成 → −10%**、**撞到预算墙 → +10%**；失败/中断/无证据的「完成」**不动**（没证据的完成不算数，失败也不养预算）。自查：`budget action:"status"`。
 
+### 0.9 长命令与「中止」（别让一次前台构建把整个回合拖死）
+- **bash 的默认超时是 60 秒**（实测日志：`[timed out after 60000ms] [killed by signal: SIGTERM]`）。`timeoutMs` 会覆盖执行器的默认与上限——**凡是可能超过 1 分钟的命令，必须显式给 `timeoutMs`**（`agda` 单模块编译 60–300s、`stack`/`cabal` 构建、全量测试、大目录扫描都属于这类）。
+- **预计 > 2 分钟就放后台**（`run_in_background: true`），然后用 `job_output` 取结果。前台长命令会把回合占住；用户一旦中止，**整个回合连同已经做完的工作一起作废**，日志里只剩 `turn/end aborted/user` + `Error: tool call aborted`。
+- **被中止 ≠ 被拦，别混为一谈**：闸门拦截会明确写出 `🛑 步骤拦截：…`（钩子 exit 2，可从 `hook/result` 查到）；`BashError: tool call aborted` 是**取消请求**造成的（工具的 signal 被中止），与钩子、预算无关——**不要去改钩子，也不要把中止当成失败去重试同样的命令**。
+- **被中止后不要假装知道结果**：先用 5 秒级命令确认现场（`git status` / `ls`），再从断点继续；未确认的产物一律写「未验证」。
+
 ### 1. 证明工作流
 0. **先算后验证（zcode 方法论）** → 需要探索规律 / 找反例 / 核对大规模枚举时，先用 **Python 精确整数**计算（`engineering/` 轨道，禁浮点）作为**猜想生成器 / 约束来源 / 对抗验证器**；Agda 是**唯一裁决**，Python 通过 ≠ 证明。模型必须保留全部结构分量（无信息截断）。详见 `compute-then-verify` 技能。
 1. **读需求** → 确定模块位置与依赖方向（`RootMath → Base → Algebra → Arithmetic → Format → Structology → Constitution → Coupling → Density`，禁止反向依赖）。

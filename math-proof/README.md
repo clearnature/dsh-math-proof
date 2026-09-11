@@ -402,14 +402,16 @@ node tests/hot-section-check.mjs # HOT_SECTION_OK（热档只认官方数据/文
 node tests/budget-check.mjs   # BUDGET_OK（预算：规则表自洽 / 判定 / 结算 / 投递契约）
 node tests/state-check.mjs    # STATE_OK（数据保留：每个累积型存储都要有上限或被维护脚本报告）
 node tests/compat-check.mjs   # COMPAT_CHECK_OK（DSH 升级兼容：宿主契约 + 会话日志格式 v0/v3 + 未知形状自检）
+node tests/doctor-check.mjs   # DOCTOR_CHECK_OK（挂载副本体检：钩子目标/组合引用/插件加载/技能名，且逐条负向实测能红）
 
-# 3) 一键跑全部门禁（24 个入口汇总成一张表）
+# 3) 一键跑全部门禁（25 个入口汇总成一张表）
 node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs   # CHECK_ALL_OK
 
 # 4) 运维
 node scripts/cache-report.mjs        # 缓存命中率 / 费用三段拆解
 node scripts/state-gc.mjs            # 状态目录盘点（dry-run）
 node scripts/state-gc.mjs --apply --archive-days 90 --rebuild-index --witness-gc
+node scripts/doctor.mjs              # 挂载副本体检（现在挂载的这份 preset 完整吗；--vs <仓库> 查漂移）
 node scripts/harness-compat.mjs      # DSH 升级兼容核验（25 条宿主契约；--expect 0.1.5 可让升级变红）
 # Node 20 模拟（CI 那一格不用等 CI）：把 node:zlib 的 zstd 真的拿掉再跑一遍门禁
 NODE_OPTIONS="--require $PWD/scripts/no-zstd.cjs" node scripts/check-all.mjs
