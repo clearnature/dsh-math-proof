@@ -411,6 +411,8 @@ node scripts/cache-report.mjs        # 缓存命中率 / 费用三段拆解
 node scripts/state-gc.mjs            # 状态目录盘点（dry-run）
 node scripts/state-gc.mjs --apply --archive-days 90 --rebuild-index --witness-gc
 node scripts/harness-compat.mjs      # DSH 升级兼容核验（25 条宿主契约；--expect 0.1.5 可让升级变红）
+# Node 20 模拟（CI 那一格不用等 CI）：把 node:zlib 的 zstd 真的拿掉再跑一遍门禁
+NODE_OPTIONS="--require $PWD/scripts/no-zstd.cjs" node scripts/check-all.mjs
 node scripts/plugins.mjs             # 插件盘点（三平面 provenance）
 node scripts/market.mjs              # 插件市场（注册源侧）
 ```

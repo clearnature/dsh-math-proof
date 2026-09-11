@@ -3445,7 +3445,28 @@ v0 的 usage 在 `assistant/chunk`（`chunk.type === "usage"`；实测 14134 个
 - 教训写进 M4 §M4.5e：这三个都是「夹具是明文单帧、真机是多帧带迁移」型缺陷 →
   **fixture 之外必须在真实日志上跑一遍**，而且两套口径要能互相印证。
 
-### 81.9 回归
+### 81.9 顺手做掉：Node 20 **不用等 CI** 也能验
+
+改完推上去，CI 立刻红了 —— **Node 20**：`TypeError: zlib.zstdCompressSync is not a function`。
+原因是我新加的「一个目录两份日志」断言里**裸调**了 `zlib.zstdCompressSync`（Node 20 没有 zstd）。
+2026-09-10 已经栽过一次同类事故（命名导入是**链接期** SyntaxError），当时只能靠 CI 抓。
+
+这次不再接受「等 CI」。做法：`scripts/no-zstd.cjs` + `--require` 预加载，把 **CJS 的 `node:zlib` 对象**上的
+zstd 系列删掉/置空；ESM 的 `import * as zlib` 命名空间在**首次加载时快照**该对象，所以预加载必须早于任何
+import —— `--require` 正好满足（实测 `import('node:zlib')` 探测也变成 `undefined`）。子进程继承 `NODE_OPTIONS`，
+于是 `check-all.mjs` 派生的每个套件都在同一条件下跑：
+
+```
+NODE_OPTIONS="--require $PWD/scripts/no-zstd.cjs" node scripts/check-all.mjs   # CHECK_ALL_OK 24/24
+```
+
+并且把它**内嵌进 `budget-check`**（`BUDGET_CHECK_NESTED=1` 防递归）：`budget-check` 派生一个自己，
+断言子进程退出 0 且**如实 SKIP**。反向实测：把那条裸调用改回去 → 本地 2 秒就红，不必再推一次等 CI。
+
+顺带修掉一个「只在特定机器上红」的测试脆弱点：`usage 动作` 原先只判断「本机有没有那份真实日志」，
+没判断「本机的 Node 能不能解压它」→ 「Node 20 + 真有日志」的机器上四条断言全红。现在两种读不了都如实 SKIP。
+
+### 81.10 回归
 
 - 新增 `tests/compat-check.mjs`（29 条：宿主 4 + v3 形状 8 + 0.1.5 迁移副作用 7 + deny/block 3 + 形状自检 5 + 汇总行），`scripts/harness-compat.mjs`（25 条探测）；
 - 新增共用入口 `pickSessionLog` / `sessionLogVersion` / `stepUsages`（`impl/session-traffic.mjs`），并把 `readSessionHeader` 改成从**第一帧**读；`tests/budget-check.mjs` 346 → **369**，`paths-check` 19 → **22**；

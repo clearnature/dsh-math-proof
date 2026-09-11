@@ -177,14 +177,16 @@ section('计量（session-traffic）')
     const root2 = mkdtempSync(join(tmpdir(), 'math-proof-logs-dedup-'))
     mkdirSync(join(root2, '--w--', 'sess-migrated'), { recursive: true })
     mkdirSync(join(root2, '--w--', 'sess-plain'), { recursive: true })
-    writeFileSync(join(root2, '--w--', 'sess-migrated', 'session.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(readFileSync(FIXTURE))))
-    writeFileSync(join(root2, '--w--', 'sess-migrated', 'session.v3.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(readFileSync(FIXTURE))))
+    // ⚠ 这里**故意用明文**（不压 zstd）：本组测的是**文件名选择规则**，不是解压能力。
+    // 用 `zstdCompressSync` 会在 Node 20（没有 zstd）上让整个套件崩掉——那是 2026-09-11 的 CI 真实事故。
+    writeFileSync(join(root2, '--w--', 'sess-migrated', 'session.jsonl'), readFileSync(FIXTURE))
+    writeFileSync(join(root2, '--w--', 'sess-migrated', 'session.v3.jsonl'), readFileSync(FIXTURE))
     writeFileSync(join(root2, '--w--', 'sess-migrated', 'session.lock'), '')
-    writeFileSync(join(root2, '--w--', 'sess-plain', 'session.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(readFileSync(FIXTURE))))
+    writeFileSync(join(root2, '--w--', 'sess-plain', 'session.jsonl'), readFileSync(FIXTURE))
     const found = traffic.sessionLogFiles(root2)
     ok('sessionLogFiles：会话数 = 文件数（迁移过的目录不重复计数）', found.length === 2, JSON.stringify(found.map((f) => f.split('/').slice(-1)[0])))
-    ok('sessionLogFiles：迁移过的会话给的是 v3 那份', found.some((f) => f.endsWith('session.v3.jsonl.zstd')))
-    ok('sessionLogFiles：未迁移的会话给的是 legacy 那份', found.some((f) => f.endsWith('/sess-plain/session.jsonl.zstd')))
+    ok('sessionLogFiles：迁移过的会话给的是 v3 那份', found.some((f) => f.endsWith('session.v3.jsonl')))
+    ok('sessionLogFiles：未迁移的会话给的是 legacy 那份', found.some((f) => f.endsWith('/sess-plain/session.jsonl')))
     ok('sessionLogFiles：`.lock` 不被当成日志', !found.some((f) => f.endsWith('.lock')))
     rmSync(root2, { recursive: true, force: true })
   }
@@ -596,8 +598,12 @@ section('会话 token 预算（SESSION / 总闸）')
     resetState()
     const live = process.env.HOME + '/.dsh/sessions/--data-work-discrete-mathematics--/session-10a4b85c-9308-4f17-bc06-8ca2210339d1/session.jsonl.zstd'
     const hasLive = existsSync(live)
-    if (!hasLive) {
-      skip('usage 动作（需要真实会话日志）', '本机没有该会话日志')
+    // ⚠ 两种「读不了」都要如实跳过：①本机没有这份日志；②本机 Node 没有 zstd（<22.15）而日志是压缩的。
+    // 少了第二条，就会出现「Node 20 且真有日志」的机器上四条断言全红（2026-09-11 用 `--require` 去掉
+    // zstd 模拟 Node 20 时实测到）。
+    const canRead = hasLive && (traffic.ZSTD_SUPPORTED || !live.endsWith('.zstd'))
+    if (!canRead) {
+      skip('usage 动作（需要真实会话日志）', hasLive ? '本机 Node 没有 zstd，读不了压缩日志' : '本机没有该会话日志')
     } else {
       policy.startTurn({ sessionId: 'u9', transcript: live, cwd: '/w', prompt: 'x' })
       const out = budgetPlugin.runBudget({ action: 'usage', sessionId: 'u9', cwd: '/w', limit: 3 })
@@ -975,6 +981,20 @@ section('traffic-report 脚本')
   })
   ok('能跑通并输出表头', r.status === 0 && (r.stdout ?? '').includes('单回合'), (r.stdout ?? '').slice(0, 120) || (r.stderr ?? '').slice(0, 120))
   ok('输出里带「口径」说明（中位数不是均值）', (r.stdout ?? '').includes('中位'), (r.stdout ?? '').slice(-200))
+}
+
+// ── 12a) Node 20 模拟：把 zstd 拿掉也要全绿（CI 的那一格不该只在 CI 上验证）──────
+// 2026-09-10 真实事故：命名导入 zstd 在 Node 20 上是**链接期** SyntaxError；2026-09-11 又栽了一次
+// （新加的断言直接调 `zlib.zstdCompressSync`）。`scripts/no-zstd.cjs` 配 `--require` 能真的让
+// **ESM 侧**也看不到 zstd（命名空间在首次加载时快照 CJS 对象），于是本机能提前验证。
+if (process.env.BUDGET_CHECK_NESTED !== '1') {
+  const probe = join(PRESET, 'scripts', 'no-zstd.cjs')
+  const r = spawnSync(process.execPath, [join(HERE, 'budget-check.mjs')], {
+    encoding: 'utf8',
+    env: { ...process.env, BUDGET_CHECK_NESTED: '1', NODE_OPTIONS: `--require ${probe}` },
+  })
+  ok('Node 20 模拟（zstd 不可用）下整套仍然通过', r.status === 0, `${(r.stdout ?? '').trim().split('\n').pop() ?? ''} ${(r.stderr ?? '').slice(0, 120)}`)
+  ok('Node 20 模拟下如实报告「没有 zstd」并 SKIP 相关断言（不是假绿）', /SKIP/.test(r.stdout ?? '') && /zstd/.test(r.stdout ?? ''), (r.stdout ?? '').trim().split('\n').pop() ?? '')
 }
 
 // ── 12b) 缓存/费用报表：**v3 会话不许被读成 0**（这是最容易被静默算 0 的地方）─────
