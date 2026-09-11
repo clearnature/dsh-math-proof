@@ -25,6 +25,7 @@
 | 件 | 用途 |
 | --- | --- |
 | `proof_dag kind:"object"` + `construction`/`carrier`/`operations`/`relations` | 把数学对象登记为**信息完整节点**（缺 `construction` 直接拒收） |
+| `proof_dag action:"plan" statement:"…"` | **证明义务分解**：按形状表出义务骨架（双向→正反两向 / 存在→witness+性质 / ℕ→base+step / record→载体+定律 / 相等→先 `refl` 再链）；默认**只渲染不落盘**，`commit:true` 才种进台账（**一律 pending**，骨架不是证明） |
 | `proof_dag action:"import" file:"examples/objects.json"` | 批量登记（幂等）；示例含 GF(3)/GF(9)/DC/T⁶/A₄ |
 | `proof_dag action:"graph"` | 导出 `graph-<hash>.json`（机器，带 `$schema`）+ `graph-<hash>.md`（人类视图） |
 | `schema/knowledge-graph.schema.json` | 图谱的**发布 schema**（消费者可校验） |
@@ -403,8 +404,9 @@ node tests/budget-check.mjs   # BUDGET_OK（预算：规则表自洽 / 判定 / 
 node tests/state-check.mjs    # STATE_OK（数据保留：每个累积型存储都要有上限或被维护脚本报告）
 node tests/compat-check.mjs   # COMPAT_CHECK_OK（DSH 升级兼容：宿主契约 + 会话日志格式 v0/v3 + 未知形状自检）
 node tests/doctor-check.mjs   # DOCTOR_CHECK_OK（挂载副本体检：钩子目标/组合引用/插件加载/技能名，且逐条负向实测能红）
+node tests/plan-check.mjs     # PLAN_CHECK_OK（证明义务分解：形状取舍/校验逐条负向/先看后写契约）
 
-# 3) 一键跑全部门禁（25 个入口汇总成一张表）
+# 3) 一键跑全部门禁（26 个入口汇总成一张表）
 node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs   # CHECK_ALL_OK
 
 # 4) 运维

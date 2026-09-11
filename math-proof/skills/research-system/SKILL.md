@@ -83,6 +83,7 @@ whenToUse: 面对一个非平凡数学目标（不是单条引理）时；需要
 - **节点 = 可验证命题**（一条顶层定理或一个模块）；**边 = import / 依赖**。
 - **状态机**（`proof_dag` 工具）：`pending → active → proven | refuted | blocked | needs_review`。
 - **所有权**：每个 `active` 节点只应有一个 `owner`（agent 名），避免两路各证一遍。
+- **分解**：`proof_dag action:"plan"` 把目标变成**义务骨架**（不是替你证明）：给 `statement` 按形状表出义务（双向等价→正/反两方向；存在→witness+性质；ℕ/Fin/List→base+step；record→载体+定律；相等→先 `refl` 再链），给 `items` 则做结构纪律校验（缺「怎么验证」/悬空依赖/成环/没写组合节点/自带 `proven` → 红）。**先看后写**：默认只渲染，`commit:true` 才落盘，且一律 `pending`。
 - **调度**：`proof_dag action:"next"` 返回「依赖已 `proven` 的 `pending` 节点」= 当前可开工集合；这是 Prove2Me 式 DAG 调度的本地最小实现。
 - **体检**：`proof_dag action:"check"` → 环检测 / 悬空依赖 / 无 owner 的 active / 进度百分比 / 拓扑序。
 - **静态依赖图**：`proof_graph`（`paths: [...]`）→ leaf-first 编译顺序 + 环 + 未解析依赖。

@@ -40,6 +40,7 @@ import { stateDir, statePath } from '../impl/state-dir.mjs'
 import { dirname, isAbsolute, join } from 'node:path'
 import { compileHistory, compileHotspots, verifyReceipt } from './agda-engine.mjs'
 import * as RULESET from '../impl/ruleset.mjs'
+import { PLAN_DISCLAIMER, analyzeStatement, obligationId, planItemsToNodes, validatePlan } from '../impl/obligation.mjs'
 import { importsOf } from './proof-graph.mjs'
 import { readOracleReceipt, verifyOracleReceipt } from './python-oracle.mjs'
 
@@ -928,6 +929,56 @@ export function transitivelyImports(workspace, from, target, maxDepth = 8) {
 }
 
 /** 渲染节点表。 */
+/**
+ * 渲染分解方案（`plan` 的报告）。
+ * 表格列固定：义务 / 为什么 / **怎么验证** / 依赖——「怎么验证」是分解纪律，不许空着。
+ */
+function renderPlan({ goalId, statement, items, verdict, notes, committed }) {
+  const lines = []
+  lines.push(`# proof_dag: plan${committed === true ? '（已落盘）' : ''}`)
+  lines.push('')
+  lines.push(`- 目标: \`${goalId}\` — ${statement === '' ? '（未给 statement：按调用方给的 items 校验）' : statement.slice(0, 200)}`)
+  lines.push(`- 义务: **${items.length}** 条（全部 \`pending\`——分解阶段不产生结论）`)
+  lines.push('')
+  if (verdict.problems.length > 0) {
+    lines.push('## ❌ 阻断问题（先修这些）')
+    for (const p of verdict.problems) lines.push(`- ${p}`)
+    lines.push('')
+  }
+  if (verdict.warnings.length > 0) {
+    lines.push('## ⚠ 提醒')
+    for (const w of verdict.warnings) lines.push(`- ${w}`)
+    lines.push('')
+  }
+  lines.push('| # | id | 义务（可验证命题） | 为什么需要 | 怎么验证 | 依赖 |')
+  lines.push('| --- | --- | --- | --- | --- | --- |')
+  for (const [i, it] of items.slice(0, MAX_TABLE_ROWS).entries()) {
+    const dep = (it.deps ?? []).length === 0 ? '—' : (it.deps ?? []).join(', ')
+    lines.push(`| ${i + 1} | \`${it.id}\` | ${String(it.statement ?? '').slice(0, 90)} | ${String(it.why ?? '').slice(0, 40)} | ${String(it.verify ?? '').slice(0, 60)} | ${dep.slice(0, 60)} |`)
+  }
+  if (items.length > MAX_TABLE_ROWS) {
+    lines.push('')
+    lines.push(`（其余 ${items.length - MAX_TABLE_ROWS} 条未显示）`)
+  }
+  lines.push('')
+  if (notes.length > 0) {
+    lines.push('## 形状说明（这些形状最容易漏什么）')
+    for (const n of notes) lines.push(n)
+    lines.push('')
+  }
+  lines.push('## 诚实边界')
+  for (const d of PLAN_DISCLAIMER) lines.push(`- ${d}`)
+  lines.push('')
+  lines.push(
+    verdict.ok
+      ? committed === true
+        ? '- 下一步：`proof_dag action:"next"` 看待开工的叶子义务；每条拿到 `proof_compile` 回执后用 `update` 标 `proven`。'
+        : '- 下一步：确认无误后带 `commit: true` 再跑一次即可落盘（**先看后写**：默认不写台账）。'
+      : '- 先修完上面的阻断问题（缺 `verify` / 悬空依赖 / 成环 / 自带结论 / 没有组合节点），再考虑落盘。',
+  )
+  return lines.join('\n')
+}
+
 function renderTable(nodes) {
   const all = Object.keys(nodes).sort()
   if (all.length === 0) return '（台账为空）'
@@ -1042,7 +1093,7 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
   const raw = args?.action
   const action = typeof raw === 'string' && raw !== '' ? raw : 'list'
   const rules = live.rules ?? RULESET
-  const ACTIONS = ['init', 'add', 'update', 'import', 'search', 'list', 'next', 'check', 'brief', 'journal', 'graph', 'doctor']
+  const ACTIONS = ['init', 'add', 'update', 'plan', 'import', 'search', 'list', 'next', 'check', 'brief', 'journal', 'graph', 'doctor']
   if (!ACTIONS.includes(action)) {
     throw new Error(`proof_dag: unknown action "${action}" (expected one of ${ACTIONS.join(' | ')})`)
   }
@@ -1564,6 +1615,63 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
     ].join('\n')
   }
 
+  if (action === 'plan') {
+    // ── 证明义务分解：**先看后写**。默认只渲染骨架与校验结果，`commit:true` 才落盘 ────
+    // 两种用法：① 给 `statement`（目标命题原文）→ 机器按形状表给骨架；
+    //          ② 给 `items`（你自己的分解）→ 机器只做结构与纪律校验（缺 verify / 悬空依赖 /
+    //             成环 / 自带结论 / 没有组合节点 / id 已存在）。
+    // 边界写在 impl/obligation.mjs 头部：机器做的是**形状识别与漏项检查**，不是替你想数学。
+    const planRules = rules.PLAN ?? RULESET.PLAN
+    const statement = String(args?.statement ?? '').replace(/\s+/g, ' ').trim()
+    const rawGoalId = String(args?.goalId ?? args?.id ?? '').trim()
+    const given = Array.isArray(args?.items) ? args.items : null
+    let items = []
+    let notes = []
+    let goalId = rawGoalId === '' ? '' : obligationId(rawGoalId)
+    if (given === null) {
+      const analyzed = analyzeStatement(statement, rawGoalId, { rules: planRules })
+      items = analyzed.items
+      notes = analyzed.notes
+      goalId = analyzed.goalId
+      if (statement === '') throw new Error('proof_dag plan: 给 `statement`（目标命题原文）让机器拆，或给 `items`（你自己的分解）让机器校验')
+    } else {
+      // 显式 id 一律**原样保留**（空 id 交给校验去报「缺 id」，不要偷偷改名）
+      items = given.map((it) => ({ ...(it ?? {}), id: String(it?.id ?? '').trim() }))
+    }
+    const knownIds = Object.keys(nodes)
+    const verdict = validatePlan(items, { rules: planRules, knownIds, goalId: goalId === '' ? undefined : goalId })
+    // 分解是**建骨架**：已存在的 id 不许被悄悄覆盖（import 是「更新」语义，plan 不是）
+    const clashes = items.map((it) => it.id).filter((id) => id !== '' && Object.hasOwn(nodes, id))
+    if (clashes.length > 0) {
+      verdict.problems.push(`这些 id 台账里已经有了：${clashes.join(', ')} → 分解只建骨架；改用 \`update\` 改已有节点，或换 id`)
+    }
+    verdict.ok = verdict.problems.length === 0
+    if (args?.commit !== true) {
+      return renderPlan({ goalId, statement, items, verdict, notes, committed: false })
+    }
+    if (!verdict.ok) {
+      return `${renderPlan({ goalId, statement, items, verdict, notes, committed: false })}\n\n**未落盘**：先修完上面的阻断问题（骨架写进去也只会变成假证据）。`
+    }
+    // 复用 **import** 那条路（同一份证据纪律、同一份报告）——不另写一套写盘逻辑
+    const importedReport = runDagLocked(workspace, { action: 'import', items: planItemsToNodes(items) }, witness, live, untracked)
+    // ⚠ import 已经写过盘了：**必须重新读**再补流水，绝不能用旧引用覆盖（会丢刚落的节点）
+    const after = readLedger(workspace)
+    const journalAfter = after.journal ?? []
+    journalAfter.push({
+      ts: new Date().toISOString(),
+      kind: 'milestone',
+      text: `拆解 \`${goalId || '(未命名目标)'}\` 为 ${items.length} 条义务（全部 pending，待逐条取回执）：${items
+        .slice(0, 6)
+        .map((it) => it.id)
+        .join(', ')}${items.length > 6 ? ' …' : ''}`,
+      source: 'proof_dag plan',
+      open: false,
+    })
+    after.journal = journalAfter
+    writeLedger(after)
+    return `${renderPlan({ goalId, statement, items, verdict, notes, committed: true })}\n\n${importedReport}`
+  }
+
   if (action === 'import') {
     // 批量登记：从 JSON 文件或 items 数组导入对象/命题（登记既有对象层的入口）
     let items = args?.items
@@ -1613,6 +1721,11 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
         module: raw.module === undefined ? undefined : String(raw.module),
         source: raw.source === undefined ? undefined : String(raw.source),
         state: raw.state === undefined ? undefined : String(raw.state),
+        // `note` / `owner` 原本**不在**批量通道的字段集里——于是 `plan` 落盘时
+        // 「为什么需要这条义务 / 怎么验证它」被判据性地丢掉了（2026-09-11 由 plan-check 抓出）。
+        // 判据必须随节点走：离开聊天记录后，下一个接手的人只看得到台账。
+        note: raw.note === undefined ? undefined : String(raw.note),
+        owner: raw.owner === undefined ? undefined : String(raw.owner),
       }
       // ── 证据字段：批量通道**不许绕过**证据纪律 ──────────────────────────
       // 真实事故（2026-09-10，另一会话）：`import` 原先**不接受** receipt/oracle/evidence，
@@ -1707,6 +1820,8 @@ function runDagLocked(workspace, args, witness = null, live = LOADED_LIVE_FALLBA
           relations: fields.relations,
           deps: fields.deps ?? [],
           module: fields.module,
+          owner: fields.owner,
+          note: fields.note,
           postulates: newPostulates,
           source: fields.source,
           state: fields.state !== undefined && STATES.includes(fields.state) ? fields.state : 'pending',
@@ -1923,9 +2038,9 @@ export function apply(ctx) {
       properties: {
         action: {
           type: 'string',
-          enum: ['init', 'add', 'update', 'import', 'search', 'list', 'next', 'check', 'brief', 'journal', 'graph', 'doctor'],
+          enum: ['init', 'add', 'update', 'plan', 'import', 'search', 'list', 'next', 'check', 'brief', 'journal', 'graph', 'doctor'],
           description:
-            'init 初始化 / add 加节点 / update 改状态 / import 批量登记（items 或 file）/ search 复用查找（写新引理前先查）/ list 全表 / next 可开工集合 / check 体检（含台账↔代码断链）/ brief 跨天接手简报 / journal 记或看决策与来源流水 / graph 导出知识图谱 JSON（AI 接口）/ **doctor 本实例自证**（跑的是哪版插件与规则、有没有落后于磁盘——引用分数前先跑它）。',
+            'init 初始化 / add 加节点 / update 改状态 / **plan 证明义务分解**（给 `statement` 让机器按形状表出骨架，或给 `items` 让机器校验你自己的分解；默认只渲染不落盘，`commit:true` 才写）/ import 批量登记（items 或 file）/ search 复用查找（写新引理前先查）/ list 全表 / next 可开工集合 / check 体检（含台账↔代码断链）/ brief 跨天接手简报 / journal 记或看决策与来源流水 / graph 导出知识图谱 JSON（AI 接口）/ **doctor 本实例自证**（跑的是哪版插件与规则、有没有落后于磁盘——引用分数前先跑它）。',
         },
         node: {
           type: 'object',
@@ -1994,7 +2109,7 @@ export function apply(ctx) {
           type: 'array',
           items: { type: 'object', additionalProperties: true },
           description:
-            'import 用：节点对象数组（与 add 的 node 同形，另接受 receipt / oracle / postulates / evidence）。注意：批量通道**不豁免证据** —— 条目写 state:"proven" 必须带有效 receipt（或该节点已有有效回执），否则该条目被拒。',
+            'import 用：节点对象数组（与 add 的 node 同形，另接受 receipt / oracle / postulates / evidence）。注意：批量通道**不豁免证据** —— 条目写 state:"proven" 必须带有效 receipt（或该节点已有有效回执），否则该条目被拒。plan 用：你自己的分解方案；每条必须给 `statement` 与 `verify`（怎么验证），可带 `why`/`deps`/`kind`/`construction`/`module`；**不许带 state:"proven"**（结论只能来自回执）。',
         },
         allowUnevidencedProven: {
           type: 'boolean',
@@ -2016,7 +2131,9 @@ export function apply(ctx) {
           },
           description: 'journal 要追加的流水条目；省略则列出流水（配合 `resolve` 则裁决关闭）。',
         },
-        statement: { type: 'string', description: 'update 的命题文本。' },
+        statement: { type: 'string', description: 'update 的命题文本；plan 用：目标命题原文（机器据此识别形状并给义务骨架）。' },
+        goalId: { type: 'string', description: 'plan 用：目标在台账里的 id（给了就用它当组合/根节点 id，如 FermatsLastTheorem.L4）。' },
+        commit: { type: 'boolean', description: 'plan 用：默认 false 只渲染骨架与校验结果（**先看后写**）；true 才把骨架落盘（一律 pending，不产生任何结论）。' },
         kind: { type: 'string', enum: NODE_KINDS, description: 'update 的节点种类。' },
         construction: { type: 'string', description: 'update 的生成方式（object 必填）。' },
         carrier: { type: 'string', description: 'update 的载体。' },

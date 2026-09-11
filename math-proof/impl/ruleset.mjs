@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 /** 规则语义版本：**规则一变就加一**（进输出日志，保证分数可比）。 */
-export const RULESET_VERSION = 'r10'
+export const RULESET_VERSION = 'r11'
 
 /**
  * 「已验证」的**弱证据**：工具回执文本里出现这些标记才算机器出过声。
@@ -366,6 +366,112 @@ export const SESSION = {
    * 所以**判定可能落后一个刷新周期**——宁可晚一点拦，也不要每一步都读日志。
    */
   staleByDesign: true,
+}
+
+/**
+ * 证明义务分解的形状表（**冷档**）——`proof_dag action:"plan"` 用它把目标语句拆成义务骨架。
+ *
+ * 设计边界（别把机器想得太聪明）：这里只做**形状识别 + 漏项检查**，
+ * 不假装理解数学。每条形状给出「这种形状最容易漏什么」的标准子义务；
+ * 生成的节点一律 `pending`，**禁止**自带 `proven`/`refuted` —— 结论只能来自回执。
+ *
+ * 为什么值得机器管：下面这四类漏项**判得出来**，而判得出来的就不该靠模型自觉——
+ *   ① 双向等价只证一个方向；② 归纳只证 base 忘 step（或反之）；
+ *   ③ 代数结构只写载体/运算、不写定律字段；④ 子义务都证了却没有组合（根）节点。
+ */
+export const PLAN = {
+  version: 'p1',
+  /** 目标没给 id 时的默认根 id。 */
+  defaultGoalId: 'goal',
+  /** 分解阶段的义务必须写清「怎么验证」。 */
+  requireVerify: true,
+  /** 禁止在分解阶段出现的状态（结论只能由回执给出）。 */
+  forbidStates: ['proven', 'refuted', 'blocked', 'abandoned', 'needs_review'],
+  /** 允许的状态（默认 pending）。 */
+  allowStates: ['pending', 'active'],
+  minObligations: 2,
+  maxObligations: 12,
+  /** 没写 verify 时的兜底判据（仍然要求调用方写，这里只是不给出空串）。 */
+  defaultVerify: 'proof_compile 编译本模块拿回执（Agda 是唯一裁决器）；反例敏感的先用 proof_oracle',
+  rootVerify: '子义务全部 proven（各带回执）后，根节点才可标 proven；根节点的证据 = 各子义务回执 id',
+  /**
+   * 形状表。`match` 是**存在性**正则（`new RegExp(shape.match).test(text)`）；
+   * `split` 可选，用两个捕获组抓出 `{A}` / `{B}`（如双向等价的左右两侧）。
+   */
+  shapes: [
+    {
+      id: 'iff',
+      what: '双向等价（↔ / ⇔ / ≃ / ≅）',
+      match: '↔|⇔|⟺|≃|≅|\\biff\\b',
+      split: '(.*?)(?:↔|⇔|⟺|≃|≅)\\s*(.*)',
+      note: '双向等价最常见的漏项就是**只证一个方向**；两个方向各自独立编译，别写成一坨。',
+      obligations: [
+        { suffix: 'fwd', statement: '{A} → {B}（正向）', verify: 'proof_compile：正向单独可编译（或用已证引理组合）', why: '必要性方向' },
+        { suffix: 'bwd', statement: '{B} → {A}（反向）', verify: 'proof_compile：反向单独可编译', why: '充分性方向' },
+      ],
+    },
+    {
+      id: 'forall',
+      what: '全称（∀ / 依赖积 Π）',
+      match: '∀|\\bforall\\b|\\([a-zA-Z_][\\w\']*\\s*:',
+      note: '全称的坑是**类型标注写不全**（用 `_` 省标注 → 后面卡在归约上）——这是**纪律提醒，不是一条独立义务**（单列出来只会让每个全称目标都多一个「根节点的孪生兄弟」）。先写全 binder 与类型。',
+      // advisory = **只出提醒、不出义务**：判断依据是「它有没有可独立验证的内容」——
+      // 「写全类型标注」是写法纪律，不是一个能单独编译的命题。
+      advisory: true,
+    },
+    {
+      id: 'exists',
+      what: '存在（∃ / 依赖和 Σ）',
+      match: '∃|\\bexists\\b|Σ|∑',
+      note: '存在的坑是**只给 witness 不证性质**（或反过来）。而且存在命题**反例敏感**：先 `proof_oracle` 排除假命题。',
+      obligations: [
+        { suffix: 'witness', statement: '给出 witness（显式构造，不许 `postulate`）：{A}', verify: 'proof_oracle 先核对该 witness 满足性质；再 proof_compile', why: '存在命题的第一半是构造' },
+        { suffix: 'property', statement: '证明 witness 满足所需性质：{A}', verify: 'proof_compile：性质部分单独可编译', why: '存在命题的第二半是性质证明' },
+      ],
+    },
+    {
+      id: 'induction',
+      what: '归纳候选（出现 ℕ / Nat / Fin / List / 索引类型）',
+      match: 'ℕ|\\bNat\\b|\\bFin\\b|\\bList\\b|T⁶|\\binduction\\b|归纳',
+      note: '归约候选的坑是**只证一个 case**；base 与 step 必须各自能编译（step 里别忘了归纳假设的类型）。',
+      obligations: [
+        { suffix: 'base', statement: '基例（最小构造子）：{A}', verify: 'proof_compile：基例单独编译通过', why: '归纳的第一半' },
+        { suffix: 'step', statement: '归纳步（含归纳假设）：{A}', verify: 'proof_compile：步进单独编译通过，且归纳假设类型写对', why: '归纳的第二半' },
+      ],
+    },
+    {
+      id: 'record',
+      what: '代数结构 / record（结构即签名）',
+      match: '\\brecord\\b|结构|Algebra|Monoid|Group|Ring|Semiring|Lattice',
+      note: '结构的坑是**只写载体与运算、把定律留空**。定律是**字段里的证明项**，不是注释。',
+      obligations: [
+        { suffix: 'carrier', statement: '载体与运算的定义闭合（不引入未声明公理）：{A}', verify: 'proof_compile：载体与运算定义可编译', why: '结构的第一部分是签名' },
+        { suffix: 'laws', statement: '每条定律都给出证明项（不能留 hole / postulate）：{A}', verify: 'proof_compile：定律字段全部填满且通过', why: '定律是证明项，不是注释' },
+      ],
+    },
+    {
+      id: 'equality',
+      what: '相等（≡ / ≈ / 定义相等）',
+      match: '≡|≈|\\beq\\b|定义相等',
+      split: '(.*?)(?:≡|≈)\\s*(.*)',
+      note: '先判**定义相等**（能 β/η 归约闭合的写 `refl`），归约卡住再换命题链；`trans` 嵌套上限 3。',
+      // ⚠ 当**结构性**形状（双向/存在/归纳/结构）同时命中时，相等纪律是那些义务**内部**的技法提醒，
+      // 不是并列的第三条义务——否则台账里会多出一条没人会去证的假分支（`next` 还会把它派出去）。
+      advisoryIf: ['iff', 'exists', 'induction', 'record'],
+      obligations: [
+        // ⚠ 这两条是**同一件事的两条路线**（先试 refl，不闭合再走链），不是两条并行义务——
+        // 拆成两条会在台账里造出一条永远不必证的假分支，`next` 还会把它派出去。
+        { suffix: 'decide', statement: '相等判定：先试定义相等（正常形归约 → `refl`）；不闭合则给出显式证明链（每步是已证引理或 `refl`，`trans` 嵌套 ≤3）：{A} ≡ {B}', verify: 'proof_compile：先 `refl`；不闭合再走链（链上每步都有出处）', why: '相等是判定：先归约，再命题链——不是两条义务' },
+      ],
+    },
+    {
+      id: 'handwave',
+      what: '手挥词（显然 / trivial / 容易看出）',
+      match: '显然|易见|容易看出|\\btrivially\\b|\\bobviously\\b',
+      note: '「显然」**不是证明项**。要么给出 `refl` / `cong` / `subst`，要么老实标 `needs_review`——两者都不做就是类型幻觉。（这是**纪律标记**，不是一条独立义务：真正要证的内容由其它义务承载。）',
+      advisory: true,
+    },
+  ],
 }
 
 /** 规则模块自身的路径与哈希（`doctor` 用它比对「磁盘 vs 进程内」）。 */

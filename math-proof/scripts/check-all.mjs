@@ -3,7 +3,7 @@
 // 用法：node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs
 // 退出码 0 = 全部通过；非 0 = 有套件失败（并打印失败套件的尾部输出）。
 //
-// 为什么需要它：门禁有 25 个入口（lint + 24 套件）。日常「改完跑一遍」不该记命令，
+// 为什么需要它：门禁有 26 个入口（lint + 25 套件）。日常「改完跑一遍」不该记命令，
 // ⚠ 入口数以脚本输出为准（`CHECK_ALL_OK n/n`），这里的数字改了要跟着 SUITES 走。
 // 也不该漏跑。本脚本按固定顺序执行、汇总成一张表，并把失败套件的尾部日志原样贴出
 // （禁止「我跑过了」式声称——证据必须出现在输出里）。
@@ -40,6 +40,7 @@ const SUITES = [
   ['state-check', join(PRESET, 'tests', 'state-check.mjs'), 'STATE_OK'],
   ['compat-check', join(PRESET, 'tests', 'compat-check.mjs'), 'COMPAT_CHECK_OK'],
   ['doctor-check', join(PRESET, 'tests', 'doctor-check.mjs'), 'DOCTOR_CHECK_OK'],
+  ['plan-check', join(PRESET, 'tests', 'plan-check.mjs'), 'PLAN_CHECK_OK'],
 ]
 
 const rows = []

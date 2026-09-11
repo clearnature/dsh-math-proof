@@ -3564,3 +3564,65 @@ Error: Cannot find module '/home/yanli/.dsh/.agent-presets/math-proof/hooks/stop
 
 `CHECK_ALL_OK 25/25`（新增第 25 个入口 doctor-check 18/18）；Node 24 / 22 / Node-20 模拟三环境均绿。
 文档：README 门禁与运维清单（`doctor` / `doctor-check`）、AUDIT 八十二、本节。
+
+---
+
+## 八十三、证明义务分解器（`proof_dag action:"plan"`）
+
+用户从四个方向里点了 **A**。这一轮把「拆解→并行→三筛」从**提示词里的纪律**变成**机器能判的东西**。
+
+### 83.1 先划清机器的能力边界（不然会造出一个吹牛的工具）
+
+机器**不能**替你想出数学分解。它能做的是三件事，而且每件都判得出来：
+
+1. **形状识别**：这条目标句子长得像什么（双向等价 / 全称 / 存在 / 归纳候选 / 代数结构 / 相等 / 手挥词）；
+2. **漏项检查**：这种形状最容易漏什么（双向只证一边、归纳只证一半、结构只写载体不写定律、子义务证完没有组合节点）；
+3. **纪律校验**：每条义务**必须写清「怎么验证」**，不许悬空依赖、不许成环、**分解阶段不许自带结论**。
+
+所以工具输出的是**义务骨架**，不是证明；报告里固定带一段「诚实边界」（骨架不是证明 / 结论只来自回执 / 反例敏感的先跑 oracle）。
+
+### 83.2 实现（复用现有骨架，不另起一套）
+
+| 件 | 角色 |
+| --- | --- |
+| `impl/ruleset.mjs` 的 `PLAN` | **冷档**形状表与阈值（`requireVerify` / `forbidStates` / 粒度上下限 / 7 个形状），`RULESET_VERSION` r10→**r11** |
+| `impl/obligation.mjs`（新，纯函数） | `detectShapes` / `analyzeStatement` / `validatePlan` / `findCycle` / `planItemsToNodes` / `obligationId` |
+| `plugins/proof-dag.mjs` | 新 action `plan`（+ schema/描述）；落盘**复用 `import` 通道**，不另写写盘逻辑 |
+
+用法两种：给 `statement`（机器出骨架）或给 `items`（机器只校验你的分解）；**默认只渲染不落盘**（先看后写），`commit:true` 才落盘。
+
+### 83.3 过程中被自己的用例抓出来的三个真缺陷
+
+**① 过分解（最值得记的一类错）**
+第一版对 `∀ n → n + 0 ≡ n` 一次给出 4 条：`intro` + `reduce` + `chain` + 根。两条都是假义务：
+
+- `forall` 的 `intro`（「类型标注要写全」）**没有可独立验证的内容**——它是写法纪律，不是命题；单列出来只会让每个全称目标都多一个「根节点的孪生兄弟」；
+- `equality` 的 `reduce`/`chain` 是**同一个判定的两条路线**（先试 `refl`，不闭合再走链），不是两条并行义务。
+
+修法：给形状表加 **`advisory`**（只出提醒不出义务）与 **`advisoryIf`**（同句命中更结构性的形状时降级为提醒），并把 equality 合并成一条 `decide`。
+判据写进规则表注释：**「它有没有可独立验证的内容」**—— 有才是义务。
+
+**② 跨形状重复**
+`iff`/`exists`/`induction`/`record` 命中时，`equality` 原本还会并列出一条 `.decide` → 台账里长出**没人会去证的假分支**，而 `next` 会把它派出去（调度规则只看依赖，不看语义）。
+修法：`advisoryIf: ['iff','exists','induction','record']`。判断依据：相等纪律是那些义务**内部**的技法提醒，不是并列义务。
+
+**③ 批量通道把判据丢了（真数据损失）**
+`plan` 落盘走 `import`，而 `import` 的字段集里**没有 `note`/`owner`**——于是「为什么需要这条义务 / 怎么验证它」在落盘那一刻**被判据性丢弃**：下一个接手的人打开台账只看得到一句陈述。
+修法：批量通道补 `note`/`owner`（并修 `fields`→节点构造两处，第二处一开始漏了，被同一套门禁第二次抓出）。
+**这类错最危险的地方在于它不报错**：写得进去、读得出来，只是少了东西。
+
+### 83.4 门禁（负向才是门禁）
+
+`tests/plan-check.mjs` **59 条**，三块：
+
+- **形状取舍**：每条形状出什么、不出什么（`∀` 不出 `.intro`；iff 时不出 `.decide`；存在 → witness+property；归纳 → base+step；结构 → carrier+laws；手挥词 → 只提醒；空语句 → 不出义务并说清原因）；
+- **校验逐条负向**：缺 `verify` / 缺 statement / 悬空依赖 / 成环（含 `findCycle` 直测）/ 分解阶段写 `proven` / object 缺 construction / 没有根 / 目标未收口 / id 重复 → **每条都必须红**；粒度与重复 → 提醒；
+- **落盘契约**：默认不写台账；`commit:true` 后节点**一律 pending**、带 `source:plan`、带「怎么验证」；`next` 只派叶子（根不派）；重复分解被 id 冲突拦；有阻断问题时**不落盘**；journal 留痕；`import` 通道拒收「proven 但无回执」。
+
+**三条反向实测**（改坏代码 → 门禁必须红）：去掉「必须写 verify」→ ❌；去掉 id 冲突守卫 → ❌；让骨架自带 `proven` → ❌（并在这一条上发现「空集合让 `every()` 真空通过」的假绿，于是补了「先钉条数」的断言）。
+
+### 83.5 顺带
+
+- 纪律 §1 新增**第 0 步**：非平凡目标先 `proof_dag action:"plan"`（形状表能认出的漏项，不再靠自觉）；
+- README 工具表新增 `plan` 一行；
+- `CHECK_ALL_OK 26/26`；Node 24 / 22 / Node-20 模拟三环境均绿。
