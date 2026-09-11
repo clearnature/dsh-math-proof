@@ -392,7 +392,7 @@ node tests/market-check.mjs   # MARKET_OK（市场脚本离线 fixture 回归，
 node tests/plugins-check.mjs  # PLUGINS_OK（三平面分类回归 + 跨脚本计数一致）
 node tests/publish-check.mjs  # PUBLISH_OK（发布准备：state 排除 / 布局 / 生成物）
 node tests/ruleset-check.mjs  # RULESET_OK（规则静态加载为冷档 / doctor 自证 / postulate 门禁 / 结果级分诊）
-node tests/docs-check.mjs     # DOCS_OK（M2 依赖图与源码一致 / 地图齐 / Mermaid 闭合 / 无死链）
+node tests/docs-check.mjs     # DOCS_OK（M2 依赖图与源码一致 / 地图齐 / Mermaid 闭合 / 无死链 / 门禁入口数不许写死漂移）
 node tests/skills-ref-check.mjs # SKILLS_REF_OK（技能引用可解析 + 允许清单引用必须是条件式）
 node tests/paths-check.mjs    # PATHS_OK（机器绝对路径只出现在 impl/local-paths.json）
 node tests/inject-check.mjs   # INJECT_OK（ctx.<服务> 必须 inject 声明 + 严格 ctx 真挂载）

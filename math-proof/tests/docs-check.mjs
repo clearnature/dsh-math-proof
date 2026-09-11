@@ -100,6 +100,24 @@ for (const file of docFiles) {
 const all = docFiles.map((f) => readFileSync(f, 'utf8')).join('\n')
 ok('文档说明「数字现场取」的纪律', /refs-check|assemble-context|docs-gen/.test(all), '')
 
+// ── 6) 门禁入口数：注释里的字面数字必须与 SUITES 实际条数一致 ───────────────
+// （2026-09-11 真实漂移：加了 compat-check 之后，check-all 头注释与 CI 工作流注释仍写「22/23 个入口」）
+{
+  const src = readFileSync(join(PRESET, 'scripts', 'check-all.mjs'), 'utf8')
+  const suitesBlock = src.slice(src.indexOf('const SUITES'), src.indexOf('const rows'))
+  const actual = (suitesBlock.match(/^\s*\['/gm) ?? []).length
+  ok('check-all.mjs 的 SUITES 解析出条目（防止解析失败假装通过）', actual >= 20, `actual=${actual}`)
+  const claimed = /门禁有\s*(\d+)\s*个入口/.exec(src)
+  ok('check-all.mjs 头注释的入口数与 SUITES 一致（不允许写死漂移）', claimed !== null && Number(claimed[1]) === actual, `注释=${claimed?.[1] ?? '无'} 实际=${actual}`)
+  const run = /CHECK_ALL_OK\s+n\/n/.test(src) || src.includes('CHECK_ALL_OK')
+  ok('check-all.mjs 说明「入口数以脚本输出为准」', run && src.includes('n/n'), '')
+  const wf = join(PRESET, '..', '.github', 'workflows', 'gates.yml')
+  if (existsSync(wf)) {
+    const w = readFileSync(wf, 'utf8')
+    ok('CI 工作流不写死入口数（只指向脚本输出）', !/\d+\s*个入口/.test(w), (/\d+\s*个入口/.exec(w) ?? [''])[0])
+  }
+}
+
 console.log('# 文档门禁（架构地图 / 生成物一致性 / 链接）\n')
 console.log(results.join('\n'))
 console.log(`\n${failures === 0 ? 'DOCS_OK' : 'DOCS_FAIL'} ${results.length - failures}/${results.length}`)

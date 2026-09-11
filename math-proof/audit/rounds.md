@@ -3390,15 +3390,26 @@ compaction 管的是**上下文压力**（不是累计花费）；`tokenUsage` �
 - 门禁用 `tests/fixtures/session-unknown-shape.jsonl`（`version: 9`、3 个回合、**没有任何 usage**）真的走一遍：
   未知版本如实报 9、`usageMissing === true`、会话累计 0 **但带着告警**而不是悄悄算 0。
 
-### 81.6 顺带修掉一个假归因
+### 81.6 顺带修掉一个假归因 + 一类会漂移的字面数字
 
-`budget-check` 与 `compat-check` 的汇总行原先**一律**写「（另有 N 条 SKIP：本机 Node 无 zstd 支持）」——
-可 SKIP 的原因不止 zstd（例如裸环境没有会话日志）。假归因比不写更坏：它会让人以为自己看懂了。
-现在汇总行按**真实原因**去重后列出（`本机没有该会话日志` / `本机没有 pnpm store（裸 CI）`）。
+**假归因**：`budget-check` 与 `compat-check` 的汇总行原先**一律**写「（另有 N 条 SKIP：本机 Node 无 zstd 支持）」——
+可 SKIP 的原因不止 zstd（例如裸环境没有会话日志，Node 20 才是没 zstd）。假归因比不写更坏：它会让人以为自己看懂了。
+现在汇总行按**真实原因**去重后列出（`本机没有该会话日志` / `本机 Node v20.20.2 的 node:zlib 没有 zstd` / `本机没有 pnpm store（裸 CI）`）——
+CI 上 Node 20 那一格因此能一眼看出「336/336 是因为没有 zstd」。
+
+**会漂移的字面数字**：加了第 24 个入口后，`check-all.mjs` 头注释与 `.github/workflows/gates.yml` 头注释
+仍写着「22 / 23 个入口」。这类数字和「模块数 / 断言数」是同一类病，所以**一起收进 `docs-check`**：
+
+- 从 `SUITES` 块真的数一遍条数（并断言解析出的条数 ≥20，防止解析失败反而假装通过）；
+- 头注释里的「门禁有 N 个入口」必须等于实际条数 —— **反向实测**：把 24 故意改成 22，门禁立刻红（`注释=22 实际=24`）；
+- CI 工作流**不许**出现「N 个入口」这样的字面数字（只指「以脚本输出为准」）。
+
+`docs-check` 81 → **85/85**。
 
 ### 81.7 回归
 
 - 新增 `tests/compat-check.mjs`（22 条：宿主 4 + v3 形状 8 + deny/block 3 + 形状自检 5 + 汇总行），`scripts/harness-compat.mjs`（25 条探测）；
 - `scripts/check-all.mjs` 24 个入口（SKIP 白名单加 `COMPAT_CHECK_SKIP`，且 SKIP **不能**掩盖失败：有失败就是 `COMPAT_CHECK_FAIL` 退出 1）；
 - 本机实测：Node **24.21.0** 与 **22.22.1** 均 `CHECK_ALL_OK 24/24`；模拟裸 CI（空 HOME）也 `CHECK_ALL_OK 24/24`（宿主那半 SKIP）；
+- **CI 实跑三格全绿**：`check-all (20) / (22) / (24)` 均 `success`，三个都是 `CHECK_ALL_OK 24/24`（`gh run view 34604797888`）；
 - 文档：README 门禁清单 + `docs/maps/M4-state-and-storage.md` §M4.5e（日志格式版本与兼容核验入口）。

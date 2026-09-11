@@ -1,4 +1,4 @@
-# 全部门禁：`math-proof/scripts/check-all.mjs` 的 22 个入口（schema 自检 + 21 套回归，
+# 全部门禁：`math-proof/scripts/check-all.mjs`（schema 自检 + 各套回归，
 # 含架构文档漂移门禁 docs-check 与预算/流量门禁 budget-check）。入口数以脚本输出为准，
 # 这里不写字面数字（会漂移）。
 #
