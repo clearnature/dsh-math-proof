@@ -7,13 +7,14 @@
 
 ## M2.1 组合行（agent 平面）
 
-共 **36** 行 = 外部包 **28** 条行（去重后 **25** 条 spec / **24** 个包） + 本地插件 **8** 个，另有 **3** 个分组。
+共 **37** 行 = 外部包 **28** 条行（去重后 **25** 条 spec / **24** 个包） + 本地插件 **9** 个，另有 **3** 个分组。
 
 | 行 id | 提供者 | 所属分组 | 状态 |
 | --- | --- | --- | --- |
 | `persona` | `@deepseek-ai/dsh-persona` | — | 启用 |
 | `proof-discipline` | `./plugins/proof-discipline.mjs` | — | 启用 |
 | `agda-engine` | `./plugins/agda-engine.mjs` | — | 启用 |
+| `agda-goals` | `./plugins/agda-goals.mjs` | — | 启用 |
 | `python-oracle` | `./plugins/python-oracle.mjs` | — | 启用 |
 | `hooks` | `@deepseek-ai/dsh-hooks-claude-code` | — | 启用 |
 | `proof-graph` | `./plugins/proof-graph.mjs` | — | 启用 |
@@ -64,6 +65,8 @@ graph LR
   plugins_agda-engine_mjs["plugins/agda-engine.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
   plugins_agda-engine_mjs["plugins/agda-engine.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
   plugins_agda-engine_mjs["plugins/agda-engine.mjs"] --> impl_state-dir_mjs["impl/state-dir.mjs"]
+  plugins_agda-goals_mjs["plugins/agda-goals.mjs"] --> impl_agda-interaction_mjs["impl/agda-interaction.mjs"]
+  plugins_agda-goals_mjs["plugins/agda-goals.mjs"] --> plugins_agda-engine_mjs["plugins/agda-engine.mjs"]
   plugins_budget_mjs["plugins/budget.mjs"] --> impl_budget-policy_mjs["impl/budget-policy.mjs"]
   plugins_budget_mjs["plugins/budget.mjs"] --> impl_quota_mjs["impl/quota.mjs"]
   plugins_budget_mjs["plugins/budget.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
@@ -95,8 +98,8 @@ graph LR
   tests_refs-check_mjs["tests/refs-check.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
 ```
 
-- 有出边的模块（**核心层**）：`impl/budget-policy.mjs`、`impl/obligation.mjs`、`impl/quota.mjs`、`impl/session-traffic.mjs`、`plugins/agda-engine.mjs`、`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`plugins/python-oracle.mjs`、`scripts/cache-report.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
-- 无出边的模块（**叶子/独立**）：`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/doctor.mjs`、`scripts/harness-compat.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/benchmark.mjs`、`tests/budget-check.mjs`、`tests/cache-check.mjs`、`tests/compat-check.mjs`、`tests/docs-check.mjs`、`tests/doctor-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/hot-section-check.mjs`、`tests/inject-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plan-check.mjs`、`tests/plugins-check.mjs`、`tests/prompt-vars-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/reload-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`、`tests/state-check.mjs`
+- 有出边的模块（**核心层**）：`impl/budget-policy.mjs`、`impl/obligation.mjs`、`impl/quota.mjs`、`impl/session-traffic.mjs`、`plugins/agda-engine.mjs`、`plugins/agda-goals.mjs`、`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`plugins/python-oracle.mjs`、`scripts/cache-report.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
+- 无出边的模块（**叶子/独立**）：`plugins/agda-goals.mjs`、`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/doctor.mjs`、`scripts/harness-compat.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/benchmark.mjs`、`tests/budget-check.mjs`、`tests/cache-check.mjs`、`tests/compat-check.mjs`、`tests/docs-check.mjs`、`tests/doctor-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/goals-check.mjs`、`tests/hooks-check.mjs`、`tests/hot-section-check.mjs`、`tests/inject-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plan-check.mjs`、`tests/plugins-check.mjs`、`tests/prompt-vars-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/reload-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`、`tests/state-check.mjs`
 
 > 依赖方向即「谁可以 import 谁」：`plugins/` 是注册层（薄），`impl/` 是可热读共享层，
 > `tests/` 与 `scripts/` 只消费、不被消费（所以它们不会出现在别人的 import 里）。
@@ -113,6 +116,7 @@ graph LR
 | `impl/session-traffic.mjs` | `node:crypto` `node:fs` `node:os` `node:path` `node:zlib` | — |
 | `impl/state-dir.mjs` | `node:os` `node:path` | — |
 | `plugins/agda-engine.mjs` | `node:crypto` `node:fs` `node:os` `node:path` | — |
+| `plugins/agda-goals.mjs` | `node:fs` `node:path` `node:url` | — |
 | `plugins/proof-dag.mjs` | `node:crypto` `node:fs` `node:url` `node:os` `node:path` | — |
 | `plugins/proof-discipline.mjs` | `node:fs/promises` `node:fs` `node:path` | — |
 | `plugins/proof-graph.mjs` | `node:fs` `node:path` | — |
@@ -139,6 +143,7 @@ graph LR
 | `tests/doctor-check.mjs` | `node:fs` `node:child_process` `node:os` `node:path` | — |
 | `tests/dup-check.mjs` | `node:fs` `node:path` | — |
 | `tests/eval-check.mjs` | `node:fs` `node:path` | — |
+| `tests/goals-check.mjs` | `node:fs` `node:child_process` `node:os` `node:path` | — |
 | `tests/hooks-check.mjs` | `node:child_process` `node:fs` `node:os` `node:path` `node:crypto` | — |
 | `tests/hot-section-check.mjs` | `node:fs` `node:os` `node:path` | — |
 | `tests/inject-check.mjs` | `node:fs` `node:path` | — |
@@ -167,6 +172,7 @@ graph LR
 | `proof_dag` | `tests/budget-check.mjs` |
 | `proof_dag` | `tests/budget-check.mjs` |
 | `proof_dag` | `tests/hooks-check.mjs` |
+| `proof_goals` | `plugins/agda-goals.mjs` |
 | `proof_graph` | `plugins/proof-graph.mjs` |
 | `proof_oracle` | `plugins/python-oracle.mjs` |
 | `prover_limits` | `plugins/prover-limits.mjs` |

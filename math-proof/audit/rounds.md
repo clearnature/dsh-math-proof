@@ -3626,3 +3626,70 @@ Error: Cannot find module '/home/yanli/.dsh/.agent-presets/math-proof/hooks/stop
 - 纪律 §1 新增**第 0 步**：非平凡目标先 `proof_dag action:"plan"`（形状表能认出的漏项，不再靠自觉）；
 - README 工具表新增 `plan` 一行；
 - `CHECK_ALL_OK 26/26`；Node 24 / 22 / Node-20 模拟三环境均绿。
+
+---
+
+## 八十四、把 Agda 的交互接口接进数学模式（`proof_goals`）
+
+用户问：「怎么把这个加入到数学证明模式，提供帮助，`/data/work/functional-programming/agda-language-server`」。
+问题很具体，所以先**量**再设计——结果发现该接的不是 ALS，而是它底下的那层。
+
+### 84.1 先量：ALS 这条路为什么不通（三条硬事实）
+
+| 事实 | 证据 |
+| --- | --- |
+| ALS 0.2.7 支持的 Agda 是 **2.6.4.3 / 2.7.0.1 / 2.8.0** | 该检出 `README.md` 的 "Supported versions of Agda"；`package.yaml` version 0.2.7.0.1.5 |
+| 本机 Agda 是 **2.9.0-nightly** | `agda --version`（用户自己装的；装什么、装哪里属于使用者的事，不是 preset 的事） |
+| 该检出**没有构建产物**、PATH 上没有 `als` | 无 `dist-newstyle` / `.stack-work`；`command -v als` 空 |
+
+更关键的一条：**ALS 自己就是驱动 `agda --interaction(-json)` 的 LSP 前端**——它做的 give/refine/case 最终都落在这套 IOTCM 命令上。
+所以正确做法是**直接驱动这一层**：零新依赖、与装着的 Agda 同版本、不预设别人的环境；将来若真为 2.9.0 构建出 ALS，
+**后端可替换而工具签名不变**（对应关系写进了技能：`agda/goalTypeContext` ↔ `context`、`agda/give` ↔ `give`、`agda/makeCase` ↔ `case`…）。
+
+### 84.2 协议是**实跑测出来的**，不是猜的（这一步最重要）
+
+对着 Agda 2.9.0-nightly 逐条试，把真实报文固化成夹具（`tests/fixtures/agda-interaction-basic.txt`）：
+
+| 命令 | 响应 | 用途 |
+| --- | --- | --- |
+| `Cmd_load "f" []` | `DisplayInfo{AllGoalsWarnings.visibleGoals:[{id,range,type}]}` | 洞清单（在哪、什么类型） |
+| `Cmd_goal_type_context Normalised <id> noRange ""` | `GoalSpecific{GoalType{type, entries:[{originalName,binding}]}}` | **目标 + 上下文** |
+| `Cmd_infer AsIs <id> noRange "e"` | `GoalSpecific{InferredType{expr}}` | 表达式类型 |
+| `Cmd_compute DefaultCompute <id> noRange "e"` | `GoalSpecific{NormalForm{expr}}` | 范式（判定相等用） |
+| `Cmd_make_case <id> noRange "x"` | `MakeCase{variant, clauses:[…]}` | **可直接粘贴的子句** |
+| `Cmd_give WithoutForce <id> noRange "e"` | `GiveAction` / `DisplayInfo{Error{message}}` | 试项：过了就关洞，不过给**期望 vs 实际类型** |
+| `Cmd_autoAll AsIs` | `GiveAction{giveResult:{str:"x , x"}}` | Agda 自己的 proof search |
+
+两个踩坑记录（都进了门禁）：
+
+1. **`Cmd_goal_type_context` 有四个参数**（Rewrite / InteractionId / range / String）。少写最后那个 `""`，Agda 只回一句 `cannot read: IOTCM …`——**静默没反应**，最容易误判成"这个版本不支持"。
+2. **交互命令不改磁盘**：give/auto/case 只在 Agda 内存里生效（实测 diff 文件前后一致）。
+   这既是**安全性**（工具可以放心只读地试探），也是**纪律**：它给出的任何通过都**不是证据**——证据只能由 `proof_compile` 签发回执。
+
+### 84.3 交付
+
+| 件 | 角色 |
+| --- | --- |
+| `plugins/agda-goals.mjs` | 工具 **`proof_goals`**：7 个 action（list / context / infer / give / case / auto / normalize）；经 `ctx.shell` 跑（套用 session 的 sandbox 策略）；**只读且不签发证据** |
+| `impl/agda-interaction.mjs` | 纯函数：`buildCommands` / `parseStream` / 七个 renderer / `NOT_EVIDENCE` |
+| `agent.cordis.yml` | 新增组合行 `agda-goals`（冷档：要重启进程） |
+| `skills/agda-proof-engine/SKILL.md` | §5.95「写证明项时先问 Agda」+ **ALS↔action 映射表**（为将来换后端留路） |
+| `impl/discipline.md` | §1 新增第 **4.5** 步：写下 `{!!}` 之后先 `context`，别靠"编译→看报错→猜"循环 |
+
+**工具自己的 PATH 兜底**：共享的 `discoverCandidates()` 只认 `local-paths.json` 的 `agdaBin` 与 `~/.local/bin/agda`（那是**使用者的本机配置**，
+不该由我改）；本工具额外扫 PATH（任何机器上都成立的一条路），**不改配置、也不改 `agda-engine` 的判定**。
+
+### 84.4 门禁：`tests/goals-check.mjs`（66 条）
+
+- **真实报文当夹具**：8 条响应行（AllGoalsWarnings / GoalType / InferredType / MakeCase / Error / NormalForm / GiveAction×2），首行保留真实的 `JSON> ` 提示符；
+  机器路径脱敏成 `<AGDA_DATA_DIR>` / `<TMP>`（这一条是被 `paths-check` 与 `publish-check` 抓出来的：**夹具会进公开仓库与 npm 包**）；
+- **解析**：洞/位置/目标/上下文/类型/范式/子句/候选/错误逐项；空输入、垃圾行（进 `raw` 不假装理解）、`range` 是对象而非数组；
+- **命令构造 7 条**：每条命令逐字比对（含上面那个「少一个参数」的坑），缺参数如实报，未知 action 报错，路径引号转义；
+- **渲染**：断言「关键事实必须在报告里」——目标类型、上下文名字、**期望 vs 实际类型**、可粘贴子句、候选、剩余洞数、以及"通过 ≠ 已写进文件"；
+- **端到端**：本机有 Agda 时真跑 list/context/case 并断言**不改磁盘**；CI 没有 Agda → 如实 SKIP（不假绿）。
+
+顺带逼着更新了两处 inventory 门禁（本地插件行 8→9、注册工具 7→8）——这正是它们存在的意义。
+
+### 84.5 回归
+
+`CHECK_ALL_OK 27/27`（新增第 27 个入口 goals-check）；Node 24 / 22 / Node-20 模拟三环境均绿。

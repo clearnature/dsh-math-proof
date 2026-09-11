@@ -94,11 +94,35 @@ dype 是项目自研的**实验性内核**（尚不完善），当前只作生�
 **能耗红线**：单次编译 ≥120s 进入「性能急救」：拆大块、分离联合编译单元（本库实测：符号化界 3.4s vs
 具体界实例化 346s 堆爆，见 `references/bounded-instantiation-and-postulates.md`）。
 
+## 5.95 写证明项时先问 Agda（`proof_goals`，`agda --interaction-json`）
+
+**不要**写完就整模块编译、看报错、再猜。交互接口能一次回答：洞里要什么、上下文有什么、这个项过不过。
+
+| action | 回答什么 | 什么时候用 |
+| --- | --- | --- |
+| `list`（默认） | 洞清单：每个洞的**位置 + 目标类型** | 接手别人的文件 / 刚写下 `{!!}` |
+| `context` | 某洞的**目标类型 + 上下文**（名字: 类型） | 写项之前——**上下文里的名字就是你能直接用的项** |
+| `infer` | 表达式在该洞的类型 | 不确定某个表达式的类型时 |
+| `give` | 在该洞**试一个项**：不通过会给出**期望类型 vs 实际类型** | 试探比整模块编译快得多（一次进程，不落盘） |
+| `case` | 对变量分情况，直接给出**可粘贴的子句** | 写 `with`/嵌套 case 之前（避免手写漏 case） |
+| `auto` | Agda proof search 的候选（`Cmd_autoAll`） | 构造性/组合型目标；**对需要归纳或新引理的目标通常空手，这是正常的** |
+| `normalize` | 表达式的范式 | 判定相等：**两边范式相同通常 `refl` 就能闭合** |
+
+两条硬事实：
+- 本工具**只读**：交互命令只在 Agda 内存里生效（实测不改磁盘）——它回答「如果这样写会怎样」；
+- 它**不签发回执**：`give`/`auto` 通过 ≠ 已证。证据只由 `proof_compile` 签发（写进文件 → 编译 → 回执 → `proof_dag` 记 `receipt`）。
+
+**为什么不接 `agda-language-server`（ALS）**：ALS 0.2.7 支持的 Agda 是 2.6.4.3 / 2.7.0.1 / 2.8.0，而本项目构建是 **2.9.0-nightly**；
+且 ALS 自己就是驱动这同一套 IOTCM 命令的 LSP 前端。将来若为 2.9.0 构建出 ALS，**后端可替换而工具签名不变**——
+对应关系（LSP agda-mode 请求 ↔ 本工具 action）：`agda/goalTypeContext` ↔ `context`、`agda/goalType` ↔ `list`、
+`agda/infer` ↔ `infer`、`agda/give` ↔ `give`、`agda/makeCase` ↔ `case`、`agda/auto` ↔ `auto`、`agda/compute` ↔ `normalize`。
+
 ## 6. 工具分工
 
 | 工具 | 用途 |
 | --- | --- |
 | `proof_compile` | 编译 + 指纹分诊 + 签发回执（Agda 优先） |
+| `proof_goals` | **交互式问 Agda**（洞/上下文/试项/分情况/自动搜索/范式；只读、不签回执） |
 | `proof_audit` | 静态合规审计（postulate/hole/浮点/fixity/`let`/`trans` 深度） |
 | `prover_limits` | 工具链限制经验库（先 query 再决定） |
 | `proof_dag` | 台账/证据/评分/见证（回执写进 `receipt` 字段） |

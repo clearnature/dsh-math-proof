@@ -126,7 +126,7 @@ for (const r of mountResults) {
 {
   const allTools = mountResults.filter((r) => r.ok).flatMap((r) => r.tools)
   const allSections = mountResults.filter((r) => r.ok).flatMap((r) => r.sections)
-  ok('7 个工具都被注册（含 budget）', allTools.length === 7 && new Set(allTools).size === 7 && allTools.includes('budget'), allTools.join(','))
+  ok('8 个工具都被注册（含 budget）', allTools.length === 8 && new Set(allTools).size === 8 && allTools.includes('budget'), allTools.join(','))
   ok('纪律提示段被注册', allSections.includes('math-proof:discipline'), allSections.join(','))
   const allListeners = mountResults.filter((r) => r.ok).flatMap((r) => r.listeners ?? [])
   ok('思考强度调速器挂上了官方 agent/request 瀑布', allListeners.includes('agent/request'), allListeners.join(','))

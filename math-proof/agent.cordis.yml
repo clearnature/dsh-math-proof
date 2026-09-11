@@ -246,6 +246,12 @@
 - id: agda-engine
   name: './plugins/agda-engine.mjs'
 
+# 交互式询问 Agda（`agda --interaction-json`）：洞里要什么 / 上下文有什么 / 这个项过不过 / 怎么分情况 /
+# 自动搜索给什么候选。**只读且不签发回执**——证据仍然只由上面的 `proof_compile` 签发。
+# （不依赖 agda-language-server：它支持的 Agda ≤2.8.0，而项目构建是 2.9.0-nightly；ALS 自己也驱动这套 IOTCM 命令。）
+- id: agda-goals
+  name: './plugins/agda-goals.mjs'
+
 # Python oracle 回执（先算后验证闸门：工具亲自跑脚本、校验穷举覆盖，回执 id 进 proof_dag）
 - id: python-oracle
   name: './plugins/python-oracle.mjs'
