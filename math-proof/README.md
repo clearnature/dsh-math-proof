@@ -401,14 +401,16 @@ node tests/reload-check.mjs   # RELOAD_OK（代码改动是否需要重启 dsh �
 node tests/hot-section-check.mjs # HOT_SECTION_OK（热档只认官方数据/文本缝）
 node tests/budget-check.mjs   # BUDGET_OK（预算：规则表自洽 / 判定 / 结算 / 投递契约）
 node tests/state-check.mjs    # STATE_OK（数据保留：每个累积型存储都要有上限或被维护脚本报告）
+node tests/compat-check.mjs   # COMPAT_CHECK_OK（DSH 升级兼容：宿主契约 + 会话日志格式 v0/v3 + 未知形状自检）
 
-# 3) 一键跑全部门禁（23 个入口汇总成一张表）
+# 3) 一键跑全部门禁（24 个入口汇总成一张表）
 node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs   # CHECK_ALL_OK
 
 # 4) 运维
 node scripts/cache-report.mjs        # 缓存命中率 / 费用三段拆解
 node scripts/state-gc.mjs            # 状态目录盘点（dry-run）
 node scripts/state-gc.mjs --apply --archive-days 90 --rebuild-index --witness-gc
+node scripts/harness-compat.mjs      # DSH 升级兼容核验（25 条宿主契约；--expect 0.1.5 可让升级变红）
 node scripts/plugins.mjs             # 插件盘点（三平面 provenance）
 node scripts/market.mjs              # 插件市场（注册源侧）
 ```

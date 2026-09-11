@@ -356,6 +356,8 @@ export function foldLines(lines, options = {}) {
    * ⚠ 初值必须在读到 header **之后**才取——循环前 header 还是 null，否则第一轮的 preset 会丢。
    */
   let lastPreset = null
+  /** 行级 `sessionFormatVersion`（v3 起每行都带；用于识别「这是哪一代日志」）。 */
+  const formatVersions = new Set()
   for (const line of lines) {
     const e = parseLine(line)
     if (e === null) continue
@@ -364,6 +366,7 @@ export function foldLines(lines, options = {}) {
       if (lastPreset === null) lastPreset = header.agentPreset ?? null
       continue
     }
+    if (typeof e.sessionFormatVersion === 'number') formatVersions.add(e.sessionFormatVersion)
     const t = e.data?.turn
     if (typeof t === 'number') current = t
     if (e.type === 'agent-preset/selected') {
@@ -461,7 +464,11 @@ export function foldLines(lines, options = {}) {
         break
       }
       case 'hook/result': {
-        if (e.data?.decision === 'deny') tr.denies++
+        // ⚠ 两种写法都要认：`deny` 是权限决策（`permissionDecision:"deny"`），而**钩子 exit 2 在
+        // 会话日志里记的是 `block`**（`dsh-hook-protocol` 的 `parseHookOutput`：`exitCode === BLOCKING_EXIT_CODE`
+        // → `output.decision = "block"`）。0.1.2 / 0.1.5 两版词表一致，我们原先只认 `deny`
+        // → 真实日志里的「被拦」永远是 0（`turn.denies` 恒为 0，硬线判定只能靠钩子侧计数兜底）。
+        if (e.data?.decision === 'deny' || e.data?.decision === 'block') tr.denies++
         break
       }
       default:
@@ -497,7 +504,21 @@ export function foldLines(lines, options = {}) {
     delete tr.effortClosed
     out.push(tr)
   }
-  return { header, turns: out, presetEffective: lastPreset }
+  // ── 会话格式版本（0.1.5 起是 v3：`SESSION_FORMAT_VERSION = 3`；新日志在盘上是 v3）──
+  // 我们**只读原始 JSONL**，所以必须自己认识版本号；不认识的形状要能**报出来**而不是静默算 0。
+  const versions = new Set()
+  if (typeof header?.version === 'number') versions.add(header.version)
+  for (const v of formatVersions) versions.add(v)
+  const turnsWithUsage = out.filter((t) => (t.tok ?? 0) > 0).length
+  return {
+    header,
+    turns: out,
+    presetEffective: lastPreset,
+    formatVersions: [...versions].sort((a, b) => a - b),
+    formatVersion: versions.size === 0 ? null : Math.max(...versions),
+    /** 形状自检：有回合但一条 usage 都没有 → 极可能是日志格式变了（**不能静默算 0**）。 */
+    usageMissing: out.length >= 3 && turnsWithUsage === 0,
+  }
 }
 
 /** 从 content blocks 里取文本（工具结果 / 用户消息通用）。 */
@@ -764,7 +785,7 @@ export function scanSessionTurns(files, options = {}) {
  * 只在「会话第一次开局」时读一次全量日志（约 2s / 20MB），之后靠每回合增量累加。
  */
 export function sessionTotals(file) {
-  const { header, turns, presetEffective } = foldSession(file)
+  const { header, turns, presetEffective, formatVersion, formatVersions, usageMissing } = foldSession(file)
   const acc = { tok: 0, inTok: 0, cacheTok: 0, outTok: 0, reasoningTok: 0, steps: 0, calls: 0 }
   const byProvider = new Map()
   const byModel = new Map()
@@ -799,6 +820,10 @@ export function sessionTotals(file) {
     /** 生效预设（`header.agentPreset` 只是创建时的值——中途切换过就以事件为准）。 */
     preset: presetEffective ?? header?.agentPreset ?? null,
     presetAtCreation: header?.agentPreset ?? null,
+    /** 会话日志格式版本（新会话在 0.1.5 上是 **3**）；`usageMissing` 为真说明形状可能变了。 */
+    formatVersion: formatVersion ?? null,
+    formatVersions: formatVersions ?? [],
+    usageMissing: usageMissing === true,
     byProvider: Object.fromEntries(byProvider),
     byModel: Object.fromEntries(byModel),
     byPreset: turns.reduce((acc, tr) => {

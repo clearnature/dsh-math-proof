@@ -37,6 +37,7 @@ const SUITES = [
   ['hot-section-check', join(PRESET, 'tests', 'hot-section-check.mjs'), 'HOT_SECTION_OK'],
   ['budget-check', join(PRESET, 'tests', 'budget-check.mjs'), 'BUDGET_OK'],
   ['state-check', join(PRESET, 'tests', 'state-check.mjs'), 'STATE_OK'],
+  ['compat-check', join(PRESET, 'tests', 'compat-check.mjs'), 'COMPAT_CHECK_OK'],
 ]
 
 const rows = []
@@ -48,8 +49,9 @@ for (const [name, file, marker] of SUITES) {
   const ms = Date.now() - t0
   const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`
   const last = out.trim().split('\n').filter((l) => l.trim() !== '').pop() ?? ''
-  // refs-check 在无仓库时会 SKIP，也算通过
-  const ok = r.status === 0 && (last.includes(marker) || last.includes('REFS_SKIP'))
+  // 裸环境（CI 没装 DSH / 没克隆本仓库）时会 SKIP，也算通过：SKIP 必须**说出来**，不能假绿
+  const SKIPS = ['REFS_SKIP', 'COMPAT_CHECK_SKIP']
+  const ok = r.status === 0 && (last.includes(marker) || SKIPS.some((s) => last.includes(s)))
   rows.push(`| ${ok ? '✅' : '❌'} | ${name} | ${(ms / 1000).toFixed(1)}s | ${last.slice(0, 96)} |`)
   if (!ok) failures.push({ name, out })
 }

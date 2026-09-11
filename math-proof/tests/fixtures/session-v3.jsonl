@@ -1,0 +1,22 @@
+# math-proof 会话样本（**v3 形状**，照 0.1.5 的会话格式）
+#
+# 用途：0.1.5 的 `SESSION_FORMAT_VERSION = 3`，**新会话在盘上就是 v3**；而我们的流量账目是
+# 直接读原始 JSONL 的。这份样本按 v2→v3 迁移器体现的差异构造：
+#   · 每行带 `sessionFormatVersion: 3`；
+#   · `request/header` **不再有** `header.system`（v3 拒绝它），空的可选字段必须省略；
+#   · `hook/result` 里「被拦」记的是 `block`（钩子 exit 2 的协议记录），不是 `deny`；
+#   · `assistant/message.usage` 的字段名与 v0 相同（迁移器没有改名：inputTokens/outputTokens/
+#     totalTokens/cacheReadTokens/reasoningTokens）。
+# 值都是手算的，便于断言：turn1 = 100+900+20 = 1020；turn2 = 50+450+30 = 530。
+{"type":"session","version":3,"id":"fixture-v3-session","createdAt":1000,"cwd":"/tmp/math-proof-v3","agentPreset":"math-proof","origin":"main","sessionFormatVersion":3}
+{"type":"turn/start","seq":1,"time":1000,"sessionFormatVersion":3,"data":{"turn":1}}
+{"type":"user/message","seq":2,"time":1010,"sessionFormatVersion":3,"data":{"content":[{"type":"text","text":"把这批模块的断链全部修掉，并补回归测试"}],"source":{"kind":"user"},"role":"user","id":"u-1"}}
+{"type":"request/header","seq":3,"time":1020,"sessionFormatVersion":3,"data":{"header":{"config":{"provider":"deepseek-official","model":"deepseek-v4-flash","reasoningEffort":"high"}},"reason":"initial"}}
+{"type":"assistant/message","seq":4,"time":1100,"sessionFormatVersion":3,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"tool-call","id":"c1","name":"read","arguments":"{\"path\":\"a.agda\"}"}]},"usage":{"inputTokens":100,"outputTokens":20,"totalTokens":1020,"cacheReadTokens":900,"reasoningTokens":5}}}
+{"type":"tool/result","seq":5,"time":1200,"sessionFormatVersion":3,"data":{"turn":1,"step":1,"message":{"source":{"kind":"tool","callId":"c1"},"content":[{"type":"tool-result","toolCallId":"c1","content":[{"type":"text","text":"module a where"}]}]}}}
+{"type":"hook/result","seq":6,"time":1210,"sessionFormatVersion":3,"data":{"turn":1,"point":"PreToolUse","handlerId":"claude-code:PreToolUse:9","decision":"block","exitCode":2,"durationMs":88}}
+{"type":"turn/end","seq":7,"time":2000,"sessionFormatVersion":3,"data":{"turn":1,"reason":{"kind":"completed"}}}
+{"type":"turn/start","seq":8,"time":3000,"sessionFormatVersion":3,"data":{"turn":2}}
+{"type":"assistant/chunk","seq":9,"time":3100,"sessionFormatVersion":3,"data":{"turn":2,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":50,"outputTokens":30,"totalTokens":530,"cacheReadTokens":450,"reasoningTokens":9}}}}
+{"type":"hook/result","seq":10,"time":3110,"sessionFormatVersion":3,"data":{"turn":2,"point":"PreToolUse","handlerId":"claude-code:PreToolUse:9","decision":"block","exitCode":2,"durationMs":91}}
+{"type":"turn/end","seq":11,"time":4000,"sessionFormatVersion":3,"data":{"turn":2,"reason":{"kind":"completed"}}}

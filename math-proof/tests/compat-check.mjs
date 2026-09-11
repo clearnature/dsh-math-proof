@@ -1,0 +1,109 @@
+// 数学证明模式 — **DSH 升级兼容核验**（零依赖）
+//
+// 用法：node ~/.dsh/.agent-presets/math-proof/tests/compat-check.mjs
+// 期望最后一行：COMPAT_CHECK_OK n/n（或裸环境下的 COMPAT_CHECK_SKIP）
+//
+// 为什么要有这一套：用户问「DSH 从 0.1.2 升到 0.1.5 了，我们的插件兼容吗」——
+// 这类问题**必须能一条命令回答**，而且要覆盖两层：
+//   1. **host 侧契约还在不在**（钩子方言/瀑布/日志容器/投影/权限/挂载）→ 跑 `scripts/harness-compat.mjs`；
+//   2. **我们自己的解析器扛不扛得住新格式**（0.1.5 的会话格式是 v3，而新会话在盘上就是 v3）
+//      → 用 `tests/fixtures/session-v3.jsonl`（按 v2→v3 迁移器体现的差异构造）真的解析一遍。
+//
+// 裸 CI 没有 DSH store → host 侧那半 `COMPAT_SKIP`（跳过而不是假绿）；我们自己那半永远跑。
+
+import { spawnSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+
+const HERE = new URL('.', import.meta.url).pathname.replace(/\/$/, '')
+const PRESET = dirname(HERE)
+const FIXTURES = join(HERE, 'fixtures')
+
+const results = []
+let failures = 0
+let skips = 0
+const ok = (name, cond, detail = '') => {
+  results.push(`${cond ? '✅' : '❌'} ${name}${cond || detail === '' ? '' : ` — ${String(detail).slice(0, 150)}`}`)
+  if (!cond) failures++
+}
+const skipReasons = []
+const skip = (name, why) => {
+  results.push(`⏭ ${name} — SKIP：${why}`)
+  skips++
+  skipReasons.push(why) // 汇总行必须报**真实**原因
+}
+const section = (t) => results.push(`\n## ${t}`)
+
+const traffic = await import(join(PRESET, 'impl', 'session-traffic.mjs'))
+
+// ── 1) host 侧契约（脚本自检；裸环境 SKIP）─────────────────────────────────
+section('host 侧契约（scripts/harness-compat.mjs）')
+{
+  const r = spawnSync(process.execPath, [join(PRESET, 'scripts', 'harness-compat.mjs')], { encoding: 'utf8' })
+  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`
+  const last = out.trim().split('\n').filter((l) => l.trim() !== '').pop() ?? ''
+  if (last.includes('COMPAT_SKIP')) {
+    skip('host 侧契约 25 项', '本机没有 pnpm store（裸 CI）')
+  } else {
+    ok('兼容脚本退出 0（所有依赖的 host 契约都在位）', r.status === 0 && last.includes('COMPAT_OK'), last)
+    ok('脚本报告本机 dsh 版本', /本机 dsh: \*\*0\.\d+\.\d+/.test(out), (out.match(/本机 dsh: \*\*[^*]+\*\*/) ?? [''])[0])
+    ok('脚本列出涉及的包版本', /涉及的包版本:/.test(out), '')
+    ok('脚本覆盖「会话格式版本」这一条（升级最可能影响我们）', out.includes('会话格式版本') && (r.status !== 0 || out.includes('✅ dsh-session')), '')
+  }
+  // 版本期望不匹配时必须红（防止「升级了却没人发现」）
+  const wrong = spawnSync(process.execPath, [join(PRESET, 'scripts', 'harness-compat.mjs'), '--expect', '0.0.1'], { encoding: 'utf8' })
+  if (last.includes('COMPAT_SKIP')) {
+    skip('版本期望不匹配 → 红', '裸环境')
+  } else {
+    ok('--expect 版本不匹配时脚本变红（升级可被机器发现）', wrong.status === 1 && (wrong.stdout ?? '').includes('COMPAT_FAIL'), `exit ${wrong.status}`)
+  }
+}
+
+// ── 2) 会话格式 v3（0.1.5 起新会话在盘上就是 v3）───────────────────────────
+section('会话格式 v3 形状（我们直接读原始 JSONL）')
+{
+  const v3 = join(FIXTURES, 'session-v3.jsonl')
+  ok('v3 形状样本存在', existsSync(v3))
+  const folded = traffic.foldSession(v3)
+  const totals = traffic.sessionTotals(v3)
+  ok('识别出会话格式版本 = 3', folded.formatVersion === 3 && JSON.stringify(folded.formatVersions) === '[3]', JSON.stringify({ v: folded.formatVersion, set: folded.formatVersions }))
+  ok('v3 形状**没有**触发「usage 缺失」告警', folded.usageMissing === false)
+  ok('v3 的 `assistant/message.usage` 字段名与 v0 相同（逐字段读出来）', folded.turns[0].tok === 1020 && folded.turns[0].inTok === 100 && folded.turns[0].cacheTok === 900 && folded.turns[0].outTok === 20, JSON.stringify({ tok: folded.turns[0].tok, i: folded.turns[0].inTok, c: folded.turns[0].cacheTok, o: folded.turns[0].outTok }))
+  ok('v3 的 `assistant/chunk` 回退路径仍可用（turn2 无 message 记录 → 530）', folded.turns[1].tok === 530 && folded.turns[1].steps === 1, JSON.stringify({ tok: folded.turns[1].tok, steps: folded.turns[1].steps }))
+  ok('v3 的 `request/header`（无 header.system）仍能取到 provider/model', folded.turns[0].provider === 'deepseek-official' && folded.turns[0].model === 'deepseek-v4-flash', `${folded.turns[0].provider}/${folded.turns[0].model}`)
+  ok('v3 的 `user/message`（source 在 data 上）仍能取到人类提示词', String(folded.turns[0].prompt ?? '').includes('断链'), String(folded.turns[0].prompt ?? '').slice(0, 20))
+  ok('v3 的生效预设仍可归属', folded.presetEffective === 'math-proof' && totals.preset === 'math-proof', String(totals.preset))
+  ok('v3 会话的 token 分解合计正确（1550）', totals.tok === 1550 && totals.inTok === 150 && totals.cacheTok === 1350 && totals.outTok === 50, JSON.stringify(totals).slice(0, 90))
+}
+
+// ── 3) 被拦计数的标签（exit 2 在协议里记作 block，不是 deny）───────────────
+section('被拦计数：deny / block 两种标签都要认')
+{
+  const folded = traffic.foldSession(join(FIXTURES, 'session-v3.jsonl'))
+  ok('v3 样本里的 `decision:"block"` 被计入 denies', folded.turns.every((t) => t.denies === 1), folded.turns.map((t) => t.denies).join(','))
+  const v0 = traffic.foldSession(join(FIXTURES, 'session-basic.jsonl'))
+  ok('旧样本里的 `decision:"deny"` 仍被计入（向后兼容）', v0.turns[1].denies === 1, String(v0.turns[1].denies))
+  const src = readFileSync(join(PRESET, 'impl', 'session-traffic.mjs'), 'utf8')
+  ok('实现里两种标签都认（不是只认 deny）', /decision === 'deny' \|\| e\.data\?\.decision === 'block'/.test(src), '')
+}
+
+// ── 4) 形状自检：未来格式真的变了要**报出来**，不能静默算 0 ─────────────────
+section('形状自检（防「升级后静默算 0 流量」）')
+{
+  const broken = join(FIXTURES, 'session-unknown-shape.jsonl')
+  ok('「不认识的新形状」样本存在', existsSync(broken))
+  const folded = traffic.foldSession(broken)
+  ok('未知版本被如实报出（不假装认识）', folded.formatVersion === 9, String(folded.formatVersion))
+  ok('有回合但读不到 usage → `usageMissing` 告警为真', folded.usageMissing === true)
+  ok('会话累计为 0（因为确实读不到），但**带着告警**而不是悄悄算 0', traffic.sessionTotals(broken).tok === 0 && traffic.sessionTotals(broken).usageMissing === true, JSON.stringify(traffic.sessionTotals(broken)).slice(0, 80))
+  const src = readFileSync(join(PRESET, 'plugins', 'budget.mjs'), 'utf8')
+  ok('budget 工具会把「数量与均值可能失真」这类形状告警报给模型', /usageMissing/.test(src), '')
+}
+
+console.log('# DSH 升级兼容核验\n')
+console.log(results.join('\n'))
+const passed = results.filter((r) => r.startsWith('✅')).length
+const judged = results.filter((r) => /^[✅❌]/.test(r)).length
+const verdict = failures === 0 ? (skips > 0 ? 'COMPAT_CHECK_SKIP' : 'COMPAT_CHECK_OK') : 'COMPAT_CHECK_FAIL'
+console.log(`\n${verdict} ${passed}/${judged}${skips > 0 ? `（${skips} 条 SKIP：${[...new Set(skipReasons)].join('；')}）` : ''}`)
+process.exit(failures === 0 ? 0 : 1)

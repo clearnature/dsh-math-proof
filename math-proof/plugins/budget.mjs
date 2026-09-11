@@ -119,6 +119,20 @@ function renderStatus(args) {
       lines.push('- 下一步档位: 未知（看不到当前档位就不动——**看不懂就不猜**）')
     }
     if (state.error !== undefined) lines.push(`- ⚠ 钩子内部错误（已放行）: \`${state.error}\``)
+    // 形状自检：会话日志格式变了（DSH 升级）时要**说出来**，否则流量会静默算成 0
+    if (typeof state.transcript === 'string' && state.transcript !== '') {
+      try {
+        const shape = foldSession(state.transcript)
+        const fmt = shape.formatVersion === null ? '未知' : `v${shape.formatVersion}`
+        if (shape.usageMissing) {
+          lines.push(`- 🛑 **日志形状异常**：会话格式 ${fmt} 有 ${shape.turns.length} 个回合却读不到任何 usage —— 极可能是 DSH 升级改了日志格式；此时 token 账 / 会话预算**都会失真**，请跑 \`node scripts/harness-compat.mjs\` 与 \`tests/compat-check.mjs\` 核对。`)
+        } else {
+          lines.push(`- 日志形状：会话格式 **${fmt}**（usage 可读，回合 ${shape.turns.length}）`)
+        }
+      } catch {
+        /* 读不到就不报，交给上面的「读日志失败」分支 */
+      }
+    }
     if (state.lastLiveWhy !== undefined && state.lastLiveWhy !== null) lines.push(`- 过程中不读日志的原因: ${state.lastLiveWhy}`)
   }
   const pending = profile.pending ?? []

@@ -168,6 +168,41 @@ git -C ~/.dsh/state/math-proof/witness-<ws> show <commit>:dag.json | head
 > 口径：**「覆盖」= 同一个文件被原子重写（`tmp + rename`），永远不会长成 N 份**；
 > **「环形」= 单文件内的数组超限丢最旧**；只有回执/图谱这类**追加型**才需要维护脚本。
 
+## M4.5e 会话日志的**格式版本**与升级兼容核验（0.1.5 = v3）
+
+会话日志是**我们唯一不能拥有格式**的存储：写入方是 harness，我们只读。
+所以「DSH 升级改了日志格式」是对流量账/会话预算**最危险**的一类变化 —— 危险的地方不是崩，而是**安静地算出 0**。
+
+| 代 | 谁在写 | 我们读的字段变了吗 |
+| --- | --- | --- |
+| v0（磁盘上现存的历史日志，与 0.1.2 时代） | 0.1.2 及更早 | — |
+| v1 / v2 | 迁移器链 `v0→v1→v2→v3` 的中间态 | 没变 |
+| **v3**（0.1.5 起，新会话在盘上就是 v3） | `SESSION_FORMAT_VERSION = 3` | **没变**（见下） |
+
+v3 相对我们读法的差异，逐条核过（`tests/fixtures/session-v3.jsonl` + `tests/compat-check.mjs`）：
+
+- v3 **退役 `header.system`**、要求**省略空的可选 header 字段** → 我们本来就不读 `system`，不受影响；
+- `source.plugin` 由 `tools-code-mode` 改名 **`tools-ptc`** → 我们只在**成对**出现时用它去重，不认识的名字会走另一分支，不静默丢数据；
+- 每行**多一个 `sessionFormatVersion`** → 我们收集它（`formatVersion` / `formatVersions`）；
+- **字段名全部不变**：`turn`/`step`、`turn/start|end`、`assistant/message.usage`、`tool/result`、`request/header` 的 provider/model、`agentPreset`；`user/message` 的 `source`/`content` 仍**平铺在 `data`**，`assistant/message`/`tool/result` 仍**嵌在 `data.message`**。
+
+**防线（三层，缺一不可）**：
+
+1. `foldSession` 报 `formatVersion` / `formatVersions`；不认识就如实报「未知」，不假装认识；
+2. `usageMissing`：**有 ≥3 个回合却一条 usage 都读不到** → 形状告警（`tests/fixtures/session-unknown-shape.jsonl` 钉住这条路）；
+3. `budget` 的 `status` 把形状**说给模型听**（正常报版本与回合数，异常报「token 账 / 会话预算都会失真」并给出复核命令）。
+
+**一条命令回答「升级了还兼容吗」**：
+
+```
+node scripts/harness-compat.mjs   # 25 条宿主契约（读 pnpm store 里 dsh-* 的真实产物；裸环境 COMPAT_SKIP）
+node tests/compat-check.mjs       # 22 条：宿主 4 + 会话格式 v3 8 + deny/block 3 + 形状自检 5 + 汇总行
+node scripts/harness-compat.mjs --expect 0.1.5   # 版本不符 → COMPAT_FAIL 退出 1（升级由机器先发现）
+```
+
+> 口径：**宿主契约**探测的是「我们依赖的合同还在不在」；**会话格式**探测的是「同一个字段还在不在原位」。
+> 两者都不能靠读代码感觉，必须**在装好的那一版上真的跑一遍**。
+
 ## M4.6 已知缺口（如实列出）
 
 | 缺口 | 现状 | 影响 |
@@ -175,5 +210,6 @@ git -C ~/.dsh/state/math-proof/witness-<ws> show <commit>:dag.json | head
 | 图谱导出无自动上限 | 由 `--graph-keep` 手动清理（实测已有 68 个文件 / 65 组） | 体积小（0.2 MB），但会持续堆积 |
 | 见证仓库无远程 | 只在本地 | 换机器要手动 `tar` 迁移 |
 | 台账无 schema 版本迁移 | 字段只增不改语义 | 未来若改字段语义，需要写迁移脚本 |
+| 会话日志格式无迁移器（**我们侧**） | 只读，靠 `formatVersion`/`usageMissing` **报警**而不是自动迁移 | 若将来出现 v4 且**改了字段名**，流量账要先报警、再由人改 `impl/session-traffic.mjs`（shape 告警会先响） |
 
 > 相关：`M3 数据流`（谁写这些文件）、`M6 证据链`（回执如何失效）、`CACHE.md`（缓存前缀纪律）。

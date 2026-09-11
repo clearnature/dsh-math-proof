@@ -3327,3 +3327,78 @@ compaction 管的是**上下文压力**（不是累计花费）；`tokenUsage` �
 安装器 install/拒绝覆盖/--force/print-root）；`CHECK_ALL_OK 23/23`。
 文档：README 分发一节新增「npm 格式包（不发布但可以打）」+ 四条命令；`release.yml` 注释改为解释
 「为什么不发布、但为什么可以打包」。
+
+---
+
+## 八十一、DSH 0.1.2 → 0.1.5 升级兼容核验（结论：**兼容**）
+
+用户问：「这个 dsh 从 0.12 升级到 0.15 了，检查下我们的数学证明模式插件，兼容吗？」
+这类问题**必须能用一条命令回答**，而且不能只回答「我读了一遍代码觉得没事」——要能**机器复验**。
+
+### 81.1 装的是哪一版（先确定对象）
+
+- 全局装的是 `@deepseek-ai/dsh@0.1.5-rc.2`（0.1.2-rc.1 还在 pnpm store 里，别混）；
+- **正在跑的进程**是 0.1.5（按 `~/.local/share/pnpm/global` 的链接与进程命令行核对），所以「兼容」这个词指的是**我们在 0.1.5 上活着**，不是理论推演。
+
+### 81.2 第一层：宿主契约还在不在（`scripts/harness-compat.mjs`，25 条）
+
+不猜 API，直接**去 pnpm store 读 `dsh-*` 包的真实产物**，逐条探我们依赖的东西：
+
+| 我们依赖 | 探测对象 | 0.1.5 结果 |
+| --- | --- | --- |
+| 钩子方言（payload 字段 / `additionalContext` / 阻塞=exit 2） | `dsh-hooks-claude-code` | ✅ |
+| `agent/request` 瀑布（思考强度要能在发请求前改） | `dsh-*` agent 路由 | ✅ |
+| 会话日志容器（多帧 zstd / `.jsonl.zstd`） | `dsh-session-persistence-jsonl` | ✅ |
+| **会话格式版本常量**（升级最可能打到我们） | `dsh-session` | ✅ `SESSION_FORMAT_VERSION = 3` |
+| 格式迁移器链（说明格式**会**演进） | `dsh-session-format-v2-to-v3` | ✅ |
+| token 投影（累计桶 / 上下文压力） | `dsh-token-meter` | ✅ |
+| 工具注册面 `register(definition)` | `dsh-tools` | ✅ |
+| 新文件落 0600 的根因（原子写暂存） | `dsh-fs-local` | ✅ |
+| preset 扫描与挂载时间戳 | `dsh-agent-presets` | ✅ |
+
+**25/25 在位**（`COMPAT_OK 25/25 契约在位（dsh 0.1.5-rc.2）`）。两条设计约束：
+①**不联网、不猜**——只有真的在 store 里找到合同才算数；
+②**没有 store 就 `COMPAT_SKIP`**（裸 CI / 没装 DSH），SKIP 不算绿也不算红，`check-all` 认 SKIP 但把它**写进表**；
+③支持 `--expect 0.1.5`：版本不符就 `COMPAT_FAIL` 退出 1 —— 这样「哪天又升级了」是**机器先知道**，不是用户先发现。
+
+### 81.3 第二层：我们自己的解析器扛不扛得住 v3
+
+我们**只读原始 JSONL**（不 import 宿主解析器），所以格式一变就是我们自己的事。0.1.5 的新会话在盘上就是 **v3**。
+按 `v2→v3` 迁移器体现的差异手造 `tests/fixtures/session-v3.jsonl`，真解析一遍：
+
+- v3 **没有** `header.system`（退役了）、空的可选 header 字段要求省略、`source.plugin` 由 `tools-code-mode` 改名 **`tools-ptc`**、每行多一个 `sessionFormatVersion`；
+- **我们读的字段名一个没变**：`turn`/`step`、`turn/start|end`、`assistant/message.usage`、`tool/result`、`request/header` 的 provider/model、`agentPreset`；
+- `user/message` 的 `source`/`content` 仍**平铺在 `data` 上**（不是 `data.message`），`assistant/message`/`tool/result` 仍**在 `data.message` 下** —— 这两种形状我们本来就分开处理，v3 没动它们；
+- v3 样本逐字段核对：turn1 = 1020、turn2 = 530（走 `assistant/chunk` 回退）、合计 1550、`denies` 每回合 1、生效预设 `math-proof` ✅。
+
+### 81.4 查出并修掉一个真 bug：`被拦计数` 永远是 0
+
+核 v3 的 `hook/result` 时发现：钩子的 **`exit 2` 在会话日志里记的是 `decision:"block"`**，
+而 `"deny"` 是**权限决策**（`permissionDecision`）的词。我们只认 `deny` → 真实日志里 `turn.denies` **恒为 0**，
+硬线判定只能靠钩子侧自己计数兜底（能跑，但「拦了几次」在报表里是假的）。
+
+修法：两种标签都认（向后兼容 0.1.2 的日志），并在门禁里**同时**用两个样本断言 —— 改完真实日志立刻报出 **`被拦计数 3`**（原先 0）。
+
+### 81.5 第三层：形状自检（防「下次升级静默算 0」）
+
+格式演进是常态，最危险的失败**不是崩**，而是**安静地算出 0**（预算于是永远不触发）。所以：
+
+- `foldSession` 现在报 `formatVersion` / `formatVersions`（v3 起每行都带，v0 只有 header）；
+- 报 `usageMissing`：**有 ≥3 个回合却一条 usage 都读不到** → 极可能是形状变了；
+- `budget` 工具的 `status` 会把形状**直接说给模型听**：正常时写「日志形状：会话格式 **v3**（usage 可读，回合 N）」，
+  异常时写「🛑 **日志形状异常** … token 账 / 会话预算**都会失真**，请跑 `harness-compat` 与 `compat-check` 核对」；
+- 门禁用 `tests/fixtures/session-unknown-shape.jsonl`（`version: 9`、3 个回合、**没有任何 usage**）真的走一遍：
+  未知版本如实报 9、`usageMissing === true`、会话累计 0 **但带着告警**而不是悄悄算 0。
+
+### 81.6 顺带修掉一个假归因
+
+`budget-check` 与 `compat-check` 的汇总行原先**一律**写「（另有 N 条 SKIP：本机 Node 无 zstd 支持）」——
+可 SKIP 的原因不止 zstd（例如裸环境没有会话日志）。假归因比不写更坏：它会让人以为自己看懂了。
+现在汇总行按**真实原因**去重后列出（`本机没有该会话日志` / `本机没有 pnpm store（裸 CI）`）。
+
+### 81.7 回归
+
+- 新增 `tests/compat-check.mjs`（22 条：宿主 4 + v3 形状 8 + deny/block 3 + 形状自检 5 + 汇总行），`scripts/harness-compat.mjs`（25 条探测）；
+- `scripts/check-all.mjs` 24 个入口（SKIP 白名单加 `COMPAT_CHECK_SKIP`，且 SKIP **不能**掩盖失败：有失败就是 `COMPAT_CHECK_FAIL` 退出 1）；
+- 本机实测：Node **24.21.0** 与 **22.22.1** 均 `CHECK_ALL_OK 24/24`；模拟裸 CI（空 HOME）也 `CHECK_ALL_OK 24/24`（宿主那半 SKIP）；
+- 文档：README 门禁清单 + `docs/maps/M4-state-and-storage.md` §M4.5e（日志格式版本与兼容核验入口）。

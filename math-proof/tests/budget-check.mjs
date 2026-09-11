@@ -37,9 +37,11 @@ const ok = (name, cond, detail = '') => {
 const section = (t) => results.push(`\n## ${t}`)
 /** 跳过（老 Node 没有 zstd）：记为 ⏭ 而不是失败——但**必须如实说清为什么跳过**。 */
 let skips = 0
+const skipReasons = []
 const skip = (name, why) => {
   results.push(`⏭ ${name} — SKIP：${why}`)
   skips++
+  skipReasons.push(why) // 汇总行必须报**真实**原因，不能一律写成「没 zstd」
 }
 
 /** 剥注释（静态扫描用：注释里常引用反面写法作为文档）。 */
@@ -929,7 +931,7 @@ console.log('# 预算与流量账本回归\n')
 console.log(results.join('\n'))
 const passed = results.filter((r) => r.startsWith('✅')).length
 const judged = results.filter((r) => /^[✅❌]/.test(r)).length
-console.log(`\n${failures === 0 ? 'BUDGET_OK' : 'BUDGET_FAIL'} ${passed}/${judged}${skips > 0 ? `（另有 ${skips} 条 SKIP：本机 Node 无 zstd 支持）` : ''}`)
+console.log(`\n${failures === 0 ? 'BUDGET_OK' : 'BUDGET_FAIL'} ${passed}/${judged}${skips > 0 ? `（另有 ${skips} 条 SKIP：${[...new Set(skipReasons)].join('；')}）` : ''}`)
 try {
   rmSync(STATE, { recursive: true, force: true })
   rmSync(SESSIONS, { recursive: true, force: true })

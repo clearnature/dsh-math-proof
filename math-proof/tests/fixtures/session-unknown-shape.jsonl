@@ -1,0 +1,8 @@
+{"type":"session","version":9,"id":"fixture-unknown-shape","createdAt":1000,"cwd":"/tmp/x","agentPreset":"math-proof","origin":"main","sessionFormatVersion":9}
+{"type":"turn/start","seq":1,"time":1000,"sessionFormatVersion":9,"data":{"turn":1}}
+{"type":"assistant/message","seq":2,"time":1100,"sessionFormatVersion":9,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"text","text":"（未来的格式把 usage 搬到别处了）"}]}}}
+{"type":"turn/end","seq":3,"time":2000,"sessionFormatVersion":9,"data":{"turn":1,"reason":{"kind":"completed"}}}
+{"type":"turn/start","seq":4,"time":3000,"sessionFormatVersion":9,"data":{"turn":2}}
+{"type":"turn/end","seq":5,"time":4000,"sessionFormatVersion":9,"data":{"turn":2,"reason":{"kind":"completed"}}}
+{"type":"turn/start","seq":6,"time":5000,"sessionFormatVersion":9,"data":{"turn":3}}
+{"type":"turn/end","seq":7,"time":6000,"sessionFormatVersion":9,"data":{"turn":3,"reason":{"kind":"completed"}}}
