@@ -87,6 +87,23 @@ section('被拦计数：deny / block 两种标签都要认')
   ok('实现里两种标签都认（不是只认 deny）', /decision === 'deny' \|\| e\.data\?\.decision === 'block'/.test(src), '')
 }
 
+// ── 3b) 0.1.5 迁移的**副作用**：文件名带版本 + 旧文件不删 + usage 换落点 ──────
+// 这三条都是在**真实日志**上核出来的（2026-09-11：26 个会话 / 2 个目录两份共存 / 共 35.2 MB 残留）。
+section('0.1.5 迁移的副作用（真实日志核对）')
+{
+  const v3file = join(FIXTURES, 'session-v3.jsonl')
+  const v3 = traffic.foldSession(v3file)
+  ok('文件名带版本：`session.v3.jsonl.zstd` → v3；legacy `session.jsonl.zstd` → v0', traffic.sessionLogVersion('session.v3.jsonl.zstd')?.version === 3 && traffic.sessionLogVersion('session.jsonl.zstd')?.version === 0)
+  ok('一个目录里的两份日志只取**版本最高**那份（迁移不删旧文件 → 否则同一会话算两遍）', traffic.pickSessionLog(['session.jsonl.zstd', 'session.v3.jsonl.zstd']) === 'session.v3.jsonl.zstd')
+  const chunkLines = readFileSync(join(FIXTURES, 'session-basic.jsonl'), 'utf8').split('\n')
+  const v3Lines = readFileSync(v3file, 'utf8').split('\n')
+  ok('v0 的 usage 在 `assistant/chunk`（fixture 里确实有 usage chunk）', chunkLines.some((l) => l.includes('"type":"usage"') || l.includes('"type": "usage"')))
+  ok('v3 的 usage 在 `assistant/message.data.usage`（fixture 里 message 带 usage）', v3Lines.some((l) => l.includes('"usage"') && l.includes('assistant/message')))
+  ok('v3 折叠出 token（不是静默 0）', v3.turns.some((t) => (t.tok ?? 0) > 0), JSON.stringify(v3.turns.map((t) => t.tok)))
+  ok('逐步 usage：v3 也能逐步读出（`assistant/chunk` 在 v3 里是 0 个）', traffic.stepUsages(v3file).length > 0, String(traffic.stepUsages(v3file).length))
+  ok('逐步 usage：v0 也能逐步读出', traffic.stepUsages(join(FIXTURES, 'session-basic.jsonl')).length > 0)
+}
+
 // ── 4) 形状自检：未来格式真的变了要**报出来**，不能静默算 0 ─────────────────
 section('形状自检（防「升级后静默算 0 流量」）')
 {

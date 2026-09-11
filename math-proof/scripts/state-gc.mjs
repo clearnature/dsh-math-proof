@@ -33,6 +33,7 @@ import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
 
 import { stateDir } from '../impl/state-dir.mjs'
+import { sessionLogVersion } from '../impl/session-traffic.mjs'
 
 const argv = process.argv.slice(2)
 const flag = (n, d) => {
@@ -91,7 +92,7 @@ const report = {
   graphs: { files: 0, bytes: 0, groups: 0 },
   budgetTurns: { files: 0, bytes: 0 },
   flow: { files: 0, bytes: 0, stale: 0, oldest: null },
-  sessions: { files: 0, bytes: 0, oldest: null },
+  sessions: { files: 0, sessions: 0, bytes: 0, oldest: null, migrated: 0, migratedFiles: 0, migratedBytes: 0 },
   budgetProfile: { bytes: 0 },
   carryover: { files: 0, bytes: 0 },
 }
@@ -175,15 +176,36 @@ report.graphs.groups = new Set(graphFiles.map((f) => f.replace(/^graph-/, '').re
         continue
       }
       for (const id of ids) {
-        for (const name of ['session.jsonl.zstd', 'session.jsonl']) {
-          const f = join(wsDir, id, name)
-          if (!existsSync(f)) continue
+        // ⚠ 这里**故意数全部日志文件**（含 0.1.5 迁移后留下的旧文件）——这是磁盘占用的实话。
+        // 算流量时不能这么做：同一会话的两份会重复计数，所以那条路径用 `pickSessionLog`
+        // 只取版本最高的一份。两者口径不同、各有各的用途。
+        let names = []
+        try {
+          names = readdirSync(join(wsDir, id))
+        } catch {
+          continue
+        }
+        const logs = names
+          .map((n) => ({ n, v: sessionLogVersion(n) }))
+          .filter((x) => x.v !== null)
+          .sort((a, b) => a.v.version - b.v.version) // 旧 → 新
+        if (logs.length === 0) continue
+        report.sessions.sessions = (report.sessions.sessions ?? 0) + 1
+        for (const { n } of logs) {
+          const f = join(wsDir, id, n)
           const st2 = statSync(f)
           report.sessions.files += 1
           report.sessions.bytes += st2.size
           const t = st2.mtimeMs
           if (report.sessions.oldest === null || t < report.sessions.oldest) report.sessions.oldest = t
-          break
+        }
+        // 迁移残留：同一会话里**除最新一份**之外的旧日志（0.1.5 迁移不删旧文件）
+        if (logs.length > 1) {
+          report.sessions.migrated += 1
+          for (const { n } of logs.slice(0, -1)) {
+            report.sessions.migratedFiles += 1
+            report.sessions.migratedBytes += statSync(join(wsDir, id, n)).size
+          }
         }
       }
     }
@@ -339,10 +361,15 @@ console.log(`| 流程标记 | ${report.flow.files} 个（陈旧 ${report.flow.st
 console.log(`| 回合实况 | ${report.budgetTurns.files} 个 | ${mb(report.budgetTurns.bytes)} | 钩子每回合覆盖重写（可安全删除） |`)
 console.log(`| 收工信箱 | ${report.carryover.files} 个 | ${mb(report.carryover.bytes)} | 取空即清（残留下轮会被覆盖） |`)
 console.log(
-  `| **会话日志** | ${report.sessions.files} 个 | ${mb(report.sessions.bytes)} | harness 的数据（本 preset 只读它算流量）：最旧 ${
+  `| **会话日志** | ${report.sessions.files} 个文件 / ${report.sessions.sessions ?? 0} 个会话 | ${mb(report.sessions.bytes)} | harness 的数据（本 preset 只读它算流量）：最旧 ${
     report.sessions.oldest === null ? '—' : new Date(report.sessions.oldest).toISOString().slice(0, 10)
   }；**没有任何保留策略**，本脚本只报告、绝不删 |`,
 )
+if (report.sessions.migrated > 0) {
+  console.log(
+    `| ↳ 迁移残留 | ${report.sessions.migrated} 个会话有迁移残留（共 ${report.sessions.migratedFiles} 份旧日志） | ${mb(report.sessions.migratedBytes)} | 0.1.5 迁移把老日志变成 \`session.v3.jsonl.zstd\` 但**不删**旧的 \`session.jsonl.zstd\`；算流量时只取版本最高的一份，这里的体积是**真实占用**（清理与否由人决定） |`,
+  )
+}
 console.log('')
 if (!APPLY) {
   console.log('（dry-run）常用维护：')

@@ -77,10 +77,12 @@ graph LR
   plugins_proof-discipline_mjs["plugins/proof-discipline.mjs"] --> plugins_agda-engine_mjs["plugins/agda-engine.mjs"]
   plugins_prover-limits_mjs["plugins/prover-limits.mjs"] --> impl_state-dir_mjs["impl/state-dir.mjs"]
   plugins_python-oracle_mjs["plugins/python-oracle.mjs"] --> impl_state-dir_mjs["impl/state-dir.mjs"]
+  scripts_cache-report_mjs["scripts/cache-report.mjs"] --> impl_session-traffic_mjs["impl/session-traffic.mjs"]
   scripts_market_mjs["scripts/market.mjs"] --> impl_dsh-inventory_mjs["impl/dsh-inventory.mjs"]
   scripts_plugins_mjs["scripts/plugins.mjs"] --> impl_dsh-inventory_mjs["impl/dsh-inventory.mjs"]
   scripts_publish_mjs["scripts/publish.mjs"] --> impl_secret-scan_mjs["impl/secret-scan.mjs"]
   scripts_quota_mjs["scripts/quota.mjs"] --> impl_quota_mjs["impl/quota.mjs"]
+  scripts_state-gc_mjs["scripts/state-gc.mjs"] --> impl_session-traffic_mjs["impl/session-traffic.mjs"]
   scripts_state-gc_mjs["scripts/state-gc.mjs"] --> impl_state-dir_mjs["impl/state-dir.mjs"]
   scripts_traffic-report_mjs["scripts/traffic-report.mjs"] --> impl_ruleset_mjs["impl/ruleset.mjs"]
   scripts_traffic-report_mjs["scripts/traffic-report.mjs"] --> impl_session-traffic_mjs["impl/session-traffic.mjs"]
@@ -91,7 +93,7 @@ graph LR
   tests_refs-check_mjs["tests/refs-check.mjs"] --> impl_local-paths_mjs["impl/local-paths.mjs"]
 ```
 
-- 有出边的模块（**核心层**）：`impl/budget-policy.mjs`、`impl/quota.mjs`、`impl/session-traffic.mjs`、`plugins/agda-engine.mjs`、`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`plugins/python-oracle.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
+- 有出边的模块（**核心层**）：`impl/budget-policy.mjs`、`impl/quota.mjs`、`impl/session-traffic.mjs`、`plugins/agda-engine.mjs`、`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`plugins/python-oracle.mjs`、`scripts/cache-report.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/cache-check.mjs`、`tests/dup-check.mjs`、`tests/knowledge-check.mjs`、`tests/paths-check.mjs`、`tests/refs-check.mjs`
 - 无出边的模块（**叶子/独立**）：`plugins/budget.mjs`、`plugins/effort-governor.mjs`、`plugins/proof-dag.mjs`、`plugins/proof-discipline.mjs`、`plugins/prover-limits.mjs`、`scripts/cache-report.mjs`、`scripts/check-all.mjs`、`scripts/docs-gen.mjs`、`scripts/harness-compat.mjs`、`scripts/lint-schemas.mjs`、`scripts/market.mjs`、`scripts/plugins.mjs`、`scripts/publish.mjs`、`scripts/quota.mjs`、`scripts/reload.mjs`、`scripts/state-gc.mjs`、`scripts/traffic-report.mjs`、`tests/benchmark.mjs`、`tests/budget-check.mjs`、`tests/cache-check.mjs`、`tests/compat-check.mjs`、`tests/docs-check.mjs`、`tests/dup-check.mjs`、`tests/eval-check.mjs`、`tests/hooks-check.mjs`、`tests/hot-section-check.mjs`、`tests/inject-check.mjs`、`tests/knowledge-check.mjs`、`tests/market-check.mjs`、`tests/paths-check.mjs`、`tests/plugins-check.mjs`、`tests/prompt-vars-check.mjs`、`tests/publish-check.mjs`、`tests/refs-check.mjs`、`tests/reload-check.mjs`、`tests/routing-check.mjs`、`tests/ruleset-check.mjs`、`tests/run.mjs`、`tests/skills-ref-check.mjs`、`tests/state-check.mjs`
 
 > 依赖方向即「谁可以 import 谁」：`plugins/` 是注册层（薄），`impl/` 是可热读共享层，
@@ -114,7 +116,7 @@ graph LR
 | `plugins/proof-graph.mjs` | `node:fs` `node:path` | — |
 | `plugins/prover-limits.mjs` | `node:fs` `node:os` `node:path` | — |
 | `plugins/python-oracle.mjs` | `node:crypto` `node:fs` `node:os` `node:path` `node:url` | — |
-| `scripts/cache-report.mjs` | `node:child_process` `node:fs` `node:os` `node:path` `node:zlib` | — |
+| `scripts/cache-report.mjs` | `node:fs` `node:path` | — |
 | `scripts/check-all.mjs` | `node:child_process` `node:path` | — |
 | `scripts/docs-gen.mjs` | `node:fs` `node:path` `node:url` | — |
 | `scripts/harness-compat.mjs` | `node:fs` `node:os` `node:path` | — |
@@ -170,7 +172,7 @@ graph LR
 
 | 数据文件 | 写入者 |
 | --- | --- |
-| `*.lock`（台账写锁，带 PID 存活探测） | `plugins/proof-dag.mjs`、`scripts/docs-gen.mjs` |
+| `*.lock`（台账写锁，带 PID 存活探测） | `plugins/proof-dag.mjs`、`scripts/docs-gen.mjs`、`tests/budget-check.mjs` |
 | `checkpoint-<ws-hash>.json`（见证检查点，仓库之外） | `plugins/proof-dag.mjs` |
 | `dag-<ws-hash>.json`（命题台账，**主数据**） | `plugins/proof-dag.mjs` |
 | `graph-<ws-hash>.{json,md}`（知识图谱导出，可重建） | `plugins/proof-dag.mjs` |

@@ -3406,9 +3406,49 @@ CI 上 Node 20 那一格因此能一眼看出「336/336 是因为没有 zstd」�
 
 `docs-check` 81 → **85/85**。
 
-### 81.7 回归
+### 81.7 真实日志上又核出三个「测试绿、真机瞎」的缺陷
 
-- 新增 `tests/compat-check.mjs`（22 条：宿主 4 + v3 形状 8 + deny/block 3 + 形状自检 5 + 汇总行），`scripts/harness-compat.mjs`（25 条探测）；
+核 v3 时我顺手拿**真实日志**对了一遍，结果发现夹具（明文单帧）骗过了三道门禁：
+
+**① 迁移会留下旧文件（会话被算两遍）**
+0.1.5 把老日志迁成 `session.vN.jsonl.zstd`，而旧的 `session.jsonl.zstd` **留在原地不删**。实测 26 个会话里
+**2 个目录两份共存**（111/112 个回合重叠、残留 **35.2 MB**）。我们的报表按 `**/session.jsonl.zstd` 找日志
+→ 那 2 个会话会被算两遍（各约 3.2 亿 / 9.5 亿 token）。
+修法：新增 `pickSessionLog()` / `sessionLogVersion()`（**唯一实现**），一个会话目录只取**版本最高**的一份；
+`cache-report` 也从硬编码文件名改走 `sessionLogFiles()`。`state-gc` 的口径**故意不同**：它报「文件数 / 会话数 /
+迁移残留」——磁盘占用要照实说，算流量才去重。
+
+**② usage 换了落点（v3 会话整套算 0）**
+v0 的 usage 在 `assistant/chunk`（`chunk.type === "usage"`；实测 14134 个 chunk / 1821 个 usage）；
+**v3 的 `assistant/chunk` 一个都没有**，usage 在 `assistant/message.data.usage`（实测 2393 个 message）。
+`cache-report` 原先只认 chunk → 迁移过的会话**整套消失**（实测费用从 66.17 元掉到 26.31 元）。
+修法：新增共用入口 `stepUsages(file)`（口径与 `foldLines` 完全一致：同一步优先 message usage，没有才用 chunk 求和），
+`cache-report` 改走它。修正后逐步 5,895 行 / **2,164,111,395 token**，与折回合口径 5,874 步 / **2,161,890,215 token**
+相差 0.1% —— **两把尺子互相印证**，这才是「数字可信」的样子。
+
+**③ `readSessionHeader` 只解尾帧（真机 100% 返回 null）**
+日志是多帧容器，header 只在**第一帧**，而它写的是 `{ lastFrames: 1 }`。明文 fixture 没有帧概念 → 测试永远绿，
+真机上它**对每个真实日志都返回 null**（`cache-report` 因此一行都读不出来，实测 0 步）。
+修法：从第一帧读；靠生成器惰性，读到 header 就 break，不会解整个 20 MB。
+
+**顺带**：`cache-report` 不再依赖外部 `zstdcat`（别人的环境不该是必要条件），也不再在多帧日志上
+「只解首帧」——那是一种**安静地少算**。
+
+### 81.8 这三条怎么防住复发
+
+- `pickSessionLog` / `sessionLogVersion` / `stepUsages` / 从第一帧读 header：`tests/budget-check.mjs` +18 条
+  （含**多帧 zstd 文件**上的 header 回归、v3 夹具的逐步行数、目录级去重），并**逐条反向实测**：
+  改回尾帧读 → ❌；改回不看版本 → ❌；改回只认 chunk → ❌；
+- `cache-report` 端到端：在只含 v3 会话的临时目录上跑真脚本，断言行数与两个会话步数之和**精确相等**；
+- `tests/paths-check.mjs` +3 条：脚本/插件/钩子**不许自己拼 `session.jsonl*`**（唯一实现处必须导出规则，
+  并且注释里必须写明「迁移不删旧文件」这件事）；`compat-check` +7 条；
+- 教训写进 M4 §M4.5e：这三个都是「夹具是明文单帧、真机是多帧带迁移」型缺陷 →
+  **fixture 之外必须在真实日志上跑一遍**，而且两套口径要能互相印证。
+
+### 81.9 回归
+
+- 新增 `tests/compat-check.mjs`（29 条：宿主 4 + v3 形状 8 + 0.1.5 迁移副作用 7 + deny/block 3 + 形状自检 5 + 汇总行），`scripts/harness-compat.mjs`（25 条探测）；
+- 新增共用入口 `pickSessionLog` / `sessionLogVersion` / `stepUsages`（`impl/session-traffic.mjs`），并把 `readSessionHeader` 改成从**第一帧**读；`tests/budget-check.mjs` 346 → **369**，`paths-check` 19 → **22**；
 - `scripts/check-all.mjs` 24 个入口（SKIP 白名单加 `COMPAT_CHECK_SKIP`，且 SKIP **不能**掩盖失败：有失败就是 `COMPAT_CHECK_FAIL` 退出 1）；
 - 本机实测：Node **24.21.0** 与 **22.22.1** 均 `CHECK_ALL_OK 24/24`；模拟裸 CI（空 HOME）也 `CHECK_ALL_OK 24/24`（宿主那半 SKIP）；
 - **CI 实跑三格全绿**：`check-all (20) / (22) / (24)` 均 `success`，三个都是 `CHECK_ALL_OK 24/24`（`gh run view 34604797888`）；

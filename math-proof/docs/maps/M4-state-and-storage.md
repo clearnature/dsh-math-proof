@@ -179,6 +179,18 @@ git -C ~/.dsh/state/math-proof/witness-<ws> show <commit>:dag.json | head
 | v1 / v2 | 迁移器链 `v0→v1→v2→v3` 的中间态 | 没变 |
 | **v3**（0.1.5 起，新会话在盘上就是 v3） | `SESSION_FORMAT_VERSION = 3` | **没变**（见下） |
 
+### 0.1.5 升级在磁盘上留下的三个**实测**后果（2026-09-11 核对）
+
+| 后果 | 实测证据 | 我们怎么处理 |
+| --- | --- | --- |
+| **迁移会留下旧文件** | 0.1.5 把老日志迁成 `session.vN.jsonl.zstd`，旧的 `session.jsonl.zstd` **原地不删**：26 个会话里 **2 个目录两份共存**（111/112 个回合重叠），残留 **35.2 MB** | `pickSessionLog()` 一个目录只取**版本最高**的一份（算流量）；`state-gc` 另外把「文件数 / 会话数 / 迁移残留」分开报——**两个口径各有用途**，但谁都不能混 |
+| **usage 换了落点** | v0：`assistant/chunk` 的 `chunk.type === "usage"`（实测 14134 chunk / 1821 usage）；v3：`assistant/chunk` **一个都没有**，usage 在 `assistant/message.data.usage`（实测 2393 message） | `foldLines` 与 `stepUsages` 都是「**同一步优先 `assistant/message.data.usage`，没有才用 chunk 求和**」；`cache-report` 改走 `stepUsages`（原先只认 chunk → v3 会话**整套算 0**） |
+| **header 只在第一帧** | 多帧容器里 header 在第一帧；`readSessionHeader` 原先用 `{ lastFrames: 1 }` 只解尾帧 → 真机上**对所有真实日志都返回 null**（明文 fixture 上照样绿） | 从第一帧读（生成器惰性，读到就 break，不解整个文件）；回归钉在 `tests/budget-check.mjs` |
+
+> 这三个都是「**测试绿、真机瞎**」型缺陷：fixture 是明文单帧，真机是多帧带迁移。
+> 所以 fixture 之外必须**在真实日志上跑一遍**——`scripts/traffic-report.mjs` 与 `cache-report` 的数字要能互相印证
+> （实测 2026-09-11：逐步 5,895 行 / 2,164,111,395 token vs 折回合 5,874 步 / 2,161,890,215 token，差 0.1%）。
+
 v3 相对我们读法的差异，逐条核过（`tests/fixtures/session-v3.jsonl` + `tests/compat-check.mjs`）：
 
 - v3 **退役 `header.system`**、要求**省略空的可选 header 字段** → 我们本来就不读 `system`，不受影响；
@@ -196,7 +208,7 @@ v3 相对我们读法的差异，逐条核过（`tests/fixtures/session-v3.jsonl
 
 ```
 node scripts/harness-compat.mjs   # 25 条宿主契约（读 pnpm store 里 dsh-* 的真实产物；裸环境 COMPAT_SKIP）
-node tests/compat-check.mjs       # 22 条：宿主 4 + 会话格式 v3 8 + deny/block 3 + 形状自检 5 + 汇总行
+node tests/compat-check.mjs       # 29 条：宿主 4 + 会话格式 v3 8 + 0.1.5 迁移副作用 7 + deny/block 3 + 形状自检 5 + 汇总行
 node scripts/harness-compat.mjs --expect 0.1.5   # 版本不符 → COMPAT_FAIL 退出 1（升级由机器先发现）
 ```
 
@@ -211,5 +223,6 @@ node scripts/harness-compat.mjs --expect 0.1.5   # 版本不符 → COMPAT_FAIL 
 | 见证仓库无远程 | 只在本地 | 换机器要手动 `tar` 迁移 |
 | 台账无 schema 版本迁移 | 字段只增不改语义 | 未来若改字段语义，需要写迁移脚本 |
 | 会话日志格式无迁移器（**我们侧**） | 只读，靠 `formatVersion`/`usageMissing` **报警**而不是自动迁移 | 若将来出现 v4 且**改了字段名**，流量账要先报警、再由人改 `impl/session-traffic.mjs`（shape 告警会先响） |
+| 迁移残留不会自动清 | `state-gc` 只**报告**（2026-09-11：2 个会话 / 35.2 MB），不删 | 删不删由人决定：旧文件是**迁移前的快照**，删了就没有回退余地；harness 也没给清理接口 |
 
 > 相关：`M3 数据流`（谁写这些文件）、`M6 证据链`（回执如何失效）、`CACHE.md`（缓存前缀纪律）。

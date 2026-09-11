@@ -146,9 +146,94 @@ export function* sessionLines(file, options = {}) {
   if (carry.trim() !== '') yield carry
 }
 
-/** 读会话头（`{id,cwd,parentSession,origin,agentPreset,createdAt}`）；读不到返回 null。 */
+/**
+ * **逐步** usage（一行 = 一步），给费用/缓存报表用；口径与 `foldLines` **完全同一把尺子**。
+ *
+ * 为什么必须有这个函数（2026-09-11 实测）：
+ *   · **v0（0.1.5 之前）**：usage 落在 `assistant/chunk` 的 `chunk.type === "usage"` 上，
+ *     `assistant/message` **不带** usage（实测 14134 个 chunk / 1821 个 usage chunk / 0 个带 usage 的 message）；
+ *   · **v3（0.1.5 起）**：`assistant/chunk` **一个都没有**，usage 落在 `assistant/message` 的 `data.usage` 上
+ *     （实测 2393 个 assistant/message / 0 个 assistant/chunk）。
+ * 只认其中一种写法，就会在另一种日志上**静默算 0**（`cache-report` 原先正是如此：v3 会话整套消失）。
+ *
+ * 规则（与 `foldLines` 一致）：**同一步取 `assistant/message.data.usage`；该步没有才用 chunk 求和**。
+ */
+export function stepUsages(file) {
+  const acc = new Map() // `${turn}:${step}` → 行（含 msg / chunk 两个来源）
+  const order = []
+  let turn = null
+  let preset = null
+  let provider = null
+  let model = null
+  let time = 0
+  for (const line of sessionLines(file)) {
+    const e = parseLine(line)
+    if (e === null) continue
+    if (e.type === 'session') {
+      preset = e.agentPreset ?? null
+      continue
+    }
+    if (e.type === 'agent-preset/selected') {
+      const chosen = e.data?.agentPreset
+      if (typeof chosen === 'string' && chosen !== '') preset = chosen
+      continue
+    }
+    if (e.type === 'request/header') {
+      // ⚠ `header` 里含完整系统提示词，**只取 provider/model 两个标量**，绝不整条序列化。
+      const cfg = e.data?.header?.config ?? e.data?.config
+      if (typeof cfg?.provider === 'string' && cfg.provider !== '') provider = cfg.provider
+      if (typeof cfg?.model === 'string' && cfg.model !== '') model = cfg.model
+      continue
+    }
+    const t = e.data?.turn
+    if (typeof t === 'number') turn = t
+    const step = e.data?.step
+    if (e.type !== 'assistant/message' && e.type !== 'assistant/chunk') continue
+    if (turn === null || typeof step !== 'number') continue
+    const key = `${turn}:${step}`
+    let row = acc.get(key)
+    if (row === undefined) {
+      row = { turn, step, time: e.time ?? 0, preset, provider, model, msg: null, chunk: null }
+      acc.set(key, row)
+      order.push(row)
+    }
+    if (e.type === 'assistant/message') {
+      const usage = e.data?.usage
+      if (usage !== undefined && usage !== null) row.msg = usage
+      continue
+    }
+    const chunk = e.data?.chunk
+    if (chunk?.type === 'usage' && chunk.usage !== undefined) {
+      const prev = row.chunk ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0, cacheReadTokens: 0, reasoningTokens: 0 }
+      row.chunk = {
+        inputTokens: prev.inputTokens + (chunk.usage.inputTokens ?? 0),
+        outputTokens: prev.outputTokens + (chunk.usage.outputTokens ?? 0),
+        totalTokens: prev.totalTokens + (chunk.usage.totalTokens ?? 0),
+        cacheReadTokens: prev.cacheReadTokens + (chunk.usage.cacheReadTokens ?? 0),
+        reasoningTokens: prev.reasoningTokens + (chunk.usage.reasoningTokens ?? 0),
+      }
+    }
+  }
+  const out = []
+  for (const row of order) {
+    const usage = row.msg ?? row.chunk
+    if (usage === undefined || usage === null) continue
+    time = row.time ?? 0
+    out.push({ turn: row.turn, step: row.step, time, preset: row.preset, provider: row.provider, model: row.model, usage })
+  }
+  return out
+}
+
+/**
+ * 读会话头（`{id,cwd,parentSession,origin,agentPreset,createdAt}`）；读不到返回 null。
+ *
+ * ⚠ 必须**从第一帧**往后读（2026-09-11 修）：日志是**多帧**容器，header 只在**第一帧**里。
+ * 原先写的 `{ lastFrames: 1 }`（只解尾帧）在真机上**对所有真实日志都返回 null**——
+ * 而在明文 fixture 上照样通过（明文没有帧概念）→ 属于「测试绿、真机全瞎」的那类 bug。
+ * 这里靠生成器**惰性**：找到 header 就 break，只解了第一帧，不会读整个 20MB。
+ */
 export function readSessionHeader(file) {
-  for (const line of sessionLines(file, { lastFrames: 1 })) {
+  for (const line of sessionLines(file)) {
     const e = parseLine(line)
     if (e?.type === 'session') return e
   }
@@ -990,7 +1075,35 @@ export function sessionsRoot() {
   return process.env.MATH_PROOF_SESSIONS_ROOT ?? join(homedir(), '.dsh', 'sessions')
 }
 
-/** 列出全部会话日志（只看 `session.jsonl*`，不递归别的文件）。 */
+/**
+ * 会话日志文件名的版本号：`session.jsonl[.zstd]` = **0**（0.1.5 之前），`session.v3.jsonl[.zstd]` = **3**。
+ * 认不出来（不是我们的容器）返回 null。
+ */
+export function sessionLogVersion(name) {
+  const m = /^session(?:\.v(\d+))?\.jsonl(\.zstd)?$/.exec(String(name))
+  if (m === null) return null
+  return { version: m[1] === undefined ? 0 : Number(m[1]), zstd: m[2] === '.zstd' }
+}
+
+/**
+ * 一个会话目录里**只能算一份**日志 —— 0.1.5 会把老日志迁移成 `session.v3.jsonl.zstd`，
+ * 而**旧的 `session.jsonl.zstd` 留在原地不删**（实测 2026-09-11：28 个会话里有 2 个目录同时存在两份，
+ * 内容 71/71 与 111/112 个回合重叠）。若两份都算，同一个会话的 token 会被**重复计一次**
+ * （那 2 个会话各约 3.2 亿 / 9.5 亿 token）。
+ *
+ * 规则：**按版本号取最大**（`session.v3` > `session`）；同版本下 `.zstd` 优先（harness 当前的写法）。
+ */
+export function pickSessionLog(names) {
+  let best = null
+  for (const name of names) {
+    const parsed = sessionLogVersion(name)
+    if (parsed === null) continue
+    if (best === null || parsed.version > best.version || (parsed.version === best.version && parsed.zstd && !best.zstd)) best = { name, ...parsed }
+  }
+  return best === null ? null : best.name
+}
+
+/** 列出全部会话日志（每个会话**只给一份**，见 `pickSessionLog`；不递归别的文件）。 */
 export function sessionLogFiles(root = sessionsRoot()) {
   if (!existsSync(root)) return []
   const out = []
@@ -1003,13 +1116,14 @@ export function sessionLogFiles(root = sessionsRoot()) {
       continue
     }
     for (const id of ids) {
-      for (const name of ['session.jsonl.zstd', 'session.jsonl']) {
-        const file = join(wsDir, id, name)
-        if (existsSync(file)) {
-          out.push(file)
-          break
-        }
+      let names = []
+      try {
+        names = readdirSync(join(wsDir, id))
+      } catch {
+        continue
       }
+      const pick = pickSessionLog(names)
+      if (pick !== null) out.push(join(wsDir, id, pick))
     }
   }
   return out

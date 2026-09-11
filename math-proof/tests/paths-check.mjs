@@ -194,6 +194,26 @@ ok('README 说明「换机器只改一个文件 / 可用环境变量覆盖」', 
   ok('主回归套件把状态指向临时目录（不写用户真实状态）', runner.includes('MATH_PROOF_STATE_DIR'))
 }
 
+// ── 6) 会话日志的**文件名规则**也只有一处实现 ──────────────────────────────
+// 2026-09-11 真实事故：0.1.5 把老日志迁成 `session.v3.jsonl.zstd` 而**不删**旧的
+// `session.jsonl.zstd`（实测 26 个会话里 2 个目录两份共存，111/112 个回合重叠）。
+// 谁自己拼文件名，谁就会把同一会话算两遍、或在新会话上算 0。
+{
+  const offenders = []
+  for (const sub of ['plugins', 'hooks', 'scripts']) {
+    for (const f of readdirSync(join(PRESET, sub)).filter((x) => x.endsWith('.mjs'))) {
+      const text = readFileSync(join(PRESET, sub, f), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/[^\n]*/gm, '')
+      if (/['"]session\.jsonl/.test(text)) offenders.push(`${sub}/${f}`)
+    }
+  }
+  ok('脚本 / 插件 / 钩子不自己拼会话日志文件名（走 impl 的 sessionLogFiles / pickSessionLog / sessionLogVersion）', offenders.length === 0, offenders.join(','))
+  const impl = readFileSync(join(PRESET, 'impl', 'session-traffic.mjs'), 'utf8')
+  ok('唯一实现处导出了文件名规则（pickSessionLog / sessionLogVersion）', /export function pickSessionLog/.test(impl) && /export function sessionLogVersion/.test(impl))
+  ok('唯一实现处说明了「迁移会留下旧文件」这件事（不然下一个人会再踩）', /session\.v3\.jsonl\.zstd/.test(impl) && /留在原地/.test(impl))
+}
+
 console.log('# 本机路径集中化门禁（唯一配置处 / token / 死键 / 解析器行为）\n')
 console.log(`- 操作性文件 **${operativeFiles.length}**｜配置键 **${keys.size ?? keys.length}**｜历史豁免文件 **${historyHits.length}**\n`)
 console.log(results.join('\n'))

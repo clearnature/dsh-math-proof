@@ -158,6 +158,56 @@ section('计量（session-traffic）')
   }
   ok('缺文件：返回 0 个回合（不抛）', traffic.foldSession(join(SESSIONS, 'nope.jsonl')).turns.length === 0)
 
+  // ── 0.1.5 的两处真实漂移（2026-09-11 实测修掉）────────────────────────────
+  // ① **迁移会留下旧文件**：0.1.5 把老日志迁成 `session.v3.jsonl.zstd`，旧的 `session.jsonl.zstd`
+  //    **留在原地不删**（实测 28 个会话里有 2 个目录两份共存，内容 111/112 个回合重叠）
+  //    → 两份都算 = 同一会话 token 算两遍（那 2 个会话各约 3.2 亿 / 9.5 亿）。
+  // ② **usage 换了落点**：v0 在 `assistant/chunk`（`chunk.type === "usage"`）、
+  //    v3 在 `assistant/message.data.usage` 且 `assistant/chunk` **一个都没有**
+  //    → 只认一种就会在另一种日志上**静默算 0**（`cache-report` 原先在 v3 会话上正是如此）。
+  ok('文件名版本解析：legacy `session.jsonl.zstd` = v0', JSON.stringify(traffic.sessionLogVersion('session.jsonl.zstd')) === JSON.stringify({ version: 0, zstd: true }), JSON.stringify(traffic.sessionLogVersion('session.jsonl.zstd')))
+  ok('文件名版本解析：`session.v3.jsonl.zstd` = v3', traffic.sessionLogVersion('session.v3.jsonl.zstd')?.version === 3)
+  ok('文件名版本解析：`session.v12.jsonl`（明文）= v12', JSON.stringify(traffic.sessionLogVersion('session.v12.jsonl')) === JSON.stringify({ version: 12, zstd: false }))
+  ok('文件名版本解析：`session.lock` 不是日志（null）', traffic.sessionLogVersion('session.lock') === null)
+  ok('一个目录里两份共存 → 取**版本最高**的那份', traffic.pickSessionLog(['session.jsonl.zstd', 'session.v3.jsonl.zstd', 'session.lock']) === 'session.v3.jsonl.zstd', String(traffic.pickSessionLog(['session.jsonl.zstd', 'session.v3.jsonl.zstd', 'session.lock'])))
+  ok('同版本下 `.zstd` 优先于明文', traffic.pickSessionLog(['session.v3.jsonl', 'session.v3.jsonl.zstd']) === 'session.v3.jsonl.zstd')
+  ok('只有锁文件 → 没有日志（null）', traffic.pickSessionLog(['session.lock']) === null)
+  {
+    // 目录级：两套布局（迁移过的 / 只有一份的）都要各出**一份**
+    const root2 = mkdtempSync(join(tmpdir(), 'math-proof-logs-dedup-'))
+    mkdirSync(join(root2, '--w--', 'sess-migrated'), { recursive: true })
+    mkdirSync(join(root2, '--w--', 'sess-plain'), { recursive: true })
+    writeFileSync(join(root2, '--w--', 'sess-migrated', 'session.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(readFileSync(FIXTURE))))
+    writeFileSync(join(root2, '--w--', 'sess-migrated', 'session.v3.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(readFileSync(FIXTURE))))
+    writeFileSync(join(root2, '--w--', 'sess-migrated', 'session.lock'), '')
+    writeFileSync(join(root2, '--w--', 'sess-plain', 'session.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(readFileSync(FIXTURE))))
+    const found = traffic.sessionLogFiles(root2)
+    ok('sessionLogFiles：会话数 = 文件数（迁移过的目录不重复计数）', found.length === 2, JSON.stringify(found.map((f) => f.split('/').slice(-1)[0])))
+    ok('sessionLogFiles：迁移过的会话给的是 v3 那份', found.some((f) => f.endsWith('session.v3.jsonl.zstd')))
+    ok('sessionLogFiles：未迁移的会话给的是 legacy 那份', found.some((f) => f.endsWith('/sess-plain/session.jsonl.zstd')))
+    ok('sessionLogFiles：`.lock` 不被当成日志', !found.some((f) => f.endsWith('.lock')))
+    rmSync(root2, { recursive: true, force: true })
+  }
+  // 多帧 zstd 里的 header 只在**第一帧**（`readSessionHeader` 原先只解尾帧 → 真机上对所有真实日志都返回 null）
+  if (zstd !== null) {
+    const h = traffic.readSessionHeader(zpath)
+    ok('多帧日志：readSessionHeader 从**第一帧**读到 header（不是只解尾帧）', h?.id === 'fixture-session', JSON.stringify(h))
+  }
+  // 逐步 usage：两种写法都要读得到（v3 的 `assistant/chunk` 数是 0，只认它就会静默算 0）
+  {
+    const v0rows = traffic.stepUsages(FIXTURE)
+    const v0steps = traffic.foldSession(FIXTURE).turns.reduce((n, t) => n + t.steps, 0)
+    ok('stepUsages：v0（chunk 写法）逐步行数 = 各回合步数之和', v0rows.length === v0steps, `${v0rows.length} vs ${v0steps}`)
+    ok('stepUsages：每行都带 turn/step 与 usage', v0rows.every((r) => typeof r.turn === 'number' && typeof r.step === 'number' && r.usage !== undefined))
+    ok('stepUsages：v0 行的 usage 来自 chunk 求和（turn3 缺 message）', v0rows.some((r) => r.turn === 3 && (r.usage.totalTokens ?? 0) === 420), JSON.stringify(v0rows.filter((r) => r.turn === 3).map((r) => r.usage.totalTokens)))
+    const v3file = join(HERE, 'fixtures', 'session-v3.jsonl')
+    const v3rows = traffic.stepUsages(v3file)
+    const v3steps = traffic.foldSession(v3file).turns.reduce((n, t) => n + t.steps, 0)
+    ok('stepUsages：v3（message 写法）**不是 0 行**（这条就是「静默算 0」的回归）', v3rows.length > 0, String(v3rows.length))
+    ok('stepUsages：v3 逐步行数 = 各回合步数之和', v3rows.length === v3steps, `${v3rows.length} vs ${v3steps}`)
+    ok('stepUsages：v3 行带上当时的 provider/model/预设（逐行归属）', v3rows.every((r) => 'provider' in r && 'model' in r && 'preset' in r))
+  }
+
   // 统计与分类
   ok('median：空数组 → null', traffic.median([]) === null)
   ok('median：偶数个取中间两个平均', traffic.median([1, 2, 3, 4]) === 2.5)
@@ -925,6 +975,30 @@ section('traffic-report 脚本')
   })
   ok('能跑通并输出表头', r.status === 0 && (r.stdout ?? '').includes('单回合'), (r.stdout ?? '').slice(0, 120) || (r.stderr ?? '').slice(0, 120))
   ok('输出里带「口径」说明（中位数不是均值）', (r.stdout ?? '').includes('中位'), (r.stdout ?? '').slice(-200))
+}
+
+// ── 12b) 缓存/费用报表：**v3 会话不许被读成 0**（这是最容易被静默算 0 的地方）─────
+section('cache-report 脚本（v0 chunk 写法 / v3 message 写法都要算得出来）')
+{
+  const root3 = mkdtempSync(join(tmpdir(), 'math-proof-cache-logs-'))
+  const v3file = join(HERE, 'fixtures', 'session-v3.jsonl')
+  // 布局必须真实：<root>/<workspace>/<session>/session.v<N>.jsonl
+  mkdirSync(join(root3, '--w--', 'sess-v3'), { recursive: true })
+  mkdirSync(join(root3, '--w--', 'sess-v0'), { recursive: true })
+  writeFileSync(join(root3, '--w--', 'sess-v3', 'session.v3.jsonl'), readFileSync(v3file))
+  writeFileSync(join(root3, '--w--', 'sess-v0', 'session.jsonl'), readFileSync(FIXTURE))
+  const r = spawnSync(process.execPath, [join(PRESET, 'scripts', 'cache-report.mjs')], {
+    encoding: 'utf8',
+    env: { ...process.env, MATH_PROOF_SESSIONS_ROOT: root3 },
+  })
+  const out = r.stdout ?? ''
+  ok('cache-report 退出 0', r.status === 0, (r.stderr ?? '').slice(0, 160))
+  ok('cache-report 在**只含 v3 会话**的目录上也算得出步数（v3 没有 assistant/chunk）', /｜[1-9]\d* 步/.test(out), out.split('\n')[0] ?? '')
+  ok('cache-report 步数 = 两个会话的步数之和（v0 与 v3 各算一份）', out.includes(`｜${traffic.foldSession(v3file).turns.reduce((n, t) => n + t.steps, 0) + traffic.foldSession(FIXTURE).turns.reduce((n, t) => n + t.steps, 0)} 步`), out.split('\n')[0] ?? '')
+  ok('cache-report 不再直接调外部 `zstdcat`（别人的环境不该是硬依赖）', !readFileSync(join(PRESET, 'scripts', 'cache-report.mjs'), 'utf8').includes("spawnSync('zstdcat'"))
+  const src = readFileSync(join(PRESET, 'scripts', 'cache-report.mjs'), 'utf8')
+  ok('cache-report 不再硬编码日志文件名（必须走 sessionLogFiles/pickSessionLog）', !/['"]session\.jsonl/.test(src.replace(/\/\/.*$/gm, '')), (src.match(/['"]session\.jsonl[^'"]*/) ?? [''])[0])
+  rmSync(root3, { recursive: true, force: true })
 }
 
 console.log('# 预算与流量账本回归\n')

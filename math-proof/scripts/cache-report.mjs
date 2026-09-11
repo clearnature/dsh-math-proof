@@ -3,7 +3,7 @@
 // 用法：
 //   node ~/.dsh/.agent-presets/math-proof/scripts/cache-report.mjs [--days N] [--preset math-proof] [--json]
 //
-// 数据源：`~/.dsh/sessions/<workspace>/<session>/session.jsonl.zstd` 里的 `assistant/chunk`
+// 数据源：`~/.dsh/sessions/<workspace>/<session>/session[.vN].jsonl[.zstd]` 里的 `assistant/chunk`
 // 事件（`chunk.type === "usage"`），字段：inputTokens（**未命中**输入）/ cacheReadTokens（**命中**输入）
 // / outputTokens / reasoningTokens / totalTokens。
 //
@@ -16,11 +16,9 @@
 // 所以 1.4% 的未命中 token 可以吃掉三分之一的账单。本脚本把「命中 / 未命中 / 输出」三段分开算，
 // 让「改 preset 打穿前缀」「上下文过大」这类结构性浪费在数字上现形。
 
-import { spawnSync } from 'node:child_process'
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { zstdDecompressSync } from 'node:zlib'
+import { readSessionHeader, sessionLogFiles, sessionsRoot, stepUsages } from '../impl/session-traffic.mjs'
 
 const PRICES = {
   flash: { hit: 0.02, miss: 1.0, out: 2.0 },
@@ -37,17 +35,6 @@ const AS_JSON = args.includes('--json')
 const TIER = args.includes('--pro') ? 'pro' : 'flash'
 const P = PRICES[TIER]
 
-/** 解压一个 session 文件（多帧 zstd：优先 zstdcat，回退 node 单帧）。 */
-function readSession(file) {
-  const r = spawnSync('zstdcat', [file], { maxBuffer: 512 * 1024 * 1024, encoding: 'utf8' })
-  if (r.status === 0 && typeof r.stdout === 'string') return r.stdout
-  try {
-    return zstdDecompressSync(readFileSync(file)).toString('utf8')
-  } catch {
-    return ''
-  }
-}
-
 /** 北京时间小时。 */
 function beijingHour(ts) {
   return new Date(ts + 8 * 3600 * 1000).getUTCHours()
@@ -57,48 +44,37 @@ const isPeak = (ts) => {
   return (h >= 9 && h < 12) || (h >= 14 && h < 18)
 }
 
-const root = join(homedir(), '.dsh', 'sessions')
+const root = sessionsRoot() // `MATH_PROOF_SESSIONS_ROOT` 可覆盖（测试与异地部署都用它）
 if (!existsSync(root)) {
   console.error(`cache-report: 没有会话目录 ${root}`)
   process.exit(2)
 }
 
 const rows = []
-for (const ws of readdirSync(root)) {
-  const wsDir = join(root, ws)
-  if (!statSync(wsDir).isDirectory()) continue
-  for (const sid of readdirSync(wsDir)) {
-    const file = join(wsDir, sid, 'session.jsonl.zstd')
-    if (!existsSync(file)) continue
-    const text = readSession(file)
-    if (text === '') continue
-    let meta = {}
-    for (const line of text.split('\n')) {
-      const s = line.trim()
-      if (s === '') continue
-      let e
-      try {
-        e = JSON.parse(s)
-      } catch {
-        continue
-      }
-      if (e.type === 'session') meta = e
-      if (e.type !== 'assistant/chunk') continue
-      const ch = e.data?.chunk
-      if (ch?.type !== 'usage') continue
-      const u = ch.usage ?? {}
-      rows.push({
-        preset: meta.agentPreset ?? 'standard',
-        origin: meta.origin ?? 'main',
-        sid,
-        ws,
-        t: e.time ?? 0,
-        hit: u.cacheReadTokens ?? 0,
-        miss: u.inputTokens ?? 0,
-        out: u.outputTokens ?? 0,
-        reason: u.reasoningTokens ?? 0,
-      })
-    }
+for (const file of sessionLogFiles(root)) {
+  // `sessionLogFiles()` 已经做了两件必须由**唯一实现**决定的事：
+  //   ① 一个会话目录里迁移前后的两份日志只取**版本最高**的一份（否则同一会话算两遍）；
+  //   ② 文件名规则（`session[.vN].jsonl[.zstd]`）只有一处。
+  const header = readSessionHeader(file)
+  if (header === null) continue
+  const parts = file.split('/')
+  const sid = parts[parts.length - 2]
+  const ws = parts[parts.length - 3]
+  // 逐步 usage 走 `stepUsages`：v0 认 `assistant/chunk`，v3 认 `assistant/message.data.usage`——
+  // 只认一种就会在另一种日志上静默算 0（v3 会话的 `assistant/chunk` 数量是 **0**）。
+  for (const row of stepUsages(file)) {
+    const u = row.usage ?? {}
+    rows.push({
+      preset: row.preset ?? header.agentPreset ?? 'standard',
+      origin: header.origin ?? 'main',
+      sid,
+      ws,
+      t: row.time ?? 0,
+      hit: u.cacheReadTokens ?? 0,
+      miss: u.inputTokens ?? 0,
+      out: u.outputTokens ?? 0,
+      reason: u.reasoningTokens ?? 0,
+    })
   }
 }
 
