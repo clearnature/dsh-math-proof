@@ -3751,3 +3751,70 @@ Error: Cannot find module '/home/yanli/.dsh/.agent-presets/math-proof/hooks/stop
 ### 85.6 回归
 
 `CHECK_ALL_OK 27/27`；Node 24 / 22 / Node-20 模拟三环境均绿；`harness-compat` **26/26 契约 + 22 行 config 全通过**。
+
+---
+
+## 八十六、真挂载体检：一条命令回答「这份 preset 现在挂得上吗」
+
+八十五修好了 persona 字段，但留下一个缺口：我能验 **schema**（`Config(config)` 真解析），却**没法回答「它到底挂不挂得上」**——
+只能让你去点 GUI 试。这次把它补上。
+
+### 86.1 先找「挂载」这件事在代码里是哪一步
+
+在宿主源码里追：`dsh-agent-presets` 的 `ensureStanding()` → `mountPreset()`；
+而 `dsh-api-session-controller` 的 `scopeFor(sessionId, agentPreset)` 里有一句注释写着
+「Resolve a live or standing preset scope **without creating an Agent**」，它调的就是
+`presets.standingKeyFor(agentPreset)`。
+
+**这就是入口**：`standingKeyFor(id)` 会真的挂载这份 preset，而且不需要建会话、不需要建 agent、不需要调模型。
+
+### 86.2 怎么在自己的脚本里触发它（三处踩坑）
+
+目标：在**与用户同款的宿主组装**里启动 dsh，插一行自己的检查插件，调用 `standingKeyFor`。
+
+1. **profile 怎么加行**：`--patch` 覆盖层是 **id-targeted** 的（`--patch` 里写新 id 会报 `entry "x" not found`），
+   但**`insert` 列表可以插行**——`dsh-base` 自己的 bundle patch 就是 `- insert: [...]` 起手。于是补丁写成：
+   ```yaml
+   - insert:
+       - id: mount-check
+         name: '<临时目录>/mount-check.mjs'
+   ```
+2. **`--patch` 的位置**：它是 **dsh 的全局选项**，必须写在 `--profile` **前面**；
+   放后面会被当成 web app 的参数，报 `error: unknown option '--patch'`（第一次就栽在这）。
+3. **哪个 profile**：用 `headless` 会**假失败**——headless 的宿主组装里没有
+   `@deepseek-ai/dsh-tool-subagent/model-selection-settings`，我们的 `tool-subagent` 行会报
+   「requires … in the Host scope」。真实部署是 `web` profile，所以用 `web --port 0 --no-open`
+   （`--port 0` 让 OS 挑空闲端口，不碰用户的 3080）。
+
+### 86.3 脚本的安全设计（它毕竟要起一个 dsh 进程）
+
+- **临时 DSH_HOME**：`.agent-presets` 用符号链接指到「要检查的 preset 所在目录」，sessions/state 都在临时目录；
+  **不读用户凭据**（临时 home 里放一份自造的占位凭据）、**不碰用户 settings.yaml**；
+- `--port 0` + `--no-open`：不占端口、不开浏览器；
+- 检查插件拿到结果立刻 `process.exit`：**不发生任何模型调用**（凭据是假的，就算真走到也会 401），
+  且自带超时兜底（超时打印 `MOUNT_FAIL 挂载超时`）；
+- 跑完 `rmSync` 删临时目录；`dsh` 不可用时打印 `MOUNT_CHECK_SKIP` 退出 0（裸 CI 不假绿）。
+
+### 86.4 实测（正反两面）
+
+```
+$ node scripts/mount-check.mjs
+✅ math-proof 真挂载通过（scope key {"agentPreset":"math-proof"}）
+MOUNT_CHECK_OK 1/1
+
+$ node scripts/mount-check.mjs --root <把 persona 改回 text: 的副本>
+❌ agent-presets: preset "math-proof" failed to mount:
+   failed to apply loader entry persona (@deepseek-ai/dsh-persona): invalid config:
+   - $.prefix missing required value (at prefix) (…/agent.cordis.yml)
+MOUNT_CHECK_FAIL 0/1
+```
+
+负向这条**逐字复现了八十五那次事故**——说明这个检查真的盯着会挂人的那一层，不是安慰剂。
+
+### 86.5 顺带
+
+- 接进 `check-all` 作第 **28** 个入口（实测 ~10.5s；`MOUNT_CHECK_SKIP` 进 SKIP 白名单）；
+- 落地时被自己的门禁抓了两次：临时凭据里的占位串一开始**长得像真 key**（`sk-` 前缀 + 足够长的字母数字），
+  随后又用了「密钥字段名 + 长引号串」的写法——两次都被 **`publish-check` 的密钥扫描当场判为假阳性**；
+  最终改成一眼可辨的占位符（见 `scripts/mount-check.mjs` 里写临时凭据的那几行）。
+  这条插曲本身也证明「密钥扫描不许假阳性」那几条断言是有效的：**文档里复述敏感串的形状同样会被抓**。

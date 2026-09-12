@@ -3,7 +3,7 @@
 // 用法：node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs
 // 退出码 0 = 全部通过；非 0 = 有套件失败（并打印失败套件的尾部输出）。
 //
-// 为什么需要它：门禁有 27 个入口（lint + 26 套件）。日常「改完跑一遍」不该记命令，
+// 为什么需要它：门禁有 28 个入口（lint + 1 个体检脚本 + 26 套件）。日常「改完跑一遍」不该记命令，
 // ⚠ 入口数以脚本输出为准（`CHECK_ALL_OK n/n`），这里的数字改了要跟着 SUITES 走。
 // 也不该漏跑。本脚本按固定顺序执行、汇总成一张表，并把失败套件的尾部日志原样贴出
 // （禁止「我跑过了」式声称——证据必须出现在输出里）。
@@ -42,6 +42,7 @@ const SUITES = [
   ['doctor-check', join(PRESET, 'tests', 'doctor-check.mjs'), 'DOCTOR_CHECK_OK'],
   ['plan-check', join(PRESET, 'tests', 'plan-check.mjs'), 'PLAN_CHECK_OK'],
   ['goals-check', join(PRESET, 'tests', 'goals-check.mjs'), 'GOALS_CHECK_OK'],
+  ['mount-check', join(PRESET, 'scripts', 'mount-check.mjs'), 'MOUNT_CHECK_OK'],
 ]
 
 const rows = []
@@ -54,7 +55,7 @@ for (const [name, file, marker] of SUITES) {
   const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`
   const last = out.trim().split('\n').filter((l) => l.trim() !== '').pop() ?? ''
   // 裸环境（CI 没装 DSH / 没克隆本仓库）时会 SKIP，也算通过：SKIP 必须**说出来**，不能假绿
-  const SKIPS = ['REFS_SKIP', 'COMPAT_CHECK_SKIP']
+  const SKIPS = ['REFS_SKIP', 'COMPAT_CHECK_SKIP', 'MOUNT_CHECK_SKIP']
   const ok = r.status === 0 && (last.includes(marker) || SKIPS.some((s) => last.includes(s)))
   rows.push(`| ${ok ? '✅' : '❌'} | ${name} | ${(ms / 1000).toFixed(1)}s | ${last.slice(0, 96)} |`)
   if (!ok) failures.push({ name, out })

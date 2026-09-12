@@ -408,14 +408,15 @@ node tests/doctor-check.mjs   # DOCTOR_CHECK_OK（挂载副本体检：钩子目
 node tests/plan-check.mjs     # PLAN_CHECK_OK（证明义务分解：形状取舍/校验逐条负向/先看后写契约）
 node tests/goals-check.mjs    # GOALS_CHECK_OK（交互式问 Agda：真实报文解析 + 命令构造 + 渲染 + 本机有 Agda 时端到端）
 
-# 3) 一键跑全部门禁（27 个入口汇总成一张表）
+# 3) 一键跑全部门禁（28 个入口汇总成一张表）
 node ~/.dsh/.agent-presets/math-proof/scripts/check-all.mjs   # CHECK_ALL_OK
 
 # 4) 运维
 node scripts/cache-report.mjs        # 缓存命中率 / 费用三段拆解
 node scripts/state-gc.mjs            # 状态目录盘点（dry-run）
 node scripts/state-gc.mjs --apply --archive-days 90 --rebuild-index --witness-gc
-node scripts/doctor.mjs              # 挂载副本体检（现在挂载的这份 preset 完整吗；--vs <仓库> 查漂移）
+node scripts/doctor.mjs              # 挂载副本体检（文件层：钩子目标/组合引用/插件加载/技能名）
+node scripts/mount-check.mjs         # **真挂载体检**：用真的 dsh 宿主把这份 preset 挂一次（临时 home + 假凭据，不调模型）
 node scripts/harness-compat.mjs      # DSH 升级兼容核验（25 条宿主契约；--expect 0.1.5 可让升级变红）
 # Node 20 模拟（CI 那一格不用等 CI）：把 node:zlib 的 zstd 真的拿掉再跑一遍门禁
 NODE_OPTIONS="--require $PWD/scripts/no-zstd.cjs" node scripts/check-all.mjs
