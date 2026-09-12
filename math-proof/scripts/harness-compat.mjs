@@ -18,7 +18,11 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
+/** 本 preset 的根（脚本在 `<preset>/scripts/` 下）。 */
+const PRESET_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
 const argv = process.argv.slice(2)
 const has = (f) => argv.includes(f)
@@ -96,6 +100,10 @@ const CONTRACTS = [
   { pkg: 'dsh-tools', what: '工具注册 register(definition)', probe: /register\(definition\)/, why: '8 个工具靠它' },
   { pkg: 'dsh-fs-local', what: '原子写暂存文件 0600（新文件落 0600 的根因）', probe: /handle\.chmod\(384\)/, why: '文件权限那一节的结论依据' },
   { pkg: 'dsh-agent-presets', what: 'preset 扫描与挂载时间戳', probe: /compositionStamp/, why: '「改了插件要重启」的判定依据' },
+  // 2026-09-13 真实事故：`dsh-persona` 的必填字段从 `text` 改成 `prefix`，
+  // 我们的 persona 行还用旧字段 → 挂载期 `$.prefix missing required value` → 整份 preset 起不来
+  // （GUI 里表现为「切不过去 / 开不了会话」）。**行 config 的字段名也是 host 契约的一部分。**
+  { pkg: 'dsh-persona', what: 'persona 配置必填字段 = prefix（不再是 text）', probe: /prefix:\s*z\.string\(\)\.required\(\)/, why: '用旧字段会在挂载期直接失败，整个 preset 用不了' },
 ]
 
 const store = storeRoot()
@@ -122,12 +130,87 @@ for (const c of CONTRACTS) {
   rows.push({ ok, pkg: c.pkg, version: found.version, what: c.what, why: c.why, note: ok ? '' : `在 ${c.pkg}@${found.version} 里找不到实现痕迹` })
 }
 
+// ── 行 config 校验：我们自己组合里每一条 @deepseek-ai/* 行的 config ──────────────
+// 为什么必须有这一段：契约探测只证明「host 提供了某个能力」，**不证明「我们的行写法还对」**。
+// 2026-09-13 的事故就是这样漏过去的：能力都在，但 persona 行的字段名过期了。
+// 判据：用**装在本机的那版包**导出的 `Config` schema 真解析一遍我们的 config。
+const ROW_AUDIT = { checked: 0, failed: 0, noSchema: 0, rows: [] }
+{
+  const yamlLib = (() => {
+    try {
+      const dirs = readdirSync(store).filter((d) => d.startsWith('js-yaml@')).sort()
+      for (const d of dirs.reverse()) {
+        for (const rel of ['node_modules/js-yaml/index.js', 'node_modules/js-yaml/dist/js-yaml.mjs']) {
+          const f = join(store, d, rel)
+          if (existsSync(f)) return f
+        }
+      }
+    } catch {
+      /* 没装 yaml：本段静默跳过（契约部分仍然有效） */
+    }
+    return null
+  })()
+  const composition = join(PRESET_ROOT, 'agent.cordis.yml')
+  if (yamlLib !== null && existsSync(composition)) {
+    const jsyaml = await import(pathToFileURL(yamlLib).href)
+    const JsType = new jsyaml.Type('tag:yaml.org,2002:js', { kind: 'scalar', construct: () => '<js>' })
+    const parsed = jsyaml.load(readFileSync(composition, 'utf8'), { schema: jsyaml.DEFAULT_SCHEMA.extend([JsType]) })
+    // 行里的包名从**profile 的 node_modules** 解析（harness 就是这么解析 preset 行的）
+    const bases = [
+      process.env.DSH_PROFILE_MODULES,
+      join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'profiles', 'node_modules', '@deepseek-ai'),
+      join(homedir(), '.dsh', 'profiles', 'node_modules', '@deepseek-ai'),
+    ].filter((x) => typeof x === 'string' && x !== '' && existsSync(x))
+    const base = bases[0]
+    const walkRows = async (list, depth) => {
+      for (const row of list ?? []) {
+        if (row?.group === true) {
+          await walkRows(row.config, `${depth}  `)
+          continue
+        }
+        const name = row?.name
+        if (typeof name !== 'string' || !name.startsWith('@deepseek-ai/')) continue
+        const pkg = name.split('/')[1]
+        const dir = base === undefined ? null : join(base, pkg)
+        if (dir === null || !existsSync(dir)) {
+          ROW_AUDIT.rows.push({ ok: true, pkg, id: row.id, note: '本机解析不到该包（跳过结构校验）' })
+          continue
+        }
+        let mod
+        try {
+          const pj = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+          const entry = join(dir, pj.module ?? pj.exports?.['.']?.import ?? pj.main ?? 'lib/index.js')
+          mod = await import(pathToFileURL(entry).href)
+        } catch (e) {
+          ROW_AUDIT.rows.push({ ok: true, pkg, id: row.id, note: `import 失败（跳过）：${String(e.message).slice(0, 60)}` })
+          continue
+        }
+        const Config = mod.Config ?? mod.default?.Config
+        if (typeof Config !== 'function') {
+          ROW_AUDIT.noSchema++
+          continue
+        }
+        ROW_AUDIT.checked++
+        try {
+          Config(row.config ?? {})
+          ROW_AUDIT.rows.push({ ok: true, pkg, id: row.id, note: '' })
+        } catch (e) {
+          ROW_AUDIT.failed++
+          broken++
+          ROW_AUDIT.rows.push({ ok: false, pkg, id: row.id, note: String(e.message).replace(/\n/g, ' | ').slice(0, 160) })
+        }
+      }
+    }
+    await walkRows(parsed, '')
+  }
+}
+
 const versions = Object.fromEntries([...seen.entries()].sort())
 const dsh = packageFile(store, 'dsh')
 const expectBroken = EXPECT !== undefined && dsh !== null && dsh.version !== EXPECT
 
 if (AS_JSON) {
-  console.log(JSON.stringify({ store, dsh: dsh?.version ?? null, expect: EXPECT ?? null, versions, broken, contracts: rows }, null, 2))
+  console.log(JSON.stringify({ store, dsh: dsh?.version ?? null, expect: EXPECT ?? null, versions, broken, contracts: rows, rowAudit: ROW_AUDIT }, null, 2))
 } else {
   console.log('# DSH 版本兼容核验（我们依赖的 host 契约）\n')
   console.log(`- store: \`${store}\``)
@@ -136,6 +219,13 @@ if (AS_JSON) {
   console.log('')
   for (const r of rows) {
     console.log(`${r.ok ? '✅' : '❌'} ${r.pkg.padEnd(30)} ${r.what}${r.ok ? '' : `\n     ↳ ${r.note}｜影响：${r.why ?? ''}`}`)
+  }
+  console.log('')
+  console.log(`## 我们的组合行 config（用装在本机的包真解析）`)
+  console.log(`- 校验了 ${ROW_AUDIT.checked} 条（另有 ${ROW_AUDIT.noSchema} 条未导出 schema）｜失败 ${ROW_AUDIT.failed}`)
+  for (const r of ROW_AUDIT.rows) {
+    if (r.ok && r.note === '') continue
+    console.log(`${r.ok ? '·' : '❌'} ${r.pkg.padEnd(30)} 行 ${String(r.id ?? '').padEnd(24)}${r.note === '' ? '' : ` ${r.note}`}`)
   }
   console.log('')
 }

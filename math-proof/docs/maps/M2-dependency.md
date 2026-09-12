@@ -126,7 +126,7 @@ graph LR
 | `scripts/check-all.mjs` | `node:child_process` `node:path` | — |
 | `scripts/docs-gen.mjs` | `node:fs` `node:path` `node:url` | — |
 | `scripts/doctor.mjs` | `node:crypto` `node:fs` `node:path` `node:url` | — |
-| `scripts/harness-compat.mjs` | `node:fs` `node:os` `node:path` | — |
+| `scripts/harness-compat.mjs` | `node:fs` `node:os` `node:path` `node:url` | — |
 | `scripts/lint-schemas.mjs` | `node:fs` `node:url` `node:path` | — |
 | `scripts/market.mjs` | `node:fs` `node:path` `node:os` `node:url` | — |
 | `scripts/plugins.mjs` | `node:fs` `node:path` `node:url` | — |

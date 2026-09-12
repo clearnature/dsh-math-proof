@@ -15,14 +15,23 @@ import { dirname, join } from 'node:path'
 const HERE = new URL('.', import.meta.url).pathname.replace(/\/$/, '')
 const PRESET = dirname(HERE)
 
-/** 从 composition 里抽 persona 正文（`- id: persona` → `text: |-` 的缩进块）。 */
+/**
+ * 从 composition 里抽 persona 正文（`- id: persona` → 缩进块）。
+ *
+ * ⚠ 字段名是 host 契约：`dsh-persona` 0.1.5 起必填 **`prefix`**；旧字段 `text` 会让挂载期
+ * 直接失败（`$.prefix missing required value`）→ 整份 preset 起不来。这里只认 `prefix`，
+ * 且在发现旧字段时**把原因写进报错**：下次 host 改字段名，装配器立刻告诉我们。
+ */
 export function personaText() {
   const lines = readFileSync(join(PRESET, 'agent.cordis.yml'), 'utf8').split('\n')
   const start = lines.findIndex((l) => l.trim() === '- id: persona')
   if (start === -1) throw new Error('assemble: composition 里找不到 persona 行')
   let i = start
-  while (i < lines.length && !/^\s{4}text:\s*\|-?\s*$/.test(lines[i])) i++
-  if (i === lines.length) throw new Error('assemble: persona 行里找不到 text 块')
+  while (i < lines.length && !/^\s{4}prefix:\s*\|-?\s*$/.test(lines[i])) i++
+  if (i === lines.length) {
+    const legacy = lines.slice(start, start + 14).some((l) => /^\s{4}text:/.test(l))
+    throw new Error(legacy ? 'assemble: persona 行还在用 `text:`——`dsh-persona` 0.1.5 起必填 `prefix:`（旧字段会让整份 preset 挂载失败）' : 'assemble: persona 行里找不到 `prefix:` 块')
+  }
   const out = []
   for (let j = i + 1; j < lines.length; j++) {
     const line = lines[j]

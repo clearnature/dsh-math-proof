@@ -49,6 +49,10 @@ section('host 侧契约（scripts/harness-compat.mjs）')
     ok('脚本报告本机 dsh 版本', /本机 dsh: \*\*0\.\d+\.\d+/.test(out), (out.match(/本机 dsh: \*\*[^*]+\*\*/) ?? [''])[0])
     ok('脚本列出涉及的包版本', /涉及的包版本:/.test(out), '')
     ok('脚本覆盖「会话格式版本」这一条（升级最可能影响我们）', out.includes('会话格式版本') && (r.status !== 0 || out.includes('✅ dsh-session')), '')
+    // 2026-09-13 事故：契约都在位，但**我们行里的字段名过期了**（persona 的 text → prefix）
+    ok('脚本覆盖「persona 必填字段」这一条（行 config 的字段名也是 host 契约）', out.includes('persona 配置必填字段'), '')
+    ok('脚本用装在本机的包**真解析**我们的组合行 config', /## 我们的组合行 config/.test(out) && /校验了 \d+ 条/.test(out), (out.match(/- 校验了.*/) ?? [''])[0])
+    ok('组合行 config 全部通过（0 失败）', /失败 0/.test(out) && r.status === 0, (out.match(/- 校验了.*/) ?? [''])[0])
   }
   // 版本期望不匹配时必须红（防止「升级了却没人发现」）
   const wrong = spawnSync(process.execPath, [join(PRESET, 'scripts', 'harness-compat.mjs'), '--expect', '0.0.1'], { encoding: 'utf8' })
@@ -57,6 +61,17 @@ section('host 侧契约（scripts/harness-compat.mjs）')
   } else {
     ok('--expect 版本不匹配时脚本变红（升级可被机器发现）', wrong.status === 1 && (wrong.stdout ?? '').includes('COMPAT_FAIL'), `exit ${wrong.status}`)
   }
+}
+
+// ── 1b) 静态：我们自己的组合行不许用过期字段（裸 CI 也跑这一半）─────────────
+section('组合行字段名（静态；不依赖本机 harness）')
+{
+  const yml = readFileSync(join(PRESET, 'agent.cordis.yml'), 'utf8')
+  const personaRow = /- id: persona\n([\s\S]*?)(?=\n- id: )/.exec(yml)?.[1] ?? ''
+  ok('persona 行存在', personaRow !== '', '')
+  ok('persona 行用 `prefix:`（0.1.5 起必填；旧的 `text:` 会让整份 preset 挂载失败）', /\n\s+prefix: \|-/.test(personaRow), (personaRow.match(/\n\s+(text|prefix): [|>-]?/) ?? [''])[0])
+  ok('persona 行不再出现 `text:` 字段', !/\n\s+text: [|>-]/.test(personaRow), '')
+  ok('注释里写明为什么（下一个人不会再改回去）', personaRow.includes('$.prefix missing required value'), '')
 }
 
 // ── 2) 会话格式 v3（0.1.5 起新会话在盘上就是 v3）───────────────────────────

@@ -25,7 +25,10 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: |-
+    # ⚠ `dsh-persona` 0.1.5 起把必填字段从 `text` 改成 **`prefix`**（另加 `suffix`）。
+    # 用旧的 `text:` 会在挂载期报 `$.prefix missing required value` —— 整份 preset 起不来
+    # （GUI 里表现为「切不过去 / 开不了会话」）。`scripts/harness-compat.mjs` 现在会逐行校验 config。
+    prefix: |-
       你是「数学证明模式」下的形式化证明工程师，由 {{model}} 驱动，工作目录 {{cwd}}。
       你的产出是能通过 Agda 内核检查的证明项，不是散文。写不出项，就等于没证明。
 

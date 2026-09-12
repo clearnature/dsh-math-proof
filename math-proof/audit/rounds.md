@@ -3693,3 +3693,61 @@ Error: Cannot find module '/home/yanli/.dsh/.agent-presets/math-proof/hooks/stop
 ### 84.5 回归
 
 `CHECK_ALL_OK 27/27`（新增第 27 个入口 goals-check）；Node 24 / 22 / Node-20 模拟三环境均绿。
+
+---
+
+## 八十五、`dsh-persona` 字段改名把整份 preset 打挂（`text` → `prefix`）
+
+用户报：**GUI 里切不到「数学证明模式」，也开不了会话**。同时贴来一条诊断（来自别处）：
+根因是 `dsh-persona` 升级后配置格式变了，旧的 `text:` 被移除、`prefix:` 变成必填，报错 `$.prefix missing required value`。
+
+**这类外部诊断一律先验证再动手**——修错字段会把一个能用的 preset 改成坏的。
+
+### 85.1 复现（三条独立证据）
+
+1. **读装在本机的那版包**：`dsh-persona@0.1.5-rc.2` 的 schema 是
+   ```js
+   z.object({ prefix: z.string().required(), suffix: z.string().default(""), complete: …, includeRuntimeContext: … })
+   ```
+   **没有 `text`**；而 `dsh-persona@0.1.2-rc.1` 的必填字段恰恰是 `text: z.string().required()`。
+2. **真调 schema**：`Config({ text: '…' })` → `$.prefix missing required value`；`Config({ prefix: '…' })` → 通过。与用户看到的报错逐字一致。
+3. **查历史**：`git log -S "prefix:" -- agent.cordis.yml` **为空** —— 我们的 persona 行从第一版起就是 `text:`，
+   也就是说这是**升级**打挂的（第 81 轮把 DSH 从 0.1.2 升到 0.1.5），不是这一轮新引入的。
+
+### 85.2 修复
+
+`text:` → `prefix:`，**正文一字未动**（diff 只有 4 增加 / 1 删除：改键名 + 三行说明为什么）。并且在行内留注释，
+把报错原文写进去——下一个人不会再改回去。
+
+### 85.3 真正的补洞：门禁只验了「能力」，没验「用法」
+
+第 81 轮建的 `scripts/harness-compat.mjs` 探的是 **host 有没有这个能力**（钩子方言、瀑布、日志容器、投影…）。
+这次事故里**能力全都在位**，坏的是**我们行里的字段名**。所以补两层：
+
+1. **契约表 +1 条**：`dsh-persona` 的必填字段是 `prefix`（探针正则直接盯 `prefix: z.string().required()`）；
+2. **行 config 真解析**（新的一节）：解析我们自己的 `agent.cordis.yml`，对每一条 `@deepseek-ai/*` 行，
+   用**装在本机的那版包**导出的 `Config` schema 真跑一遍 `Config(row.config)`。
+
+```
+## 我们的组合行 config（用装在本机的包真解析）
+- 校验了 22 条（另有 6 条未导出 schema）｜失败 0
+```
+
+**反向实测**：把 persona 行改回 `text:` → `COMPAT_FAIL 25/26` + `❌ dsh-persona 行 persona $.prefix missing required value`。
+这条命令用户随时可跑：`node scripts/harness-compat.mjs`。
+
+### 85.4 连带修的两处
+
+- `tests/compat-check.mjs` **+7 条**：host 半新增「覆盖 persona 必填字段」「行 config 真解析且 0 失败」；
+  另加一组**静态**断言（裸 CI 也跑）：persona 行必须是 `prefix:`、**不许再出现 `text:`**、注释里必须写明报错原因。
+- `tests/assemble-context.mjs`（四个门禁共用它装配提示词）原本按 `text:` 抽正文，遇到新字段会说
+  「找不到 text 块」——**把下一个人带偏**。改成抽 `prefix:`，并在发现旧字段时直接报出真正原因。
+
+### 85.5 教训
+
+**「依赖的能力还在」≠「我们的用法还对」。** host 的 **schema**（字段名、必填性、默认值）和它的**能力**一样是契约；
+升级核验必须同时验这两层——能力用「实现痕迹」探，用法用「**它自己的 schema 真解析我们的 config**」验。
+
+### 85.6 回归
+
+`CHECK_ALL_OK 27/27`；Node 24 / 22 / Node-20 模拟三环境均绿；`harness-compat` **26/26 契约 + 22 行 config 全通过**。
